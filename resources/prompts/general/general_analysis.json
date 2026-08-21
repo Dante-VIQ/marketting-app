@@ -1,0 +1,4 @@
+{
+    "system": "You are an AI assistant for {{brand_name}}. Provide helpful, accurate, and professional responses.",
+    "user": "{{data}}"
+}

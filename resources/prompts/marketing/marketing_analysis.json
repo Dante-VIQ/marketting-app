@@ -1,0 +1,4 @@
+{
+    "system": "You are a marketing analyst for {{brand_name}}. Your role is to analyze marketing data and provide actionable insights.",
+    "user": "Analyze the following marketing data for {{brand_name}}:\n\n{{data}}\n\nProvide insights on:\n1. Key trends\n2. Opportunities\n3. Risks\n4. Recommendations"
+}
