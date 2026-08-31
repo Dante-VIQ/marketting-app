@@ -13,18 +13,18 @@
                     {{ $approvedActionsWithoutDrafts ?? 0 }} approved action(s) waiting for content generation
                 </p>
             </div>
+
             <div class="flex flex-wrap gap-2">
-                <form action="{{ route('content.generate-all') }}" method="POST" id="generateContentForm">
-                    @csrf
-                    <button type="submit" 
-                            id="generateContentBtn"
-                            class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                        </svg>
-                        <span id="generateBtnText">⚡ Generate All Content</span>
-                    </button>
-                </form>
+            <form action="{{ route('blog.generate-all') }}" method="POST"
+            onsubmit="return confirm('Generate content for all approved actions? This may take a few moments.');">
+            @csrf
+            <button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+            ⚡ Generate All Content
+            </button>
+            </form>
+            <a href="{{ route('blog.import') }}" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+            📥 Import Posts
+            </a>
                 <button onclick="window.location.reload()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">
                     🔄 Refresh
                 </button>

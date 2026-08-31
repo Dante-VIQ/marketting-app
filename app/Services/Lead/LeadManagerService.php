@@ -361,4 +361,71 @@ PROMPT;
             ->get()
             ->toArray();
     }
+
+    /**
+ * Get a lead by ID.
+ */
+public function getLead(int $brandId, int $leadId): ?Lead
+{
+    return Lead::where('brand_id', $brandId)->find($leadId);
+}
+
+/**
+ * Get lead engagement data.
+ */
+public function getLeadEngagement(int $brandId, int $leadId): array
+{
+    $lead = $this->getLead($brandId, $leadId);
+    if (!$lead) {
+        return ['activities' => 0, 'emailsOpened' => 0];
+    }
+
+    $interactions = $lead->interactions;
+    return [
+        'activities' => $interactions->count(),
+        'emailsOpened' => $interactions->where('type', 'email_open')->count(),
+        'last_activity' => $interactions->max('created_at'),
+        'types' => $interactions->groupBy('type')->map->count(),
+    ];
+}
+
+/**
+ * Get lead context (notes, history, etc.)
+ */
+public function getLeadContext(int $brandId, int $leadId): array
+{
+    $lead = $this->getLead($brandId, $leadId);
+    if (!$lead) {
+        return ['notes' => 'Lead not found', 'history' => []];
+    }
+
+    return [
+        'notes' => $lead->notes ?? 'No notes available',
+        'history' => $lead->interactions()->orderBy('created_at', 'desc')->limit(10)->get(),
+        'status' => $lead->status,
+        'score' => $lead->score,
+    ];
+}
+
+/**
+ * Generate a follow-up message for a lead.
+ */
+public function generateFollowUpMessage(int $brandId, int $leadId): array
+{
+    $lead = $this->getLead($brandId, $leadId);
+    if (!$lead) {
+        return ['message' => 'Lead not found'];
+    }
+
+    // Use the existing AI processing or a simple template
+    $message = "Hi {$lead->first_name},\n\n";
+    $message .= "I noticed your interest in our services. ";
+    $message .= "Would you like to schedule a call to discuss how we can help?\n\n";
+    $message .= "Best,\nThe Vumbi Team";
+
+    return [
+        'message' => $message,
+        'lead' => $lead,
+    ];
+}
 }

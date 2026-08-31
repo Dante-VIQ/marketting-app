@@ -136,11 +136,38 @@ class BriefGeneratorService
         });
     }
 
+    /**
+     * Assemble all analytical context and knowledge data for the prompt payload.
+     */
     protected function buildPromptData(Brand $brand): array
     {
         $today = Carbon::today();
-        $last30Days =$today->copy()->subDays(30);
-        $last7Days =$today->copy()->subDays(7);
+        $last30Days = $today->copy()->subDays(30);
+        $last7Days = $today->copy()->subDays(7);
+
+        $analytics = $this->getAnalyticsSummary($brand, $last30Days, $last7Days);
+
+        $revenueLeaks = RevenueLeak::where('brand_id', $brand->id)
+        ->where('status', 'open')
+        ->orderBy('estimated_loss', 'desc')
+        ->limit(5)
+        ->get()
+        ->toArray();
+
+        $knowledge = KnowledgeBase::where('brand_id', $brand->id)
+        ->where('is_active', true)
+        ->pluck('content', 'key')
+        ->toArray();
+
+        $goals = BusinessGoal::where('brand_id', $brand->id)
+        ->where('is_active', true)
+        ->get()
+        ->toArray();
+
+        // ================================================================
+        // FIX: Get page snapshots for pages mentioned in analytics
+        // ================================================================
+        $pageSnapshots = $this->getPageSnapshotsForAnalytics($brand, $analytics);
 
         return [
             'brand' => [
@@ -148,24 +175,55 @@ class BriefGeneratorService
                 'domain_type' => $brand->domain_type ?? 'digital business',
                 'brand_voice' => $brand->brand_voice ?? 'Professional, concise, and data-driven',
                 'timezone'    => $brand->timezone ?? 'UTC',
+                'website_url' => $brand->website_url ?? '',
             ],
-            'analytics'      => $this->getAnalyticsSummary($brand, $last30Days,$last7Days),
-            'revenue_leaks'  => RevenueLeak::where('brand_id', $brand->id)
-                ->where('status', 'open')
-                ->orderBy('estimated_loss', 'desc')
-                ->limit(5)
-                ->get()
-                ->toArray(),
-            'knowledge_base' => KnowledgeBase::where('brand_id', $brand->id)
-                ->where('is_active', true)
-                ->pluck('content', 'key')
-                ->toArray(),
-            'business_goals' => BusinessGoal::where('brand_id', $brand->id)
-                ->where('is_active', true)
-                ->get()
-                ->toArray(),
+            'analytics'      => $analytics,
+            'revenue_leaks'  => $revenueLeaks,
+            'knowledge_base' => $knowledge,
+            'business_goals' => $goals,
+            'page_snapshots' => $pageSnapshots, // ← NEW: Add page snapshots
             'date'           => $today->toDateString(),
         ];
+    }
+
+    /**
+     * Get page snapshots for pages mentioned in analytics.
+     */
+    protected function getPageSnapshotsForAnalytics(Brand $brand, array $analytics): array
+    {
+        $snapshots = [];
+
+        // Get top pages from analytics
+        $topPages = $analytics['top_pages'] ?? [];
+
+        foreach ($topPages as $page) {
+            $url = $page['dimension'] ?? '';
+            if (empty($url)) {
+                continue;
+            }
+
+            // Find the page snapshot
+            $snapshot = PageSnapshot::where('brand_id', $brand->id)
+            ->where('url', 'like', '%' . $url . '%')
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+            if ($snapshot) {
+                $snapshots[] = [
+                    'url' => $snapshot->url,
+                    'title' => $snapshot->title,
+                    'page_type' => $snapshot->page_type,
+                    'word_count' => $snapshot->word_count,
+                    'headings' => $snapshot->headings,
+                    'topics_covered' => $snapshot->topics_covered,
+                    'meta_title' => $snapshot->meta_title,
+                    'meta_description' => $snapshot->meta_description,
+                    'recommendations' => $snapshot->recommendations,
+                ];
+            }
+        }
+
+        return $snapshots;
     }
 
     protected function getAnalyticsSummary(Brand $brand, Carbon $last30Days, Carbon $last7Days): array

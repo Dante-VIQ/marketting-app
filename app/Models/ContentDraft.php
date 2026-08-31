@@ -7,6 +7,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ContentDraft extends Model
 {
+
+    // Status constants
+    const STATUS_DRAFT = 'draft';
+    const STATUS_REVIEW = 'review';
+    const STATUS_REVISION = 'revision';
+    const STATUS_APPROVED = 'approved';
+    const STATUS_PUBLISHED = 'published';
+
     protected $fillable = [
         'brand_id',
         'action_id',
@@ -33,6 +41,120 @@ class ContentDraft extends Model
         'published_at' => 'datetime',
     ];
 
+    /**
+     * Get the status label with icon.
+     */
+    public function getStatusLabelAttribute(): string
+    {
+        $labels = [
+            self::STATUS_DRAFT => '📄 Draft',
+            self::STATUS_REVIEW => '👀 In Review',
+            self::STATUS_REVISION => '🔄 Revision Needed',
+            self::STATUS_APPROVED => '✅ Approved',
+            self::STATUS_PUBLISHED => '🚀 Published',
+        ];
+
+        return $labels[$this->status] ?? ucfirst($this->status);
+    }
+
+    /**
+     * Get the status badge color class.
+     */
+    public function getStatusBadgeAttribute(): string
+    {
+        $badges = [
+            self::STATUS_DRAFT => 'bg-yellow-100 text-yellow-800',
+            self::STATUS_REVIEW => 'bg-blue-100 text-blue-800',
+            self::STATUS_REVISION => 'bg-orange-100 text-orange-800',
+            self::STATUS_APPROVED => 'bg-green-100 text-green-800',
+            self::STATUS_PUBLISHED => 'bg-purple-100 text-purple-800',
+        ];
+
+        return $badges[$this->status] ?? 'bg-gray-100 text-gray-800';
+    }
+
+    /**
+     * Check if draft is in review.
+     */
+    public function isInReview(): bool
+    {
+        return $this->status === self::STATUS_REVIEW;
+    }
+
+    /**
+     * Check if draft needs revision.
+     */
+    public function needsRevision(): bool
+    {
+        return $this->status === self::STATUS_REVISION;
+    }
+
+    /**
+     * Check if draft is approved.
+     */
+    public function isApproved(): bool
+    {
+        return $this->status === self::STATUS_APPROVED;
+    }
+
+    /**
+     * Check if draft is published.
+     */
+    public function isPublished(): bool
+    {
+        return $this->status === self::STATUS_PUBLISHED;
+    }
+
+    /**
+     * Move draft to review.
+     */
+    public function moveToReview(): void
+    {
+        $this->status = self::STATUS_REVIEW;
+        $this->save();
+    }
+
+    /**
+     * Move draft to revision.
+     */
+    public function moveToRevision(string $reason, ?string $notes = null): void
+    {
+        $this->status = self::STATUS_REVISION;
+        $this->metadata = array_merge($this->metadata ?? [], [
+            'revision_requested_at' => now()->toDateTimeString(),
+                                      'revision_reason' => $reason,
+                                      'revision_notes' => $notes,
+                                      'revision_count' => ($this->metadata['revision_count'] ?? 0) + 1,
+        ]);
+        $this->save();
+    }
+
+    /**
+     * Move draft back to draft (after revision).
+     */
+    public function moveToDraft(): void
+    {
+        $this->status = self::STATUS_DRAFT;
+        $this->metadata = array_merge($this->metadata ?? [], [
+            'revision_completed_at' => now()->toDateTimeString(),
+        ]);
+        $this->save();
+    }
+
+    /**
+     * Approve the draft.
+     */
+    public function approve(?string $notes = null): void
+    {
+        $this->status = self::STATUS_APPROVED;
+        $this->reviewed_at = now();
+        $this->reviewed_by = auth()->id();
+        $this->metadata = array_merge($this->metadata ?? [], [
+            'approved_at' => now()->toDateTimeString(),
+                                      'approval_notes' => $notes,
+        ]);
+        $this->save();
+    }
     /**
      * Get the brand that owns this draft.
      */
@@ -91,22 +213,7 @@ class ContentDraft extends Model
         return $labels[$this->type] ?? ucfirst($this->type);
     }
 
-    /**
-     * Get the status label with icon.
-     */
-    public function getStatusLabelAttribute(): string
-    {
-        $labels = [
-            'draft' => '📄 Draft',
-            'review' => '👀 In Review',
-            'approved' => '✅ Approved',
-            'published' => '🚀 Published',
-        ];
 
-        return $labels[$this->status] ?? ucfirst($this->status);
-    }
-
-    
     /**
      * Get the source category from the action.
      */
@@ -166,7 +273,7 @@ class ContentDraft extends Model
         return $this->action?->status;
     }
 
-    
+
     /**
      * Check if meta description is the correct length.
      */
