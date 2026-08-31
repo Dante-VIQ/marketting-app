@@ -1,58 +1,439 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# 🧩 Vumbi API – Marketing Operations Platform
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Laravel 13](https://img.shields.io/badge/Laravel-13-ff2d20)](https://laravel.com)
+[![PHP 8.3](https://img.shields.io/badge/PHP-8.3-777bb4)](https://php.net)
+[![Hackathon](https://img.shields.io/badge/Agents%20for%20Humans-2026-ff6b6b)](https://agentsforhumans.devpost.com)
 
-## About Laravel
+> **The business operating system and API backend for Vumbi AI – a complete marketing intelligence platform.**
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+This Laravel application provides the data models, business services, and API endpoints that power the [Vumbi AI Agent](https://github.com/Dante-VIQ/strands-agent). It handles brands, analytics, SEO, leads, campaigns, content, affiliate data, and governance.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+---
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## 🎯 Purpose
 
-## Learning Laravel
+- **Central data store** – All business data in one place
+- **Business services** – AI content generation, lead management, SEO analysis
+- **API gateway** – Secure endpoints for the autonomous agent
+- **Governance** – Guardian audit logging, policies, and incident management
+- **Human control plane** – UI for monitoring and approving agent actions
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+---
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+## 🏗️ Architecture Diagram (Mermaid)
 
-## Agentic Development
+Add this to your README or export as PNG/SVG:
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+````mermaid
+graph TB
+    subgraph "Presentation Layer"
+        UI[Livewire UI<br/>Briefs, Actions, SEO, Guardian]
+        API_Routes[/api/agent/*]
+        Web_Routes[/briefs, /actions, /seo]
+    end
+
+    subgraph "Service Layer"
+        subgraph "AI Services"
+            AI_Gateway[AiGatewayService<br/>Gemini Integration]
+            Brief_Gen[BriefGeneratorService]
+            Content_Gen[ContentGeneratorService<br/>Content & SEO Meta]
+        end
+
+        subgraph "Business Services"
+            Lead_Mgr[LeadManagerService<br/>Scoring & Follow-up]
+            SEO_Asst[SeoAssistantService<br/>Analysis & Recommendations]
+            Scanner[PageScannerService<br/>Page Capture]
+            Analytics[AnalyticsService]
+            Campaign[CampaignService]
+        end
+
+        subgraph "Governance"
+            Guardian[GuardianService<br/>Policies, Audit, Incidents]
+            Verify[VerificationService]
+            Learn[LearningService]
+        end
+    end
+
+    subgraph "Data Layer"
+        Models[Models<br/>Brand, SeoIssue, Lead, Campaign,<br/>ContentDraft, AiAction,<br/>AgentExperience, ActionVerification]
+    end
+
+    subgraph "External"
+        Gemini[(Google Gemini)]
+        Ahrefs[(Ahrefs API)]
+        Agent[Strands Agent<br/>TypeScript]
+    end
+
+    subgraph "Database"
+        DB[(MySQL<br/>30+ Tables)]
+    end
+
+    UI --> Models
+    API_Routes --> AI_Gateway
+    API_Routes --> Lead_Mgr
+    API_Routes --> SEO_Asst
+    API_Routes --> Guardian
+    API_Routes --> Verify
+    API_Routes --> Learn
+
+    AI_Gateway --> Gemini
+    SEO_Asst --> Ahrefs
+    Agent --> API_Routes
+
+    AI_Gateway --> Models
+    Lead_Mgr --> Models
+    SEO_Asst --> Models
+    Guardian --> Models
+    Verify --> Models
+    Learn --> Models
+
+    Models --> DB
+
+    classDef presentation fill:#4CAF50,color:white
+    classDef service fill:#2196F3,color:white
+    classDef data fill:#FF9800,color:white
+    classDef external fill:#9C27B0,color:white
+    classDef database fill:#F44336,color:white
+
+    class UI,API_Routes,Web_Routes presentation
+    class AI_Gateway,Brief_Gen,Content_Gen,Lead_Mgr,SEO_Asst,Scanner,Analytics,Campaign,Guardian,Verify,Learn service
+    class Models data
+    class Gemini,Ahrefs,Agent external
+    class DB database
+
+---
+
+## 🔄 Integration with Strands Agent
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STRANDS AGENT (TypeScript) │
+│ │
+│ Supervisor → Specialists → Intelligence → Memory → Policies │
+└─────────────────────────────────┬───────────────────────────────────────────┘
+│
+▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ LARAVEL API GATEWAY │
+│ │
+│ ┌─────────────────────────────────────────────────────────────────────┐ │
+│ │ /api/agent/opportunities → OpportunityService │ │
+│ │ /api/agent/analytics → AnalyticsService │ │
+│ │ /api/agent/seo/issues → SeoAssistantService │ │
+│ │ /api/agent/leads/pending → LeadManagerService │ │
+│ │ /api/agent/campaigns → CampaignService │ │
+│ │ /api/agent/actions/pending→ ActionApprovalService │ │
+│ │ /api/agent/content/generate→ ContentGeneratorService │ │
+│ │ /api/agent/learn → LearningService │ │
+│ │ /api/agent/verification → VerificationService │ │
+│ │ /api/agent/health → GuardianService │ │
+│ └─────────────────────────────────────────────────────────────────────┘ │
+│ │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- PHP 8.3+
+- Composer
+- MySQL 8.0+
+- Node.js (for asset compilation)
+- Google Gemini API key
+
+### 1. Clone the Repository
 
 ```bash
-composer require laravel/boost --dev
+git clone https://github.com/Dante-VIQ/marketting-app.git
+cd marketting-app
+``
 
-php artisan boost:install
+### 2. Install Dependencies
+```bash
+
+composer install
+npm install && npm run build
+``
+
+### 3. Configure Environment
+```bash
+
+cp .env.example .env
+php artisan key:generate
+``
+
+## Edit .env:
+```env
+
+APP_NAME="Vumbi Marketing Platform"
+APP_URL=http://localhost:8000
+
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=vumbi
+DB_USERNAME=root
+DB_PASSWORD=
+
+# Agent Authentication
+AGENT_API_KEY=your_super_secret_key_here
+
+# AI Services
+GEMINI_API_KEY=your_gemini_key_here
+
+# Ahrefs (optional)
+AHREFS_API_KEY=your_ahrefs_key
+
+4. Run Migrations & Seeders
+bash
+
+php artisan migrate
+php artisan db:seed --class=BrandSeeder
+
+5. Start the Server
+bash
+
+php artisan serve
+``
+
+### 📁 Directory Structure
+```text
+
+app/
+├── Http/
+│   ├── Controllers/
+│   │   ├── AgentController.php      # Agent API endpoints
+│   │   ├── BriefController.php      # AI Brief UI
+│   │   ├── ActionController.php     # Action management
+│   │   ├── SeoController.php        # SEO management
+│   │   └── GuardianController.php   # Governance UI
+│   └── Middleware/
+│       └── VerifyApiKey.php         # Agent authentication
+├── Models/
+│   ├── Brand.php                    # Tenant/brand management
+│   ├── AnalyticsSnapshot.php        # Analytics data
+│   ├── SeoIssue.php                 # SEO issues
+│   ├── Lead.php                     # Lead management
+│   ├── Campaign.php                 # Campaign tracking
+│   ├── ContentDraft.php             # Generated content
+│   ├── AiAction.php                 # AI action queue
+│   ├── AgentExperience.php          # Agent learning memory
+│   ├── ActionVerification.php       # Action verification
+│   ├── GuardianAuditLog.php         # Audit trail
+│   ├── GuardianPolicy.php           # Governance policies
+│   └── KnowledgeBase.php            # Business knowledge
+├── Services/
+│   ├── AI/
+│   │   ├── AiGatewayService.php     # Gemini AI integration
+│   │   ├── BriefGeneratorService.php # AI brief generation
+│   │   └── ContentGeneratorService.php # Content generation
+│   ├── Lead/
+│   │   └── LeadManagerService.php   # Lead management
+│   ├── SEO/
+│   │   ├── SeoAssistantService.php  # SEO analysis
+│   │   └── PageScannerService.php   # Page scanning
+│   ├── Guardian/
+│   │   └── GuardianService.php      # Governance
+│   └── Analytics/
+│       └── AnalyticsService.php     # Analytics
+├── routes/
+│   ├── api.php                      # API routes
+│   └── web.php                      # UI routes
+└── database/
+    └── migrations/                  # Database migrations
+``
+### 🔌 API Endpoints
+
+All endpoints require the X-API-Key header.
+Method	Endpoint	Purpose
+Opportunities
+GET	/api/agent/opportunities/{brandId}	Fetch all opportunities
+Analytics
+GET	/api/agent/analytics/{brandId}	Fetch analytics data
+SEO
+GET	/api/agent/seo/issues/{brandId}	Fetch SEO issues
+GET	/api/agent/seo/issue/{brandId}/{issueId}	Get specific issue
+# 🧩 Vumbi API — Marketing Operations Platform
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Laravel 13](https://img.shields.io/badge/Laravel-13-ff2d20)](https://laravel.com) [![PHP 8.3](https://img.shields.io/badge/PHP-8.3-777bb4)](https://php.net)
+
+A concise, production-ready API backend that powers the Vumbi AI marketing agent. Provides tenant (brand) data, analytics, SEO tooling, lead management, content generation, and governance.
+
+## Table of Contents
+
+- Purpose
+- Quick Start
+- Configuration
+- API Endpoints (summary)
+- Key Models
+- Project Layout
+- Architecture (Mermaid)
+- Testing
+- License & Acknowledgments
+
+## Purpose
+
+- Central data store for brands and marketing artifacts
+- Business services: AI brief & content generation, lead workflows, SEO analysis
+- API gateway for the Strands agent and UI clients
+- Governance: audit logs, verification, incident reporting
+
+## Quick Start
+
+Prerequisites:
+
+- PHP 8.3+, Composer
+- MySQL 8.0+
+- Node.js (for building assets)
+- Optional: Google Gemini & Ahrefs API keys
+
+Clone and install:
+
+```bash
+git clone https://github.com/Dante-VIQ/marketting-app.git
+cd marketting-app
+composer install
+npm install && npm run build
+cp .env.example .env
+php artisan key:generate
+php artisan migrate
+php artisan db:seed --class=BrandSeeder
+php artisan serve --host=127.0.0.1 --port=8000
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Configuration notes:
 
-## Contributing
+Create or edit `.env` with the values below (example):
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```env
+APP_NAME="Vumbi Marketing Platform"
+APP_URL=http://localhost:8000
 
-## Code of Conduct
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=vumbi
+DB_USERNAME=root
+DB_PASSWORD=
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+# Agent Authentication
+AGENT_API_KEY=your_agent_api_key_here
 
-## Security Vulnerabilities
+# AI Services
+GEMINI_API_KEY=your_gemini_key_here
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+# Ahrefs (optional)
+AHREFS_API_KEY=your_ahrefs_key
+```
 
-## License
+## API Endpoints (summary)
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+All agent endpoints require the `X-API-Key` header for authentication.
+
+| Area | Method | Endpoint | Purpose |
+|---|---:|---|---|
+| Opportunities | GET | /api/agent/opportunities/{brandId} | Fetch opportunities for brand |
+| Analytics | GET | /api/agent/analytics/{brandId} | Fetch analytics snapshot |
+| SEO | GET | /api/agent/seo/issues/{brandId} | List SEO issues |
+| SEO | GET | /api/agent/seo/issue/{brandId}/{issueId} | Get specific SEO issue |
+| SEO | POST | /api/agent/seo/analyze/{brandId}/{issueId} | Run analysis on issue |
+| Leads | GET | /api/agent/leads/pending/{brandId} | Pending leads for brand |
+| Leads | POST | /api/agent/lead/follow-up/{brandId} | Generate follow-up content |
+| Content | POST | /api/agent/content/generate | Generate content draft |
+| Actions | POST | /api/agent/actions/pending | Create pending action |
+| Scan | POST | /api/agent/scan/{brandId} | Trigger page scan |
+| Verification | POST | /api/agent/verification/start/{brandId} | Start verification flow |
+| Learning | POST | /api/agent/learn/{brandId} | Record learning/example |
+| Health | GET | /api/agent/ai/ping | AI service health check |
+
+For a full list, see the route definitions in `routes/api.php`.
+
+## Key Models (overview)
+
+| Model | Purpose |
+|---|---|
+| Brand | Tenant / brand configuration |
+| AnalyticsSnapshot | Daily/periodic analytics metrics |
+| SeoIssue | Detected SEO issues and metadata |
+| Lead | Lead records and status |
+| Campaign | Campaign tracking and attribution |
+| ContentDraft | Generated content drafts and metadata |
+| AiAction | Queued AI actions initiated by the agent |
+| AgentExperience | Agent learning memory and examples |
+| ActionVerification | Verification results for actions |
+| GuardianAuditLog | Audit trail for governance events |
+
+## Project Layout
+
+Top-level layout (important folders):
+
+```
+app/
+├── Http/
+│   ├── Controllers/
+│   └── Middleware/
+├── Models/
+├── Services/
+├── Jobs/
+routes/
+config/
+database/
+public/
+resources/
+tests/
+```
+
+See `app/Services` for the core business logic and AI integrations.
+
+## Architecture
+
+Use the following Mermaid diagram when you want a visual overview (rendered by compatible viewers):
+
+```mermaid
+graph TB
+  subgraph Presentation
+    UI[Livewire UI]
+    API[/api/agent/*]
+  end
+  subgraph Services
+    AI[AI Gateway / Gemini]
+    SEO[SeoAssistant]
+    Lead[LeadManager]
+    Content[ContentGenerator]
+    Guardian[GuardianService]
+  end
+  subgraph Data
+    Models[Models / DB]
+  end
+  API --> AI
+  API --> Lead
+  API --> SEO
+  AI --> Models
+  Lead --> Models
+  SEO --> Models
+```
+
+## Testing
+
+Run unit and feature tests:
+
+```bash
+php artisan test
+```
+
+Quick API test:
+
+```bash
+curl -H "X-API-Key: ${AGENT_API_KEY}" http://localhost:8000/api/agent/analytics/1
+```
+
+## License & Acknowledgments
+
+This project is licensed under the MIT License.
+
+Thanks to Laravel, Google Gemini, and the Strands Agents SDK for the integrations and inspiration.
+
