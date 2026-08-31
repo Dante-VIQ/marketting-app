@@ -95,7 +95,7 @@ graph TB
 ## 🔄 Integration with Strands Agent
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4CAF50', 'primaryTextColor': '#fff', 'primaryBorderColor': '#2E7D32', 'lineColor': '#616161', 'secondaryColor': '#2196F3', 'tertiaryColor': '#FF9800'}}}%%
+
 graph TB
     subgraph Agent["🤖 Strands Agent (TypeScript)"]
         direction TB
