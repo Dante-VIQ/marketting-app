@@ -19,7 +19,6 @@ This Laravel application provides the data models, business services, and API en
 - **Governance** – Guardian audit logging, policies, and incident management
 - **Human control plane** – UI for monitoring and approving agent actions
 
----
 
 ---
 
@@ -95,30 +94,79 @@ graph TB
 
 ## 🔄 Integration with Strands Agent
 
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ STRANDS AGENT (TypeScript) │
-│ │
-│ Supervisor → Specialists → Intelligence → Memory → Policies │
-└─────────────────────────────────┬───────────────────────────────────────────┘
-│
-▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ LARAVEL API GATEWAY │
-│ │
-│ ┌─────────────────────────────────────────────────────────────────────┐ │
-│ │ /api/agent/opportunities → OpportunityService │ │
-│ │ /api/agent/analytics → AnalyticsService │ │
-│ │ /api/agent/seo/issues → SeoAssistantService │ │
-│ │ /api/agent/leads/pending → LeadManagerService │ │
-│ │ /api/agent/campaigns → CampaignService │ │
-│ │ /api/agent/actions/pending→ ActionApprovalService │ │
-│ │ /api/agent/content/generate→ ContentGeneratorService │ │
-│ │ /api/agent/learn → LearningService │ │
-│ │ /api/agent/verification → VerificationService │ │
-│ │ /api/agent/health → GuardianService │ │
-│ └─────────────────────────────────────────────────────────────────────┘ │
-│ │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4CAF50', 'primaryTextColor': '#fff', 'primaryBorderColor': '#2E7D32', 'lineColor': '#616161', 'secondaryColor': '#2196F3', 'tertiaryColor': '#FF9800'}}}%%
+graph TB
+    subgraph Agent["🤖 Strands Agent (TypeScript)"]
+        direction TB
+        Supervisor["🧠 Supervisor\nOrchestrates workflow"]
+        Specialists["🎯 Specialists\nSEO, Lead, Content"]
+        Intelligence["🔮 Intelligence\nDecision Engine"]
+        Memory["💾 Memory\nExperience Store"]
+        Policies["🛡️ Policies\nSafety & Governance"]
+
+        Supervisor --> Specialists
+        Specialists --> Intelligence
+        Intelligence --> Memory
+        Memory --> Policies
+        Policies -->|"API Calls"| Gateway
+    end
+
+    subgraph Laravel["📦 Laravel API Gateway"]
+        direction TB
+        Gateway["🚪 /api/agent/*"]
+
+        Gateway --> Opportunities["🔍 /opportunities\n→ OpportunityService"]
+        Gateway --> Analytics["📊 /analytics\n→ AnalyticsService"]
+        Gateway --> SEO["🔎 /seo/issues\n→ SeoAssistantService"]
+        Gateway --> Leads["👤 /leads/pending\n→ LeadManagerService"]
+        Gateway --> Campaigns["📢 /campaigns\n→ CampaignService"]
+        Gateway --> Actions["⚡ /actions/pending\n→ ActionApprovalService"]
+        Gateway --> Content["✍️ /content/generate\n→ ContentGeneratorService"]
+        Gateway --> Learn["📈 /learn\n→ LearningService"]
+        Gateway --> Verify["✅ /verification\n→ VerificationService"]
+        Gateway --> Health["🏥 /health\n→ GuardianService"]
+    end
+
+    subgraph Services["🛠️ Service Layer"]
+        AI["🧠 AI Services\n• AiGateway\n• BriefGenerator\n• ContentGenerator"]
+        Lead["👤 Lead Services\n• LeadManager\n• Scoring & Follow-up"]
+        SEO_Svc["🔎 SEO Services\n• SeoAssistant\n• PageScanner"]
+        Guardian["🛡️ Guardian\n• Policies\n• Audit\n• Incidents"]
+        Verification["✅ Verification\n• Action Verification\n• Metrics Comparison"]
+        Learning["📈 Learning\n• Experience Memory\n• Pattern Analysis"]
+    end
+
+    subgraph Data["🗄️ Data Layer"]
+        Models["📋 Models\nBrand, SeoIssue, Lead,\nCampaign, ContentDraft,\nAiAction, AgentExperience,\nActionVerification, GuardianAuditLog"]
+        DB(("💾 MySQL Database"))
+    end
+
+    Opportunities --> AI
+    Opportunities --> Guardian
+    Analytics --> Data
+    SEO --> SEO_Svc
+    Leads --> Lead
+    Campaigns --> Data
+    Actions --> Guardian
+    Content --> AI
+    Learn --> Learning
+    Verify --> Verification
+    Health --> Guardian
+
+    AI --> Models
+    Lead --> Models
+    SEO_Svc --> Models
+    Guardian --> Models
+    Verification --> Models
+    Learning --> Models
+    Models --> DB
+
+    style Agent fill:#4CAF50,color:#fff,stroke:#2E7D32,stroke-width:2px
+    style Laravel fill:#2196F3,color:#fff,stroke:#0D47A1,stroke-width:2px
+    style Services fill:#FF9800,color:#fff,stroke:#E65100,stroke-width:2px
+    style Data fill:#9C27B0,color:#fff,stroke:#4A148C,stroke-width:2px
+```
 
 ---
 
@@ -134,28 +182,28 @@ graph TB
 
 ### 1. Clone the Repository
 
-````bash
+```bash
 git clone https://github.com/Dante-VIQ/marketting-app.git
 cd marketting-app
 ``
 
 ### 2. Install Dependencies
-```bash
 
+```bash
 composer install
 npm install && npm run build
 ``
 
 ### 3. Configure Environment
-```bash
 
+```bash
 cp .env.example .env
 php artisan key:generate
 ``
 
 ## Edit .env:
-```env
 
+```env
 APP_NAME="Vumbi Marketing Platform"
 APP_URL=http://localhost:8000
 
@@ -188,8 +236,8 @@ php artisan serve
 ``
 
 ### 📁 Directory Structure
-```text
 
+```text
 app/
 ├── Http/
 │   ├── Controllers/
