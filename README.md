@@ -25,50 +25,48 @@ This Laravel application provides the data models, business services, and API en
 
 ## 🏗️ Architecture Diagram (Mermaid)
 
-Add this to your README or export as PNG/SVG:
-
-````mermaid
+```mermaid
 graph TB
     subgraph "Presentation Layer"
-        UI[Livewire UI<br/>Briefs, Actions, SEO, Guardian]
-        API_Routes[/api/agent/*]
-        Web_Routes[/briefs, /actions, /seo]
+        UI["Livewire UI - Briefs, Actions, SEO, Guardian"]
+        API_Routes["/api/agent/*"]
+        Web_Routes["/briefs, /actions, /seo"]
     end
 
     subgraph "Service Layer"
         subgraph "AI Services"
-            AI_Gateway[AiGatewayService<br/>Gemini Integration]
-            Brief_Gen[BriefGeneratorService]
-            Content_Gen[ContentGeneratorService<br/>Content & SEO Meta]
+            AI_Gateway["AiGatewayService - Gemini Integration"]
+            Brief_Gen["BriefGeneratorService"]
+            Content_Gen["ContentGeneratorService - Content & SEO Meta"]
         end
 
         subgraph "Business Services"
-            Lead_Mgr[LeadManagerService<br/>Scoring & Follow-up]
-            SEO_Asst[SeoAssistantService<br/>Analysis & Recommendations]
-            Scanner[PageScannerService<br/>Page Capture]
-            Analytics[AnalyticsService]
-            Campaign[CampaignService]
+            Lead_Mgr["LeadManagerService - Scoring & Follow-up"]
+            SEO_Asst["SeoAssistantService - Analysis & Recommendations"]
+            Scanner["PageScannerService - Page Capture"]
+            Analytics["AnalyticsService"]
+            Campaign["CampaignService"]
         end
 
         subgraph "Governance"
-            Guardian[GuardianService<br/>Policies, Audit, Incidents]
-            Verify[VerificationService]
-            Learn[LearningService]
+            Guardian["GuardianService - Policies, Audit, Incidents"]
+            Verify["VerificationService"]
+            Learn["LearningService"]
         end
     end
 
     subgraph "Data Layer"
-        Models[Models<br/>Brand, SeoIssue, Lead, Campaign,<br/>ContentDraft, AiAction,<br/>AgentExperience, ActionVerification]
+        Models["Models - Brand, SeoIssue, Lead, Campaign, ContentDraft, AiAction, AgentExperience, ActionVerification"]
     end
 
     subgraph "External"
         Gemini[(Google Gemini)]
         Ahrefs[(Ahrefs API)]
-        Agent[Strands Agent<br/>TypeScript]
+        Agent["Strands Agent - TypeScript"]
     end
 
     subgraph "Database"
-        DB[(MySQL<br/>30+ Tables)]
+        DB[(MySQL - 30+ Tables)]
     end
 
     UI --> Models
@@ -91,18 +89,7 @@ graph TB
     Learn --> Models
 
     Models --> DB
-
-    classDef presentation fill:#4CAF50,color:white
-    classDef service fill:#2196F3,color:white
-    classDef data fill:#FF9800,color:white
-    classDef external fill:#9C27B0,color:white
-    classDef database fill:#F44336,color:white
-
-    class UI,API_Routes,Web_Routes presentation
-    class AI_Gateway,Brief_Gen,Content_Gen,Lead_Mgr,SEO_Asst,Scanner,Analytics,Campaign,Guardian,Verify,Learn service
-    class Models data
-    class Gemini,Ahrefs,Agent external
-    class DB database
+```
 
 ---
 
@@ -147,7 +134,7 @@ graph TB
 
 ### 1. Clone the Repository
 
-```bash
+````bash
 git clone https://github.com/Dante-VIQ/marketting-app.git
 cd marketting-app
 ``
@@ -303,7 +290,7 @@ php artisan key:generate
 php artisan migrate
 php artisan db:seed --class=BrandSeeder
 php artisan serve --host=127.0.0.1 --port=8000
-```
+````
 
 Configuration notes:
 
@@ -334,38 +321,38 @@ AHREFS_API_KEY=your_ahrefs_key
 
 All agent endpoints require the `X-API-Key` header for authentication.
 
-| Area | Method | Endpoint | Purpose |
-|---|---:|---|---|
-| Opportunities | GET | /api/agent/opportunities/{brandId} | Fetch opportunities for brand |
-| Analytics | GET | /api/agent/analytics/{brandId} | Fetch analytics snapshot |
-| SEO | GET | /api/agent/seo/issues/{brandId} | List SEO issues |
-| SEO | GET | /api/agent/seo/issue/{brandId}/{issueId} | Get specific SEO issue |
-| SEO | POST | /api/agent/seo/analyze/{brandId}/{issueId} | Run analysis on issue |
-| Leads | GET | /api/agent/leads/pending/{brandId} | Pending leads for brand |
-| Leads | POST | /api/agent/lead/follow-up/{brandId} | Generate follow-up content |
-| Content | POST | /api/agent/content/generate | Generate content draft |
-| Actions | POST | /api/agent/actions/pending | Create pending action |
-| Scan | POST | /api/agent/scan/{brandId} | Trigger page scan |
-| Verification | POST | /api/agent/verification/start/{brandId} | Start verification flow |
-| Learning | POST | /api/agent/learn/{brandId} | Record learning/example |
-| Health | GET | /api/agent/ai/ping | AI service health check |
+| Area          | Method | Endpoint                                   | Purpose                       |
+| ------------- | -----: | ------------------------------------------ | ----------------------------- |
+| Opportunities |    GET | /api/agent/opportunities/{brandId}         | Fetch opportunities for brand |
+| Analytics     |    GET | /api/agent/analytics/{brandId}             | Fetch analytics snapshot      |
+| SEO           |    GET | /api/agent/seo/issues/{brandId}            | List SEO issues               |
+| SEO           |    GET | /api/agent/seo/issue/{brandId}/{issueId}   | Get specific SEO issue        |
+| SEO           |   POST | /api/agent/seo/analyze/{brandId}/{issueId} | Run analysis on issue         |
+| Leads         |    GET | /api/agent/leads/pending/{brandId}         | Pending leads for brand       |
+| Leads         |   POST | /api/agent/lead/follow-up/{brandId}        | Generate follow-up content    |
+| Content       |   POST | /api/agent/content/generate                | Generate content draft        |
+| Actions       |   POST | /api/agent/actions/pending                 | Create pending action         |
+| Scan          |   POST | /api/agent/scan/{brandId}                  | Trigger page scan             |
+| Verification  |   POST | /api/agent/verification/start/{brandId}    | Start verification flow       |
+| Learning      |   POST | /api/agent/learn/{brandId}                 | Record learning/example       |
+| Health        |    GET | /api/agent/ai/ping                         | AI service health check       |
 
 For a full list, see the route definitions in `routes/api.php`.
 
 ## Key Models (overview)
 
-| Model | Purpose |
-|---|---|
-| Brand | Tenant / brand configuration |
-| AnalyticsSnapshot | Daily/periodic analytics metrics |
-| SeoIssue | Detected SEO issues and metadata |
-| Lead | Lead records and status |
-| Campaign | Campaign tracking and attribution |
-| ContentDraft | Generated content drafts and metadata |
-| AiAction | Queued AI actions initiated by the agent |
-| AgentExperience | Agent learning memory and examples |
-| ActionVerification | Verification results for actions |
-| GuardianAuditLog | Audit trail for governance events |
+| Model              | Purpose                                  |
+| ------------------ | ---------------------------------------- |
+| Brand              | Tenant / brand configuration             |
+| AnalyticsSnapshot  | Daily/periodic analytics metrics         |
+| SeoIssue           | Detected SEO issues and metadata         |
+| Lead               | Lead records and status                  |
+| Campaign           | Campaign tracking and attribution        |
+| ContentDraft       | Generated content drafts and metadata    |
+| AiAction           | Queued AI actions initiated by the agent |
+| AgentExperience    | Agent learning memory and examples       |
+| ActionVerification | Verification results for actions         |
+| GuardianAuditLog   | Audit trail for governance events        |
 
 ## Project Layout
 
@@ -436,4 +423,3 @@ curl -H "X-API-Key: ${AGENT_API_KEY}" http://localhost:8000/api/agent/analytics/
 This project is licensed under the MIT License.
 
 Thanks to Laravel, Google Gemini, and the Strands Agents SDK for the integrations and inspiration.
-
