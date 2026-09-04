@@ -1,7 +1,27 @@
 <?php
 
 use App\Http\Controllers\AgentController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+
+Route::get('/env-test', function () {
+    return response()->json([
+        'all_env' => $_ENV,
+        'has_key' => isset($_ENV['AGENT_API_KEY']),
+        'key_value' => $_ENV['AGENT_API_KEY'] ?? 'not set',
+    ]);
+});
+
+// In routes/api.php
+Route::get('/test-auth', function (Request $request) {
+    $key = $request->header('X-API-Key');
+    $valid = env('AGENT_API_KEY');
+    return response()->json([
+        'received' => $key,
+        'expected' => $valid,
+        'match' => $key === $valid
+    ]);
+});
 
 Route::prefix('agent')->name('agent.')->middleware(['verify.api.key'])->group(function () {
     // ===== OPPORTUNITIES =====
@@ -48,6 +68,8 @@ Route::prefix('agent')->name('agent.')->middleware(['verify.api.key'])->group(fu
 
     // ===== HEALTH =====
     Route::get('/ai/ping', [AgentController::class, 'pingAI']);
+
+    Route::post('/actions/rollback/{brandId}', [AgentController::class, 'rollbackAction']);
 });
 
 // Public ping

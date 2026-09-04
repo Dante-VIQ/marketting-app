@@ -632,4 +632,12 @@ class AgentController extends Controller
 
         return $gaps;
     }
+
+    public function rollbackAction(Request $request, $brandId)
+    {
+        $actionId = $request->input('action_id');
+        $actionName = $request->input('action_name');
+        // Logic to rollback
+        return response()->json(['success' => true, 'message' => "Rollback initiated for $actionName"]);
+    }
 }
