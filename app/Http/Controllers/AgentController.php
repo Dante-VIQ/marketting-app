@@ -366,21 +366,22 @@ class AgentController extends Controller
         ]);
     }
 
-    public function triggerContentGeneration(Request $request)
-    {
-        $brandId = $request->input('brandId');
-        $topic = $request->input('topic');
-        $template = $request->input('template', 'blog');
+public function triggerContentGeneration(Request $request)
+{
+    $brandId = $request->input('brandId');
+    $topic = $request->input('topic');
+    $template = $request->input('template', 'blog');
 
-        $draft = $this->contentGenerator->generateContent($brandId, $topic, $template);
+    $draft = app(ContentGeneratorService::class)->generateContent($brandId, $topic, $template);
 
-        return response()->json([
-            'success' => true,
-            'draft' => $draft,
-            'contentId' => $draft->id,
-        ]);
-    }
+    return response()->json([
+        'success' => true,
+        'draft' => $draft,
+        'message' => 'Content generated successfully'
+    ]);
+}
 
+    
     // ============= EXECUTION =============
 
     public function scan($brandId)
@@ -532,43 +533,43 @@ class AgentController extends Controller
         ], 201);
     }
 
-    public function getSimilarExperiences(Request $request, $brandId)
-    {
-        $type = $request->input('type');
-        $severity = $request->input('severity');
-        $limit = $request->input('limit', 20);
-
-        $query = AgentExperience::where('brand_id', $brandId);
-
-        if ($type) {
-            $query->where('opportunity_type', $type);
-        }
-
-        if ($severity) {
-            $query->where('severity', $severity);
-        }
-
-        $experiences = $query->orderBy('created_at', 'desc')
-            ->limit($limit)
-            ->get();
-
-        $total = $experiences->count();
-        $successful = $experiences->where('was_successful', true)->count();
-        $successRate = $total > 0 ? ($successful / $total) * 100 : 0;
-        $avgImprovement = $experiences->where('was_successful', true)
-            ->avg('improvement_percentage') ?? 0;
-
-        return response()->json([
-            'experiences' => $experiences,
-            'stats' => [
-                'total' => $total,
-                'successful' => $successful,
-                'success_rate' => round($successRate, 2),
-                'avg_improvement' => round($avgImprovement, 2),
-                'latest' => $experiences->first(),
-            ],
-        ]);
-    }
+    // public function getSimilarExperiences(Request $request, $brandId)
+    // {
+    //     $type = $request->input('type');
+    //     $severity = $request->input('severity');
+    //     $limit = $request->input('limit', 20);
+    //
+    //     $query = AgentExperience::where('brand_id', $brandId);
+    //
+    //     if ($type) {
+    //         $query->where('opportunity_type', $type);
+    //     }
+    //
+    //     if ($severity) {
+    //         $query->where('severity', $severity);
+    //     }
+    //
+    //     $experiences = $query->orderBy('created_at', 'desc')
+    //         ->limit($limit)
+    //         ->get();
+    //
+    //     $total = $experiences->count();
+    //     $successful = $experiences->where('was_successful', true)->count();
+    //     $successRate = $total > 0 ? ($successful / $total) * 100 : 0;
+    //     $avgImprovement = $experiences->where('was_successful', true)
+    //         ->avg('improvement_percentage') ?? 0;
+    //
+    //     return response()->json([
+    //         'experiences' => $experiences,
+    //         'stats' => [
+    //             'total' => $total,
+    //             'successful' => $successful,
+    //             'success_rate' => round($successRate, 2),
+    //             'avg_improvement' => round($avgImprovement, 2),
+    //             'latest' => $experiences->first(),
+    //         ],
+    //     ]);
+    // }
 
     // ============= HEALTH & UTILITY =============
 
@@ -640,4 +641,44 @@ class AgentController extends Controller
         // Logic to rollback
         return response()->json(['success' => true, 'message' => "Rollback initiated for $actionName"]);
     }
+
+    public function getSimilarExperiences(Request $request, $brandId)
+{
+    $type = $request->input('type');
+    $severity = $request->input('severity');
+
+    // If type or severity missing, return empty (avoid SQL errors)
+    if (!$type || !$severity) {
+        return response()->json(['experiences' => [], 'stats' => []]);
+    }
+
+    try {
+        $experiences = AgentExperience::where('brand_id', $brandId)
+            ->where('opportunity_type', $type)
+            ->where('severity', $severity)
+            ->orderBy('created_at', 'desc')
+            ->limit(20)
+            ->get();
+
+        $total = $experiences->count();
+        $successful = $experiences->where('was_successful', true)->count();
+        $successRate = $total > 0 ? ($successful / $total) * 100 : 0;
+        $avgImprovement = $experiences->where('was_successful', true)->avg('improvement_percentage') ?? 0;
+
+        return response()->json([
+            'experiences' => $experiences,
+            'stats' => [
+                'total' => $total,
+                'successful' => $successful,
+                'success_rate' => round($successRate, 2),
+                'avg_improvement' => round($avgImprovement, 2),
+                'latest' => $experiences->first(),
+            ],
+        ]);
+    } catch (\Exception $e) {
+        // Log the error but return a friendly response
+        Log::error('Error fetching similar experiences: ' . $e->getMessage());
+        return response()->json(['experiences' => [], 'stats' => []], 200);
+    }
+}
 }
