@@ -11,7 +11,7 @@ class VerifyApiKey
     public function handle(Request $request, Closure $next)
     {
         $apiKey = $request->header('X-API-Key');
-        $validKey = env('LARAVEL_API_KEY');
+        $validKey = config('agent.api_key');
 
         // Debug: log the keys for comparison
         Log::info('API Key Check', [
