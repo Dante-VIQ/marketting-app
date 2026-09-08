@@ -70,6 +70,9 @@ Route::prefix('agent')->name('agent.')->middleware(['verify.api.key'])->group(fu
     Route::get('/ai/ping', [AgentController::class, 'pingAI']);
 
     Route::post('/actions/rollback/{brandId}', [AgentController::class, 'rollbackAction']);
+    
+        // Analytics analysis
+    Route::get('/analytics/analyze/{brandId}', [AgentController::class, 'analyzeAnalytics']);
 });
 
 // Public ping

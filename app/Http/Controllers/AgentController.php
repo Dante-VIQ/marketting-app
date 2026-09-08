@@ -681,4 +681,79 @@ public function triggerContentGeneration(Request $request)
         return response()->json(['experiences' => [], 'stats' => []], 200);
     }
 }
+
+/**
+ * Analyze analytics data and provide insights for the agent.
+ */
+public function analyzeAnalytics($brandId)
+{
+    $brand = Brand::findOrFail($brandId);
+
+    // Fetch the latest analytics snapshot
+    $analytics = AnalyticsSnapshot::where('brand_id', $brandId)
+        ->latest()
+        ->first();
+
+    if (!$analytics) {
+        return response()->json([
+            'success' => false,
+            'message' => 'No analytics data found for this brand.',
+        ], 404);
+    }
+
+    $visitors = $analytics->visitors ?? 0;
+    $conversions = $analytics->conversions ?? 0;
+    $revenue = $analytics->revenue ?? 0;
+    $conversionRate = $visitors > 0 ? ($conversions / $visitors) * 100 : 0;
+
+    // Simple analysis logic (can be expanded)
+    $issues = [];
+    $recommendations = [];
+
+    if ($conversionRate < 2) {
+        $issues[] = 'Conversion rate is below 2%.';
+        $recommendations[] = 'Run an A/B test on the main landing page.';
+        $recommendations[] = 'Improve call-to-action placement.';
+    }
+
+    if ($visitors < 100) {
+        $issues[] = 'Traffic is low.';
+        $recommendations[] = 'Increase marketing efforts (SEO, PPC, social).';
+    }
+
+    if ($revenue < 500) {
+        $issues[] = 'Revenue is below $500.';
+        $recommendations[] = 'Consider upselling or cross-selling strategies.';
+    }
+
+    // Additional insights from historical data
+    $previous = AnalyticsSnapshot::where('brand_id', $brandId)
+        ->where('id', '<', $analytics->id)
+        ->latest()
+        ->first();
+
+    $trend = 'stable';
+    if ($previous) {
+        $prevConversions = $previous->conversions ?? 0;
+        if ($conversions > $prevConversions) {
+            $trend = 'up';
+        } elseif ($conversions < $prevConversions) {
+            $trend = 'down';
+        }
+    }
+
+    return response()->json([
+        'success' => true,
+        'brand_id' => $brandId,
+        'analytics' => [
+            'visitors' => $visitors,
+            'conversions' => $conversions,
+            'revenue' => $revenue,
+            'conversion_rate' => round($conversionRate, 2),
+            'trend' => $trend,
+        ],
+        'issues' => $issues,
+        'recommendations' => $recommendations,
+    ]);
+}
 }
