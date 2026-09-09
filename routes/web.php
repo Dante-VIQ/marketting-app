@@ -265,9 +265,9 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('/scan', function () {
             $brand = auth()->user()->activeBrand;
             $actions = App\Models\AiAction::where('brand_id', $brand->id)
-            ->where('status', 'approved')
-            ->whereNotNull('target_url')
-            ->get();
+                ->where('status', 'approved')
+                ->whereNotNull('target_url')
+                ->get();
             return view('scanner.scan', compact('actions'));
         })->name('scan');
         Route::post('/scan', [App\Http\Controllers\PageScannerController::class, 'scan'])->name('scan.post');
@@ -276,4 +276,10 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::put('/{id}/url', [App\Http\Controllers\PageScannerController::class, 'updateUrl'])->name('update-url');
         Route::post('/{id}/rescan', [App\Http\Controllers\PageScannerController::class, 'rescan'])->name('rescan');
     });
+
+    // routes/web.php
+    Route::get('/admin/contacts', function () {
+        $contacts = \App\Models\Contact::latest()->paginate(20);
+        return view('admin.contacts', compact('contacts'));
+    })->name('admin.contacts');
 });
