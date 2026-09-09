@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\GenerateContentForActionJob;
 use App\Models\ActionVerification;
 use App\Models\AgentExperience;
 use App\Models\AnalyticsSnapshot;
@@ -11,8 +12,8 @@ use App\Models\Lead;
 use App\Models\SeoIssue;
 use App\Services\AI\AiGatewayService;
 use App\Services\AI\ContentGeneratorService;
-use App\Services\Lead\LeadManagerService;
 use App\Services\AI\SeoAssistantService;
+use App\Services\Lead\LeadManagerService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
@@ -366,22 +367,22 @@ class AgentController extends Controller
         ]);
     }
 
-public function triggerContentGeneration(Request $request)
-{
-    $brandId = $request->input('brandId');
-    $topic = $request->input('topic');
-    $template = $request->input('template', 'blog');
+    public function triggerContentGeneration(Request $request)
+    {
+        $brandId = $request->input('brandId');
+        $topic = $request->input('topic');
+        $template = $request->input('template', 'blog');
 
-    $draft = app(ContentGeneratorService::class)->generateContent($brandId, $topic, $template);
+        // $draft = app(ContentGeneratorService::class)->generateContent($brandId, $topic, $template);
+        GenerateContentForActionJob::dispatch($brandId, $topic, $template);
+        return response()->json([
+            'success' => true,
+            'message' => 'Content generation queued',
+            'status' => 'queued'
+        ], 202);
+    }
 
-    return response()->json([
-        'success' => true,
-        'draft' => $draft,
-        'message' => 'Content generated successfully'
-    ]);
-}
 
-    
     // ============= EXECUTION =============
 
     public function scan($brandId)
@@ -643,117 +644,117 @@ public function triggerContentGeneration(Request $request)
     }
 
     public function getSimilarExperiences(Request $request, $brandId)
-{
-    $type = $request->input('type');
-    $severity = $request->input('severity');
+    {
+        $type = $request->input('type');
+        $severity = $request->input('severity');
 
-    // If type or severity missing, return empty (avoid SQL errors)
-    if (!$type || !$severity) {
-        return response()->json(['experiences' => [], 'stats' => []]);
-    }
+        // If type or severity missing, return empty (avoid SQL errors)
+        if (!$type || !$severity) {
+            return response()->json(['experiences' => [], 'stats' => []]);
+        }
 
-    try {
-        $experiences = AgentExperience::where('brand_id', $brandId)
-            ->where('opportunity_type', $type)
-            ->where('severity', $severity)
-            ->orderBy('created_at', 'desc')
-            ->limit(20)
-            ->get();
+        try {
+            $experiences = AgentExperience::where('brand_id', $brandId)
+                ->where('opportunity_type', $type)
+                ->where('severity', $severity)
+                ->orderBy('created_at', 'desc')
+                ->limit(20)
+                ->get();
 
-        $total = $experiences->count();
-        $successful = $experiences->where('was_successful', true)->count();
-        $successRate = $total > 0 ? ($successful / $total) * 100 : 0;
-        $avgImprovement = $experiences->where('was_successful', true)->avg('improvement_percentage') ?? 0;
+            $total = $experiences->count();
+            $successful = $experiences->where('was_successful', true)->count();
+            $successRate = $total > 0 ? ($successful / $total) * 100 : 0;
+            $avgImprovement = $experiences->where('was_successful', true)->avg('improvement_percentage') ?? 0;
 
-        return response()->json([
-            'experiences' => $experiences,
-            'stats' => [
-                'total' => $total,
-                'successful' => $successful,
-                'success_rate' => round($successRate, 2),
-                'avg_improvement' => round($avgImprovement, 2),
-                'latest' => $experiences->first(),
-            ],
-        ]);
-    } catch (\Exception $e) {
-        // Log the error but return a friendly response
-        Log::error('Error fetching similar experiences: ' . $e->getMessage());
-        return response()->json(['experiences' => [], 'stats' => []], 200);
-    }
-}
-
-/**
- * Analyze analytics data and provide insights for the agent.
- */
-public function analyzeAnalytics($brandId)
-{
-    $brand = Brand::findOrFail($brandId);
-
-    // Fetch the latest analytics snapshot
-    $analytics = AnalyticsSnapshot::where('brand_id', $brandId)
-        ->latest()
-        ->first();
-
-    if (!$analytics) {
-        return response()->json([
-            'success' => false,
-            'message' => 'No analytics data found for this brand.',
-        ], 404);
-    }
-
-    $visitors = $analytics->visitors ?? 0;
-    $conversions = $analytics->conversions ?? 0;
-    $revenue = $analytics->revenue ?? 0;
-    $conversionRate = $visitors > 0 ? ($conversions / $visitors) * 100 : 0;
-
-    // Simple analysis logic (can be expanded)
-    $issues = [];
-    $recommendations = [];
-
-    if ($conversionRate < 2) {
-        $issues[] = 'Conversion rate is below 2%.';
-        $recommendations[] = 'Run an A/B test on the main landing page.';
-        $recommendations[] = 'Improve call-to-action placement.';
-    }
-
-    if ($visitors < 100) {
-        $issues[] = 'Traffic is low.';
-        $recommendations[] = 'Increase marketing efforts (SEO, PPC, social).';
-    }
-
-    if ($revenue < 500) {
-        $issues[] = 'Revenue is below $500.';
-        $recommendations[] = 'Consider upselling or cross-selling strategies.';
-    }
-
-    // Additional insights from historical data
-    $previous = AnalyticsSnapshot::where('brand_id', $brandId)
-        ->where('id', '<', $analytics->id)
-        ->latest()
-        ->first();
-
-    $trend = 'stable';
-    if ($previous) {
-        $prevConversions = $previous->conversions ?? 0;
-        if ($conversions > $prevConversions) {
-            $trend = 'up';
-        } elseif ($conversions < $prevConversions) {
-            $trend = 'down';
+            return response()->json([
+                'experiences' => $experiences,
+                'stats' => [
+                    'total' => $total,
+                    'successful' => $successful,
+                    'success_rate' => round($successRate, 2),
+                    'avg_improvement' => round($avgImprovement, 2),
+                    'latest' => $experiences->first(),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            // Log the error but return a friendly response
+            Log::error('Error fetching similar experiences: ' . $e->getMessage());
+            return response()->json(['experiences' => [], 'stats' => []], 200);
         }
     }
 
-    return response()->json([
-        'success' => true,
-        'brand_id' => $brandId,
-        'analytics' => [
-            'visitors' => $visitors,
-            'conversions' => $conversions,
-            'revenue' => $revenue,
-            'conversion_rate' => round($conversionRate, 2),
-            'trend' => $trend,
-        ],
-        'issues' => $issues,
-        'recommendations' => $recommendations,
-    ]);
-}
+    /**
+     * Analyze analytics data and provide insights for the agent.
+     */
+    public function analyzeAnalytics($brandId)
+    {
+        $brand = Brand::findOrFail($brandId);
+
+        // Fetch the latest analytics snapshot
+        $analytics = AnalyticsSnapshot::where('brand_id', $brandId)
+            ->latest()
+            ->first();
+
+        if (!$analytics) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No analytics data found for this brand.',
+            ], 404);
+        }
+
+        $visitors = $analytics->visitors ?? 0;
+        $conversions = $analytics->conversions ?? 0;
+        $revenue = $analytics->revenue ?? 0;
+        $conversionRate = $visitors > 0 ? ($conversions / $visitors) * 100 : 0;
+
+        // Simple analysis logic (can be expanded)
+        $issues = [];
+        $recommendations = [];
+
+        if ($conversionRate < 2) {
+            $issues[] = 'Conversion rate is below 2%.';
+            $recommendations[] = 'Run an A/B test on the main landing page.';
+            $recommendations[] = 'Improve call-to-action placement.';
+        }
+
+        if ($visitors < 100) {
+            $issues[] = 'Traffic is low.';
+            $recommendations[] = 'Increase marketing efforts (SEO, PPC, social).';
+        }
+
+        if ($revenue < 500) {
+            $issues[] = 'Revenue is below $500.';
+            $recommendations[] = 'Consider upselling or cross-selling strategies.';
+        }
+
+        // Additional insights from historical data
+        $previous = AnalyticsSnapshot::where('brand_id', $brandId)
+            ->where('id', '<', $analytics->id)
+            ->latest()
+            ->first();
+
+        $trend = 'stable';
+        if ($previous) {
+            $prevConversions = $previous->conversions ?? 0;
+            if ($conversions > $prevConversions) {
+                $trend = 'up';
+            } elseif ($conversions < $prevConversions) {
+                $trend = 'down';
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'brand_id' => $brandId,
+            'analytics' => [
+                'visitors' => $visitors,
+                'conversions' => $conversions,
+                'revenue' => $revenue,
+                'conversion_rate' => round($conversionRate, 2),
+                'trend' => $trend,
+            ],
+            'issues' => $issues,
+            'recommendations' => $recommendations,
+        ]);
+    }
 }
