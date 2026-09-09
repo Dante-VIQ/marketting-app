@@ -7,8 +7,14 @@ use App\Http\Controllers\BlogController;
 use App\Models\Lead;
 use Illuminate\Support\Facades\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\PageController;
 
-Route::get('/', function () {
+Route::get('/', [PageController::class, 'landing'])->name('landing');
+Route::get('/about', [PageController::class, 'about'])->name('about');
+Route::get('/contact', [PageController::class, 'contact'])->name('contact');
+Route::post('/contact', [PageController::class, 'submitContact'])->name('contact.submit');
+
+Route::get('/dashboard', function () {
     if (auth()->check()) {
         return redirect()->route('dashboard');
     }
