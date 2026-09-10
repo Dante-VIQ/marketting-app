@@ -424,20 +424,59 @@ public function refreshData($brandId)
         ]);
     }
 
-    public function triggerContentGeneration(Request $request)
-    {
+public function triggerContentGeneration(Request $request)
+{
+    try {
         $brandId = $request->input('brandId');
         $topic = $request->input('topic');
         $template = $request->input('template', 'blog');
 
-        // $draft = app(ContentGeneratorService::class)->generateContent($brandId, $topic, $template);
-        GenerateContentForActionJob::dispatch($brandId, $topic, $template);
+        // Validate brand exists
+        $brand = \App\Models\Brand::findOrFail($brandId);
+
+        // Map template to valid category ENUM
+        $categoryMap = [
+            'blog' => 'content',
+            'social' => 'social',
+            'email' => 'email',
+            'web_copy' => 'web_copy',
+        ];
+        $category = $categoryMap[$template] ?? 'content';
+
+        // ✅ 1. Create the AiAction first
+        $action = \App\Models\AiAction::create([
+            'brand_id' => $brandId,
+            'title' => 'Generate content: ' . substr($topic, 0, 100),
+            'description' => "Queued by agent for topic: {$topic}",
+            'category' => $category,
+            'target_platform' => $template,
+            'target_keyword' => $topic,
+            'status' => 'approved',
+            'estimated_impact' => 500,
+            'priority' => 3,
+        ]);
+
+        // ✅ 2. Dispatch the job with the AiAction object (not the int)
+        \App\Jobs\GenerateContentForActionJob::dispatch($action);
+
         return response()->json([
             'success' => true,
+            'action_id' => $action->id,
             'message' => 'Content generation queued',
-            'status' => 'queued'
+            'status' => 'queued',
         ], 202);
+
+    } catch (\Exception $e) {
+        \Log::error('Content generation failed: ' . $e->getMessage(), [
+            'trace' => $e->getTraceAsString(),
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'error' => $e->getMessage(),
+        ], 500);
     }
+}
 
 
     // ============= EXECUTION =============
