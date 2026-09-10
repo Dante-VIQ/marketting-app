@@ -30,11 +30,11 @@ class Brand extends Model
     /**
      * Get the users who have access to this brand.
      */
-    public function users(): BelongsToMany
+    public function users()
     {
-        return $this->belongsToMany(User::class, 'brand_user');
+        return $this->belongsToMany(User::class, 'brand_user')
+            ->withTimestamps();
     }
-
     /**
      * Get roles scoped to this brand.
      */

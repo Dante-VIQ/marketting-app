@@ -38,7 +38,8 @@ class User extends Authenticatable
 
 public function brands()
 {
-    return $this->belongsToMany(Brand::class, 'brand_user')->withPivot('role')->withTimestamps();
+    return $this->belongsToMany(Brand::class, 'brand_user')
+        ->withTimestamps();
 }
 
 public function belongsToBrand(int $brandId): bool
