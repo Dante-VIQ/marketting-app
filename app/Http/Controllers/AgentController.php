@@ -54,8 +54,8 @@ public function dataStatus($brandId)
         $freshness = $this->dataCollection->isFresh((int) $brandId);
 
         return response()->json([
-            'success' => true,
-            'brand_id' => $brandId,
+            'success'   => true,
+            'brand_id'  => $brandId,
             'freshness' => $freshness,
             'all_fresh' => !in_array(false, $freshness, true),
             'timestamp' => now()->toISOString(),
@@ -63,7 +63,7 @@ public function dataStatus($brandId)
     } catch (\Exception $e) {
         return response()->json([
             'success' => false,
-            'error' => $e->getMessage(),
+            'error'   => $e->getMessage(),
         ], 500);
     }
 }
@@ -78,16 +78,16 @@ public function refreshData($brandId)
         $result = $this->dataCollection->ensureFreshData((int) $brandId);
 
         return response()->json([
-            'success' => true,
-            'brand_id' => $brandId,
-            'fresh' => $result['fresh'],
-            'collected' => $result['collected'],
-            'errors' => $result['errors'],
+            'success'   => true,
+            'brand_id'  => $brandId,
+            'queued'    => $result['queued'] ?? [],
+            'message'   => $result['message'] ?? 'Collection triggered',
+            'freshness' => $this->dataCollection->isFresh((int) $brandId),
         ]);
     } catch (\Exception $e) {
         return response()->json([
             'success' => false,
-            'error' => $e->getMessage(),
+            'error'   => $e->getMessage(),
         ], 500);
     }
 }

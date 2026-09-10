@@ -76,11 +76,11 @@ class DataCollectionService
             'queued' => $queued,
         ]);
 
-        return [
-            'queued' => $queued,
-            'message' => count($queued) > 0
-                ? 'Data collection jobs queued.'
-                : 'All data was already fresh.',
-        ];
+ return [
+    'queued'  => $queued,
+    'message' => count($queued) > 0
+        ? 'Data collection jobs queued.'
+        : 'All data was already fresh.',
+];
     }
 }
