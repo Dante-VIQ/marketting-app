@@ -27,7 +27,7 @@ class AgentController extends Controller
     protected $contentGenerator;
 
     protected DataCollectionService $dataCollection;
-    
+
     public function __construct(
         AiGatewayService $aiGateway,
         SeoAssistantService $seoAssistant,
@@ -44,53 +44,53 @@ class AgentController extends Controller
 
 
 
-/**
- * Check if today's data is fresh for a brand.
- * GET /api/agent/data-status/{brandId}
- */
-public function dataStatus($brandId)
-{
-    try {
-        $freshness = $this->dataCollection->isFresh((int) $brandId);
+    /**
+     * Check if today's data is fresh for a brand.
+     * GET /api/agent/data-status/{brandId}
+     */
+    public function dataStatus($brandId)
+    {
+        try {
+            $freshness = $this->dataCollection->isFresh((int) $brandId);
 
-        return response()->json([
-            'success'   => true,
-            'brand_id'  => $brandId,
-            'freshness' => $freshness,
-            'all_fresh' => !in_array(false, $freshness, true),
-            'timestamp' => now()->toISOString(),
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'success' => false,
-            'error'   => $e->getMessage(),
-        ], 500);
+            return response()->json([
+                'success'   => true,
+                'brand_id'  => $brandId,
+                'freshness' => $freshness,
+                'all_fresh' => !in_array(false, $freshness, true),
+                'timestamp' => now()->toISOString(),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
     }
-}
 
-/**
- * Trigger data collection for a brand.
- * POST /api/agent/refresh-data/{brandId}
- */
-public function refreshData($brandId)
-{
-    try {
-        $result = $this->dataCollection->ensureFreshData((int) $brandId);
+    /**
+     * Trigger data collection for a brand.
+     * POST /api/agent/refresh-data/{brandId}
+     */
+    public function refreshData($brandId)
+    {
+        try {
+            $result = $this->dataCollection->ensureFreshData((int) $brandId);
 
-        return response()->json([
-            'success'   => true,
-            'brand_id'  => $brandId,
-            'queued'    => $result['queued'] ?? [],
-            'message'   => $result['message'] ?? 'Collection triggered',
-            'freshness' => $this->dataCollection->isFresh((int) $brandId),
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'success' => false,
-            'error'   => $e->getMessage(),
-        ], 500);
+            return response()->json([
+                'success'   => true,
+                'brand_id'  => $brandId,
+                'queued'    => $result['queued'] ?? [],
+                'message'   => $result['message'] ?? 'Collection triggered',
+                'freshness' => $this->dataCollection->isFresh((int) $brandId),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
     }
-}
     // ============= OPPORTUNITIES =============
 
     public function getOpportunities($brandId)
@@ -204,7 +204,7 @@ public function refreshData($brandId)
 
     public function getAnalytics($brandId)
     {
-                // Ensure fresh data (may trigger collection)
+        // Ensure fresh data (may trigger collection)
         $this->dataCollection->ensureFreshData($brandId);
 
         $analytics = AnalyticsSnapshot::where('brand_id', $brandId)
@@ -424,59 +424,58 @@ public function refreshData($brandId)
         ]);
     }
 
-public function triggerContentGeneration(Request $request)
-{
-    try {
-        $brandId = $request->input('brandId');
-        $topic = $request->input('topic');
-        $template = $request->input('template', 'blog');
+    public function triggerContentGeneration(Request $request)
+    {
+        try {
+            $brandId = $request->input('brandId');
+            $topic = $request->input('topic');
+            $template = $request->input('template', 'blog');
 
-        // Validate brand exists
-        $brand = \App\Models\Brand::findOrFail($brandId);
+            // Validate brand exists
+            $brand = \App\Models\Brand::findOrFail($brandId);
 
-        // Map template to valid category ENUM
-        $categoryMap = [
-            'blog' => 'content',
-            'social' => 'social',
-            'email' => 'email',
-            'web_copy' => 'web_copy',
-        ];
-        $category = $categoryMap[$template] ?? 'content';
+            // Map template to valid category ENUM
+            $categoryMap = [
+                'blog' => 'content',
+                'social' => 'social',
+                'email' => 'email',
+                'web_copy' => 'web_copy',
+            ];
+            $category = $categoryMap[$template] ?? 'content';
 
-        // ✅ 1. Create the AiAction first
-        $action = \App\Models\AiAction::create([
-            'brand_id' => $brandId,
-            'title' => 'Generate content: ' . substr($topic, 0, 100),
-            'description' => "Queued by agent for topic: {$topic}",
-            'category' => $category,
-            'target_platform' => $template,
-            'target_keyword' => $topic,
-            'status' => 'approved',
-            'estimated_impact' => 500,
-            'priority' => 3,
-        ]);
+            // ✅ 1. Create the AiAction first
+            $action = \App\Models\AiAction::create([
+                'brand_id' => $brandId,
+                'title' => 'Generate content: ' . substr($topic, 0, 100),
+                'description' => "Queued by agent for topic: {$topic}",
+                'category' => $category,
+                'target_platform' => $template,
+                'target_keyword' => $topic,
+                'status' => 'approved',
+                'estimated_impact' => 500,
+                'priority' => 3,
+            ]);
 
-        // ✅ 2. Dispatch the job with the AiAction object (not the int)
-        \App\Jobs\GenerateContentForActionJob::dispatch($action);
+            // ✅ 2. Dispatch the job with the AiAction object (not the int)
+            \App\Jobs\GenerateContentForActionJob::dispatch($action);
 
-        return response()->json([
-            'success' => true,
-            'action_id' => $action->id,
-            'message' => 'Content generation queued',
-            'status' => 'queued',
-        ], 202);
+            return response()->json([
+                'success' => true,
+                'action_id' => $action->id,
+                'message' => 'Content generation queued',
+                'status' => 'queued',
+            ], 202);
+        } catch (\Exception $e) {
+            Log::error('Content generation failed: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
 
-    } catch (\Exception $e) {
-        \Log::error('Content generation failed: ' . $e->getMessage(), [
-            'trace' => $e->getTraceAsString(),
-        ]);
-
-        return response()->json([
-            'success' => false,
-            'error' => $e->getMessage(),
-        ], 500);
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
-}
 
 
     // ============= EXECUTION =============
@@ -491,25 +490,75 @@ public function triggerContentGeneration(Request $request)
         ]);
     }
 
-    public function executeAction(Request $request)
-    {
-        $brandId = $request->input('brandId');
-        $action = $request->except('brandId');
+public function executeAction(Request $request)
+{
+    $brandId = $request->input('brandId');
+    $action  = $request->input('action', []);
+    $reason  = $request->input('reason', 'Queued by agent');
 
-        // Log the action
-        \App\Models\AiAction::create([
-            'brand_id' => $brandId,
-            'title' => $action['name'] ?? 'Unknown Action',
-            'description' => json_encode($action),
-            'status' => 'pending',
-        ]);
+    // Extract the action name (supports both flat and nested shapes)
+    $actionName = $action['name'] ?? ($action['action']['name'] ?? 'unknown');
 
+    // Skip no-op actions entirely
+    if ($actionName === 'no_action_needed' || $actionName === 'unknown') {
         return response()->json([
-            'status' => 'action_received',
-            'action' => $action,
-            'actionId' => time(),
-        ]);
+            'success' => true,
+            'skipped' => true,
+            'message' => 'No action was needed.',
+        ], 200);
     }
+
+    // Map raw action names to human-friendly titles + categories
+    $actionMeta = [
+        'trigger_content_generation' => ['title' => 'Generate content',       'category' => 'content'],
+        'create_blog_post'           => ['title' => 'Create blog post',        'category' => 'content'],
+        'generate_content'           => ['title' => 'Generate content',        'category' => 'content'],
+        'resolve_seo_issue'          => ['title' => 'Fix SEO issue',           'category' => 'seo'],
+        'run_site_scan'              => ['title' => 'Run site scan',           'category' => 'seo'],
+        'notify_lead_response'       => ['title' => 'Follow up with lead',     'category' => 'strategy'],
+        'pause_campaign'             => ['title' => 'Pause campaign',          'category' => 'strategy'],
+        'adjust_campaign'            => ['title' => 'Adjust campaign',         'category' => 'strategy'],
+    ];
+
+    $meta  = $actionMeta[$actionName] ?? ['title' => ucwords(str_replace('_', ' ', $actionName)), 'category' => 'strategy'];
+    $title = $meta['title'];
+
+    // Add context to the title if topic/campaign name is present
+    $payload = $action['payload'] ?? $action;
+    if (!empty($payload['topic'])) {
+        $title .= ': ' . substr($payload['topic'], 0, 80);
+    } elseif (!empty($payload['campaignId'])) {
+        $title .= ' (Campaign #' . $payload['campaignId'] . ')';
+    } elseif (!empty($payload['lead_id'])) {
+        $title .= ' (Lead #' . $payload['lead_id'] . ')';
+    }
+
+    // Create the AI action with proper metadata
+    $aiAction = \App\Models\AiAction::create([
+        'brand_id'          => $brandId,
+        'title'             => $title,
+        'description'       => $reason,
+        'category'          => $meta['category'],
+        'suggested_content' => json_encode($payload, JSON_PRETTY_PRINT),
+        'target_url'        => $payload['target_url'] ?? null,
+        'target_keyword'    => $payload['topic'] ?? null,
+        'estimated_impact'  => $payload['estimated_impact'] ?? 100,
+        'priority'          => 3,
+        'status'            => 'pending',
+    ]);
+
+    Log::info('Agent action queued', [
+        'action_id'   => $aiAction->id,
+        'action_name' => $actionName,
+        'brand_id'    => $brandId,
+    ]);
+
+    return response()->json([
+        'success'   => true,
+        'action_id' => $aiAction->id,
+        'message'   => 'Action queued for review.',
+    ], 201);
+}
 
     // ============= VERIFICATION =============
 
