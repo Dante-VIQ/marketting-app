@@ -7,14 +7,16 @@ use Illuminate\Console\Scheduling\Schedule;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
-        web: __DIR__.'/../routes/web.php',
-        api: __DIR__.'/../routes/api.php',
-        commands: __DIR__.'/../routes/console.php',
+        web: __DIR__ . '/../routes/web.php',
+        api: __DIR__ . '/../routes/api.php',
+        commands: __DIR__ . '/../routes/console.php',
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'verify.api.key' => \App\Http\Middleware\VerifyApiKey::class,
+            'agent.brand' => \App\Http\Middleware\AgentBrandAuthorized::class,
+            'agent.monitor' => \App\Http\Middleware\MonitorAgentIP::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

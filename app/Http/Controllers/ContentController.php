@@ -9,7 +9,9 @@ use App\Services\AI\ContentGeneratorService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 
 class ContentController extends Controller
@@ -127,4 +129,29 @@ class ContentController extends Controller
             'completed' => ContentDraft::where('brand_id', $brand->id)->count(),
         ]);
     }
+
+    public function publish(ContentDraft $draft)
+{
+    // 🔒 Authorization check
+    if (!Gate::allows('publish-content', $draft->brand_id)) {
+        abort(403, 'You are not allowed to publish this content.');
+    }
+
+    $draft->update([
+        'status' => 'published',
+        'published_at' => now(),
+    ]);
+
+    return back()->with('message', 'Content published successfully.');
+}
+
+public function destroy(ContentDraft $draft)
+{
+    // Uses the policy's delete method
+    $this->authorize('delete', $draft);
+
+    $draft->delete();
+
+    return back()->with('message', 'Draft deleted.');
+}
 }

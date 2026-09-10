@@ -34,13 +34,17 @@ class User extends Authenticatable
         'two_factor_confirmed_at' => 'datetime',
     ];
 
-    /**
-     * Get all brands the user has access to.
-     */
-    public function brands(): BelongsToMany
-    {
-        return $this->belongsToMany(Brand::class, 'brand_user');
-    }
+
+
+public function brands()
+{
+    return $this->belongsToMany(Brand::class, 'brand_user')->withPivot('role')->withTimestamps();
+}
+
+public function belongsToBrand(int $brandId): bool
+{
+    return $this->brands()->where('brands.id', $brandId)->exists();
+}
 
     /**
      * Get the user's currently active brand.

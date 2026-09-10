@@ -2,22 +2,36 @@
 
 namespace App\Services\AI;
 
+use App\Jobs\ScanPageJob;
 use App\Models\AiAction;
 use App\Models\Brand;
-use App\Models\User;
 use App\Models\GuardianAuditLog;
+use App\Models\User;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
-use App\Jobs\ScanPageJob;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 
 class ActionApprovalService
 {
-    /**
+  /**
      * Approve an action.
+     *
+     * @throws AuthorizationException
      */
     public function approve(AiAction $action, User $user, ?string $notes = null): void
     {
+        // 🔒 Authorization check – enforced at the service boundary
+        if (!Gate::forUser($user)->allows('approve', $action)) {
+            Log::warning('Unauthorized action approval attempt', [
+                'action_id' => $action->id,
+                'user_id' => $user->id,
+                'brand_id' => $action->brand_id,
+            ]);
+            throw new AuthorizationException('You are not authorized to approve this action.');
+        }
+
         DB::transaction(function () use ($action, $user, $notes) {
             $action->status = 'approved';
             $action->approved_at = Carbon::now();
@@ -28,15 +42,12 @@ class ActionApprovalService
             $action->rejection_notes = null;
             $action->save();
 
-            // Update the brief if all actions are approved
             $this->updateBriefStatus($action);
 
-            // Scan the target URL if it exists
             if ($action->target_url && $action->brand) {
                 ScanPageJob::dispatch($action->brand, $action->target_url, $action);
             }
 
-            // Log to guardian
             $this->logAction($action, $user, 'approved', $notes);
 
             Log::info('Action approved', [
@@ -50,13 +61,29 @@ class ActionApprovalService
 
     /**
      * Reject an action.
+     *
+     * @throws AuthorizationException
      */
     public function reject(AiAction $action, User $user, string $reason, ?string $notes = null): void
     {
-        $validReasons = ['too_short', 'tone_wrong', 'factually_incorrect', 'off_brand', 'duplicate', 'low_priority', 'other'];
-        
+        // 🔒 Authorization check
+        if (!Gate::forUser($user)->allows('reject', $action)) {
+            Log::warning('Unauthorized action rejection attempt', [
+                'action_id' => $action->id,
+                'user_id' => $user->id,
+            ]);
+            throw new AuthorizationException('You are not authorized to reject this action.');
+        }
+
+        $validReasons = [
+            'too_short', 'tone_wrong', 'factually_incorrect',
+            'off_brand', 'duplicate', 'low_priority', 'other'
+        ];
+
         if (!in_array($reason, $validReasons)) {
-            throw new \InvalidArgumentException("Invalid rejection reason. Must be one of: " . implode(', ', $validReasons));
+            throw new \InvalidArgumentException(
+                "Invalid rejection reason. Must be one of: " . implode(', ', $validReasons)
+            );
         }
 
         DB::transaction(function () use ($action, $user, $reason, $notes) {
@@ -69,10 +96,7 @@ class ActionApprovalService
             $action->rejection_notes = $notes;
             $action->save();
 
-            // Update the brief if all actions are reviewed
             $this->updateBriefStatus($action);
-
-            // Log to guardian
             $this->logAction($action, $user, 'rejected', $reason . ': ' . ($notes ?? ''));
 
             Log::info('Action rejected', [
@@ -80,43 +104,145 @@ class ActionApprovalService
                 'brand_id' => $action->brand_id,
                 'user_id' => $user->id,
                 'reason' => $reason,
-                'title' => $action->title,
             ]);
         });
     }
 
     /**
      * Bulk approve multiple actions.
+     *
+     * @throws AuthorizationException
      */
     public function bulkApprove(array $actionIds, User $user): int
     {
         $count = 0;
+        $denied = [];
+
         foreach ($actionIds as $actionId) {
             $action = AiAction::find($actionId);
-            if ($action && $action->status === 'pending') {
-                $this->approve($action, $user);
-                $count++;
+            if (!$action || $action->status !== 'pending') {
+                continue;
             }
+
+            if (!Gate::forUser($user)->allows('approve', $action)) {
+                $denied[] = $actionId;
+                continue;
+            }
+
+            $this->approve($action, $user);
+            $count++;
         }
+
+        if (!empty($denied)) {
+            Log::warning('Bulk approve: some actions denied', [
+                'user_id' => $user->id,
+                'denied_ids' => $denied,
+                'approved_count' => $count,
+            ]);
+        }
+
         return $count;
     }
 
     /**
      * Bulk reject multiple actions.
+     *
+     * @throws AuthorizationException
      */
     public function bulkReject(array $actionIds, User $user, string $reason, ?string $notes = null): int
     {
         $count = 0;
+        $denied = [];
+
         foreach ($actionIds as $actionId) {
             $action = AiAction::find($actionId);
-            if ($action && $action->status === 'pending') {
-                $this->reject($action, $user, $reason, $notes);
-                $count++;
+            if (!$action || $action->status !== 'pending') {
+                continue;
             }
+
+            if (!Gate::forUser($user)->allows('reject', $action)) {
+                $denied[] = $actionId;
+                continue;
+            }
+
+            $this->reject($action, $user, $reason, $notes);
+            $count++;
         }
+
+        if (!empty($denied)) {
+            Log::warning('Bulk reject: some actions denied', [
+                'user_id' => $user->id,
+                'denied_ids' => $denied,
+                'rejected_count' => $count,
+            ]);
+        }
+
         return $count;
     }
 
+    /**
+     * Get pending actions for a brand (authorized).
+     *
+     * @throws AuthorizationException
+     */
+    public function getPendingActions(Brand $brand, User $user, int $limit = 50): array
+    {
+        if (!Gate::forUser($user)->allows('viewAny', AiAction::class)
+            && !$user->belongsToBrand($brand->id)) {
+            throw new AuthorizationException('Not authorized to view actions for this brand.');
+        }
+
+        return AiAction::where('brand_id', $brand->id)
+            ->where('status', 'pending')
+            ->orderBy('priority', 'desc')
+            ->orderBy('created_at', 'asc')
+            ->limit($limit)
+            ->get()
+            ->toArray();
+    }
+
+    /**
+     * Get reviewed actions for a brand (authorized).
+     *
+     * @throws AuthorizationException
+     */
+    public function getReviewedActions(Brand $brand, User $user, int $days = 7): array
+    {
+        if (!$user->belongsToBrand($brand->id) && !$user->hasRole('super-admin')) {
+            throw new AuthorizationException('Not authorized to view actions for this brand.');
+        }
+
+        return AiAction::where('brand_id', $brand->id)
+            ->whereIn('status', ['approved', 'rejected'])
+            ->where('reviewed_at', '>=', Carbon::now()->subDays($days))
+            ->orderBy('reviewed_at', 'desc')
+            ->get()
+            ->toArray();
+    }
+
+    /**
+     * Get rejection statistics for a brand (authorized).
+     *
+     * @throws AuthorizationException
+     */
+    public function getRejectionStats(Brand $brand, User $user): array
+    {
+        if (!$user->belongsToBrand($brand->id) && !$user->hasRole('super-admin')) {
+            throw new AuthorizationException('Not authorized to view stats for this brand.');
+        }
+
+        $rejected = AiAction::where('brand_id', $brand->id)
+            ->where('status', 'rejected')
+            ->get();
+
+        $stats = [];
+        foreach ($rejected as $action) {
+            $reason = $action->rejection_reason ?? 'other';
+            $stats[$reason] = ($stats[$reason] ?? 0) + 1;
+        }
+
+        return $stats;
+    }
     /**
      * Update brief status based on actions.
      */
@@ -168,53 +294,5 @@ class ActionApprovalService
                 'notes' => $notes,
             ],
         ]);
-    }
-
-    /**
-     * Get pending actions for a brand.
-     */
-    public function getPendingActions(Brand $brand, int $limit = 50): array
-    {
-        return AiAction::where('brand_id', $brand->id)
-            ->where('status', 'pending')
-            ->orderBy('priority', 'desc')
-            ->orderBy('created_at', 'asc')
-            ->limit($limit)
-            ->get()
-            ->toArray();
-    }
-
-    /**
-     * Get reviewed actions for a brand.
-     */
-    public function getReviewedActions(Brand $brand, int $days = 7): array
-    {
-        return AiAction::where('brand_id', $brand->id)
-            ->whereIn('status', ['approved', 'rejected'])
-            ->where('reviewed_at', '>=', Carbon::now()->subDays($days))
-            ->orderBy('reviewed_at', 'desc')
-            ->get()
-            ->toArray();
-    }
-
-    /**
-     * Get rejection statistics for a brand.
-     */
-    public function getRejectionStats(Brand $brand): array
-    {
-        $rejected = AiAction::where('brand_id', $brand->id)
-            ->where('status', 'rejected')
-            ->get();
-
-        $stats = [];
-        foreach ($rejected as $action) {
-            $reason = $action->rejection_reason ?? 'other';
-            if (!isset($stats[$reason])) {
-                $stats[$reason] = 0;
-            }
-            $stats[$reason]++;
-        }
-
-        return $stats;
     }
 }

@@ -23,7 +23,7 @@ Route::get('/test-auth', function (Request $request) {
     ]);
 });
 
-Route::prefix('agent')->name('agent.')->middleware(['verify.api.key'])->group(function () {
+Route::prefix('agent')->name('agent.')    ->middleware(['verify.api.key', 'agent.brand', 'throttle:agent'])->group(function () {
     // ===== OPPORTUNITIES =====
     Route::get('/opportunities/{brandId}', [AgentController::class, 'getOpportunities']);
 

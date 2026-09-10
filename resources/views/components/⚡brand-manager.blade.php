@@ -121,9 +121,14 @@ new class extends Component
 
     public function toggleActive(Brand $brand)
     {
+        try {
         $this->brandService->toggleActive($brand);
         $this->loadBrands();
         session()->flash('message', 'Brand status toggled.');
+
+            } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+        session()->flash('error', '🚫 ' . $e->getMessage());
+    }
     }
 
     public function deleteBrand(Brand $brand)

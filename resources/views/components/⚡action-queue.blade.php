@@ -67,8 +67,14 @@ new class extends Component
 
     public function approveAction($actionId, ActionApprovalService $approvalService)
     {
+        
         $user = Auth::user();
         $action = AiAction::findOrFail($actionId);
+            // 🔒 Authorize BEFORE calling the service
+    if (!Gate::allows('approve', $action)) {
+        session()->flash('error', 'You are not authorized to approve this action.');
+        return;
+    }
         $approvalService->approve($action, $user);
         $this->loadActions();
         $this->dispatch('action-updated');
