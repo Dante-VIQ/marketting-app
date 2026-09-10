@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\AiAction;
 use App\Models\Brand;
 use App\Services\Python\PythonService;
 use Illuminate\Contracts\Queue\ShouldQueue;

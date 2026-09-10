@@ -13,6 +13,7 @@ use App\Models\SeoIssue;
 use App\Services\AI\AiGatewayService;
 use App\Services\AI\ContentGeneratorService;
 use App\Services\AI\SeoAssistantService;
+use App\Services\DataCollectionService;
 use App\Services\Lead\LeadManagerService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -25,18 +26,71 @@ class AgentController extends Controller
     protected $leadService;
     protected $contentGenerator;
 
+    protected DataCollectionService $dataCollection;
+    
     public function __construct(
         AiGatewayService $aiGateway,
         SeoAssistantService $seoAssistant,
         LeadManagerService $leadService,
-        ContentGeneratorService $contentGenerator
+        ContentGeneratorService $contentGenerator,
+        DataCollectionService $dataCollection
     ) {
         $this->aiGateway = $aiGateway;
         $this->seoAssistant = $seoAssistant;
         $this->leadService = $leadService;
         $this->contentGenerator = $contentGenerator;
+        $this->dataCollection = $dataCollection;
     }
 
+
+
+/**
+ * Check if today's data is fresh for a brand.
+ * GET /api/agent/data-status/{brandId}
+ */
+public function dataStatus($brandId)
+{
+    try {
+        $freshness = $this->dataCollection->isFresh((int) $brandId);
+
+        return response()->json([
+            'success' => true,
+            'brand_id' => $brandId,
+            'freshness' => $freshness,
+            'all_fresh' => !in_array(false, $freshness, true),
+            'timestamp' => now()->toISOString(),
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'error' => $e->getMessage(),
+        ], 500);
+    }
+}
+
+/**
+ * Trigger data collection for a brand.
+ * POST /api/agent/refresh-data/{brandId}
+ */
+public function refreshData($brandId)
+{
+    try {
+        $result = $this->dataCollection->ensureFreshData((int) $brandId);
+
+        return response()->json([
+            'success' => true,
+            'brand_id' => $brandId,
+            'fresh' => $result['fresh'],
+            'collected' => $result['collected'],
+            'errors' => $result['errors'],
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'error' => $e->getMessage(),
+        ], 500);
+    }
+}
     // ============= OPPORTUNITIES =============
 
     public function getOpportunities($brandId)
@@ -150,6 +204,9 @@ class AgentController extends Controller
 
     public function getAnalytics($brandId)
     {
+                // Ensure fresh data (may trigger collection)
+        $this->dataCollection->ensureFreshData($brandId);
+
         $analytics = AnalyticsSnapshot::where('brand_id', $brandId)
             ->latest()
             ->first();

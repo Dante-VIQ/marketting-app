@@ -73,6 +73,10 @@ Route::prefix('agent')->name('agent.')->middleware(['verify.api.key'])->group(fu
     
         // Analytics analysis
     Route::get('/analytics/analyze/{brandId}', [AgentController::class, 'analyzeAnalytics']);
+
+    Route::post('/refresh-data/{brandId}', [AgentController::class, 'refreshData']);
+
+    Route::get('/data-status/{brandId}', [AgentController::class, 'dataStatus']);
 });
 
 // Public ping
