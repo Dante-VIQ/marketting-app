@@ -7,6 +7,7 @@ use App\Services\Content\ContentDraftManagerService;
 use Illuminate\Support\Facades\Auth;
 use App\Services\AI\ContentGeneratorService;
 use Illuminate\Auth\Access\AuthorizationException;
+
 new class extends Component {
     public $brandId = null;
     public $drafts = [];
@@ -50,8 +51,9 @@ new class extends Component {
         }
 
         $drafts = $query->orderBy('created_at', 'desc')->get();
+        $user = Auth::user();
 
-        $this->drafts = $drafts->map(function ($draft) {
+        $this->drafts = $drafts->map(function ($draft) use ($user) {
             $data = $draft->toArray();
 
             if ($draft->action) {
@@ -77,13 +79,13 @@ new class extends Component {
             $data['status_badge'] = $draft->status_badge;
             $data['status_label'] = $draft->status_label;
 
+            // ✅ Pre-compute authorization (avoids passing array to @can)
+            $data['can_publish'] = $user->can('publish', $draft);
+
             return $data;
         })->toArray();
     }
 
-    /**
-     * Submit draft for review.
-     */
     public function submitForReview($draftId, ContentDraftManagerService $draftManager)
     {
         $draft = ContentDraft::findOrFail($draftId);
@@ -92,9 +94,6 @@ new class extends Component {
         session()->flash('message', 'Draft submitted for review.');
     }
 
-    /**
-     * Approve a draft.
-     */
     public function approveDraft($draftId, ContentDraftManagerService $draftManager)
     {
         $draft = ContentDraft::findOrFail($draftId);
@@ -110,9 +109,6 @@ new class extends Component {
         session()->flash('message', 'Draft approved successfully.');
     }
 
-    /**
-     * Open revision modal for a draft.
-     */
     public function openRevisionModal($draftId)
     {
         $this->revisionDraftId = $draftId;
@@ -121,9 +117,6 @@ new class extends Component {
         $this->showRevisionModal = true;
     }
 
-    /**
-     * Submit revision request (moves from review to revision).
-     */
     public function requestRevision(ContentDraftManagerService $draftManager)
     {
         if (!$this->revisionDraftId) {
@@ -143,9 +136,6 @@ new class extends Component {
         session()->flash('message', 'Draft sent for revision. The AI will regenerate with your feedback.');
     }
 
-    /**
-     * Regenerate a draft after revision (moves from revision to draft).
-     */
     public function regenerateDraft($draftId, ContentDraftManagerService $draftManager)
     {
         $draft = ContentDraft::findOrFail($draftId);
@@ -168,15 +158,15 @@ new class extends Component {
     public function markPublished($draftId, ContentDraftManagerService $draftManager)
     {
         $draft = ContentDraft::findOrFail($draftId);
+
         try {
             app(ContentGeneratorService::class)->publish($draft, auth()->user());
+            $draftManager->markAsPublished($draft);
+            $this->loadDrafts();
             session()->flash('message', '✅ Content published.');
         } catch (AuthorizationException $e) {
             session()->flash('error', '🚫 ' . $e->getMessage());
         }
-        $draftManager->markAsPublished($draft);
-        $this->loadDrafts();
-        session()->flash('message', 'Draft marked as published.');
     }
 
     public function toggleExpand($draftId)
@@ -189,7 +179,6 @@ new class extends Component {
         $this->filter = $filter;
         $this->loadDrafts();
     }
-
 };
 ?>
 
@@ -264,10 +253,10 @@ new class extends Component {
                                     </div>
                                     <div class="flex flex-wrap items-center gap-2 mt-1">
                                         <span class="px-2 py-0.5 text-xs rounded-full
-                                                                {{ $draft['action']['category'] === 'seo' ? 'bg-blue-100 text-blue-800' : '' }}
-                                                                {{ $draft['action']['category'] === 'content' ? 'bg-green-100 text-green-800' : '' }}
-                                                                {{ $draft['action']['category'] === 'social' ? 'bg-purple-100 text-purple-800' : '' }}
-                                                                ">
+                                            {{ $draft['action']['category'] === 'seo' ? 'bg-blue-100 text-blue-800' : '' }}
+                                            {{ $draft['action']['category'] === 'content' ? 'bg-green-100 text-green-800' : '' }}
+                                            {{ $draft['action']['category'] === 'social' ? 'bg-purple-100 text-purple-800' : '' }}
+                                            ">
                                             {{ $draft['action']['category'] ?? 'Unknown' }}
                                         </span>
                                         <span class="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
@@ -279,10 +268,10 @@ new class extends Component {
                                             </span>
                                         @endif
                                         <span class="px-2 py-0.5 text-xs rounded-full
-                                                                {{ $draft['action']['status'] === 'pending' ? 'bg-yellow-100 text-yellow-800' : '' }}
-                                                                {{ $draft['action']['status'] === 'approved' ? 'bg-blue-100 text-blue-800' : '' }}
-                                                                {{ $draft['action']['status'] === 'content_generated' ? 'bg-green-100 text-green-800' : '' }}
-                                                                ">
+                                            {{ $draft['action']['status'] === 'pending' ? 'bg-yellow-100 text-yellow-800' : '' }}
+                                            {{ $draft['action']['status'] === 'approved' ? 'bg-blue-100 text-blue-800' : '' }}
+                                            {{ $draft['action']['status'] === 'content_generated' ? 'bg-green-100 text-green-800' : '' }}
+                                            ">
                                             Action: {{ ucfirst($draft['action']['status'] ?? 'Unknown') }}
                                         </span>
                                     </div>
@@ -297,18 +286,16 @@ new class extends Component {
                             <!-- Content Draft Details -->
                             <div class="flex flex-wrap items-center gap-2 mb-2">
                                 <span class="px-2 py-1 text-xs rounded-full
-                                {{ $draft['type'] === 'blog' ? 'bg-green-100 text-green-800' : '' }}
-                                {{ $draft['type'] === 'social' ? 'bg-purple-100 text-purple-800' : '' }}
-                                {{ $draft['type'] === 'email' ? 'bg-yellow-100 text-yellow-800' : '' }}
-                                {{ $draft['type'] === 'web_copy' ? 'bg-blue-100 text-blue-800' : '' }}
-                                {{ $draft['type'] === 'seo_meta' ? 'bg-indigo-100 text-indigo-800' : '' }}
-                                ">
+                                    {{ $draft['type'] === 'blog' ? 'bg-green-100 text-green-800' : '' }}
+                                    {{ $draft['type'] === 'social' ? 'bg-purple-100 text-purple-800' : '' }}
+                                    {{ $draft['type'] === 'email' ? 'bg-yellow-100 text-yellow-800' : '' }}
+                                    {{ $draft['type'] === 'web_copy' ? 'bg-blue-100 text-blue-800' : '' }}
+                                    {{ $draft['type'] === 'seo_meta' ? 'bg-indigo-100 text-indigo-800' : '' }}
+                                    ">
                                     {{ $draft['type_label'] ?? ucfirst($draft['type']) }}
                                 </span>
 
-                                <!-- Status Badge -->
-                                <span
-                                    class="px-2 py-1 text-xs rounded-full {{ $draft['status_badge'] ?? 'bg-gray-100 text-gray-800' }}">
+                                <span class="px-2 py-1 text-xs rounded-full {{ $draft['status_badge'] ?? 'bg-gray-100 text-gray-800' }}">
                                     {{ $draft['status_label'] ?? ucfirst($draft['status']) }}
                                 </span>
 
@@ -375,15 +362,13 @@ new class extends Component {
                                             @if($draft['meta_title'])
                                                 <p class="text-sm text-blue-700">
                                                     <strong>Title:</strong> {{ $draft['meta_title'] }}
-                                                    <span class="text-xs text-gray-500">({{ strlen($draft['meta_title']) }}/50-60
-                                                        chars)</span>
+                                                    <span class="text-xs text-gray-500">({{ strlen($draft['meta_title']) }}/50-60 chars)</span>
                                                 </p>
                                             @endif
                                             @if($draft['meta_description'])
                                                 <p class="text-sm text-blue-700">
                                                     <strong>Description:</strong> {{ $draft['meta_description'] }}
-                                                    <span class="text-xs text-gray-500">({{ strlen($draft['meta_description']) }}/140-160
-                                                        chars)</span>
+                                                    <span class="text-xs text-gray-500">({{ strlen($draft['meta_description']) }}/140-160 chars)</span>
                                                 </p>
                                             @endif
                                         </div>
@@ -411,7 +396,6 @@ new class extends Component {
 
                         <!-- Action Buttons -->
                         <div class="flex flex-col space-y-2 ml-4">
-                            <!-- Draft → Submit for Review -->
                             @if($draft['status'] === 'draft')
                                 <button wire:click="submitForReview({{ $draft['id'] }})"
                                     wire:confirm="Are you ready to submit this draft for review?"
@@ -424,7 +408,6 @@ new class extends Component {
                                 </button>
                             @endif
 
-                            <!-- Review → Approve or Reject -->
                             @if($draft['status'] === 'review')
                                 <button wire:click="approveDraft({{ $draft['id'] }})"
                                     wire:confirm="Are you sure you want to approve this draft?"
@@ -437,7 +420,6 @@ new class extends Component {
                                 </button>
                             @endif
 
-                            <!-- Revision → Regenerate -->
                             @if($draft['status'] === 'revision')
                                 <button wire:click="regenerateDraft({{ $draft['id'] }})"
                                     wire:confirm="Regenerate this draft with your feedback?"
@@ -446,18 +428,15 @@ new class extends Component {
                                 </button>
                             @endif
 
-                            <!-- Approved → Publish -->
-                            @can('publish', $draft)
-                                @if($draft['status'] === 'approved')
-                                    <button wire:click="markPublished({{ $draft['id'] }})"
-                                        wire:confirm="Have you published this content?"
-                                        class="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
-                                        🚀 Mark Published
-                                    </button>
-                                @endif
-                            @endcan
+                            <!-- ✅ FIX: Use pre-computed permission instead of @can with array -->
+                            @if($draft['status'] === 'approved' && ($draft['can_publish'] ?? false))
+                                <button wire:click="markPublished({{ $draft['id'] }})"
+                                    wire:confirm="Have you published this content?"
+                                    class="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
+                                    🚀 Mark Published
+                                </button>
+                            @endif
 
-                            <!-- Published → View -->
                             @if($draft['status'] === 'published')
                                 <span class="px-3 py-2 text-sm bg-gray-100 text-gray-600 rounded-lg text-center">
                                     ✅ Published
@@ -470,7 +449,6 @@ new class extends Component {
                                 @endif
                             @endif
 
-                            <!-- Link back to action -->
                             @if(isset($draft['action']) && $draft['action'])
                                 <a href="{{ route('actions.queue') }}"
                                     class="px-3 py-1 text-xs text-center bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition">
