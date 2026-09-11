@@ -253,10 +253,10 @@ new class extends Component {
                                     </div>
                                     <div class="flex flex-wrap items-center gap-2 mt-1">
                                         <span class="px-2 py-0.5 text-xs rounded-full
-                                            {{ $draft['action']['category'] === 'seo' ? 'bg-blue-100 text-blue-800' : '' }}
-                                            {{ $draft['action']['category'] === 'content' ? 'bg-green-100 text-green-800' : '' }}
-                                            {{ $draft['action']['category'] === 'social' ? 'bg-purple-100 text-purple-800' : '' }}
-                                            ">
+                                                        {{ $draft['action']['category'] === 'seo' ? 'bg-blue-100 text-blue-800' : '' }}
+                                                        {{ $draft['action']['category'] === 'content' ? 'bg-green-100 text-green-800' : '' }}
+                                                        {{ $draft['action']['category'] === 'social' ? 'bg-purple-100 text-purple-800' : '' }}
+                                                        ">
                                             {{ $draft['action']['category'] ?? 'Unknown' }}
                                         </span>
                                         <span class="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
@@ -268,10 +268,10 @@ new class extends Component {
                                             </span>
                                         @endif
                                         <span class="px-2 py-0.5 text-xs rounded-full
-                                            {{ $draft['action']['status'] === 'pending' ? 'bg-yellow-100 text-yellow-800' : '' }}
-                                            {{ $draft['action']['status'] === 'approved' ? 'bg-blue-100 text-blue-800' : '' }}
-                                            {{ $draft['action']['status'] === 'content_generated' ? 'bg-green-100 text-green-800' : '' }}
-                                            ">
+                                                        {{ $draft['action']['status'] === 'pending' ? 'bg-yellow-100 text-yellow-800' : '' }}
+                                                        {{ $draft['action']['status'] === 'approved' ? 'bg-blue-100 text-blue-800' : '' }}
+                                                        {{ $draft['action']['status'] === 'content_generated' ? 'bg-green-100 text-green-800' : '' }}
+                                                        ">
                                             Action: {{ ucfirst($draft['action']['status'] ?? 'Unknown') }}
                                         </span>
                                     </div>
@@ -283,19 +283,20 @@ new class extends Component {
                                 </div>
                             @endif
 
-                            <!-- Content Draft Details -->
+                            {{-- <!-- Content Draft Details --> --}}
                             <div class="flex flex-wrap items-center gap-2 mb-2">
                                 <span class="px-2 py-1 text-xs rounded-full
-                                    {{ $draft['type'] === 'blog' ? 'bg-green-100 text-green-800' : '' }}
-                                    {{ $draft['type'] === 'social' ? 'bg-purple-100 text-purple-800' : '' }}
-                                    {{ $draft['type'] === 'email' ? 'bg-yellow-100 text-yellow-800' : '' }}
-                                    {{ $draft['type'] === 'web_copy' ? 'bg-blue-100 text-blue-800' : '' }}
-                                    {{ $draft['type'] === 'seo_meta' ? 'bg-indigo-100 text-indigo-800' : '' }}
-                                    ">
+                                            {{ $draft['type'] === 'blog' ? 'bg-green-100 text-green-800' : '' }}
+                                            {{ $draft['type'] === 'social' ? 'bg-purple-100 text-purple-800' : '' }}
+                                            {{ $draft['type'] === 'email' ? 'bg-yellow-100 text-yellow-800' : '' }}
+                                            {{ $draft['type'] === 'web_copy' ? 'bg-blue-100 text-blue-800' : '' }}
+                                            {{ $draft['type'] === 'seo_meta' ? 'bg-indigo-100 text-indigo-800' : '' }}
+                                            ">
                                     {{ $draft['type_label'] ?? ucfirst($draft['type']) }}
                                 </span>
 
-                                <span class="px-2 py-1 text-xs rounded-full {{ $draft['status_badge'] ?? 'bg-gray-100 text-gray-800' }}">
+                                <span
+                                    class="px-2 py-1 text-xs rounded-full {{ $draft['status_badge'] ?? 'bg-gray-100 text-gray-800' }}">
                                     {{ $draft['status_label'] ?? ucfirst($draft['status']) }}
                                 </span>
 
@@ -362,13 +363,15 @@ new class extends Component {
                                             @if($draft['meta_title'])
                                                 <p class="text-sm text-blue-700">
                                                     <strong>Title:</strong> {{ $draft['meta_title'] }}
-                                                    <span class="text-xs text-gray-500">({{ strlen($draft['meta_title']) }}/50-60 chars)</span>
+                                                    <span class="text-xs text-gray-500">({{ strlen($draft['meta_title']) }}/50-60
+                                                        chars)</span>
                                                 </p>
                                             @endif
                                             @if($draft['meta_description'])
                                                 <p class="text-sm text-blue-700">
                                                     <strong>Description:</strong> {{ $draft['meta_description'] }}
-                                                    <span class="text-xs text-gray-500">({{ strlen($draft['meta_description']) }}/140-160 chars)</span>
+                                                    <span class="text-xs text-gray-500">({{ strlen($draft['meta_description']) }}/140-160
+                                                        chars)</span>
                                                 </p>
                                             @endif
                                         </div>
@@ -428,7 +431,6 @@ new class extends Component {
                                 </button>
                             @endif
 
-                            <!-- ✅ FIX: Use pre-computed permission instead of @can with array -->
                             @if($draft['status'] === 'approved' && ($draft['can_publish'] ?? false))
                                 <button wire:click="markPublished({{ $draft['id'] }})"
                                     wire:confirm="Have you published this content?"
