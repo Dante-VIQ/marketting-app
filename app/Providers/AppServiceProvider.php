@@ -10,9 +10,9 @@ use App\Policies\AiActionPolicy;
 use App\Policies\BrandPolicy;
 use App\Policies\ContentDraftPolicy;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Facades\Request;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
