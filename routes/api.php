@@ -77,6 +77,9 @@ Route::prefix('agent')->name('agent.')    ->middleware(['verify.api.key', 'agent
     Route::post('/refresh-data/{brandId}', [AgentController::class, 'refreshData']);
 
     Route::get('/data-status/{brandId}', [AgentController::class, 'dataStatus']);
+
+    Route::post('/opportunities/check', [AgentController::class, 'checkOpportunities']);
+Route::post('/opportunities/mark', [AgentController::class, 'markOpportunity']);
 });
 
 // Public ping

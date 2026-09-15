@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Jobs\GenerateContentForActionJob;
 use App\Models\ActionVerification;
 use App\Models\AgentExperience;
+use App\Models\AgentOpportunityTracking;
+use App\Models\AiAction;
 use App\Models\AnalyticsSnapshot;
 use App\Models\Brand;
 use App\Models\Campaign;
@@ -902,4 +904,132 @@ public function executeAction(Request $request)
             'recommendations' => $recommendations,
         ]);
     }
+
+    /**
+ * Check which fingerprints are new (not yet processed today).
+ * Returns new, recurring, and already-processed-today lists.
+ */
+public function checkOpportunities(Request $request)
+{
+    $validated = $request->validate([
+        'brand_id'                              => 'required|integer|exists:brands,id',
+        'opportunities'                         => 'required|array',
+        'opportunities.*.fingerprint'           => 'required|string|size:64',
+        'opportunities.*.stable_key'            => 'required|string|size:64',
+        'opportunities.*.type'                  => 'required|string',
+    ]);
+
+    $brandId = $validated['brand_id'];
+    $opps    = $validated['opportunities'];
+
+    $fingerprints = array_column($opps, 'fingerprint');
+
+    // Which were already processed or are being processed today?
+    $processedToday = AgentOpportunityTracking::forBrand($brandId)
+        ->whereIn('fingerprint', $fingerprints)
+        ->whereDate('tracked_date', today())
+        ->whereIn('status', ['processed', 'processing'])
+        ->pluck('fingerprint')
+        ->toArray();
+
+    $processedSet = array_flip($processedToday);
+
+    $new       = [];
+    $recurring = [];
+
+    foreach ($opps as $opp) {
+        $fp = $opp['fingerprint'];
+        if (isset($processedSet[$fp])) {
+            continue; // Already processed today
+        }
+
+        $sk = $opp['stable_key'];
+
+        // Has this stable_key been seen on any prior day?
+        $prior = AgentOpportunityTracking::forBrand($brandId)
+            ->forStableKey($sk)
+            ->whereDate('tracked_date', '<', today())
+            ->orderByDesc('tracked_date')
+            ->first();
+
+        if ($prior) {
+            $recurring[] = [
+                'fingerprint'            => $fp,
+                'stable_key'             => $sk,
+                'recurrence_count'       => ($prior->recurrence_count ?? 1) + 1,
+                'first_seen_at'          => optional($prior->first_seen_at)->toISOString(),
+                'last_attempt_status'    => $prior->status,
+                'last_attempt_action_id' => $prior->action_id,
+            ];
+        } else {
+            $new[] = [
+                'fingerprint' => $fp,
+                'stable_key'  => $sk,
+            ];
+        }
+    }
+
+    return response()->json([
+        'new'                     => $new,
+        'recurring'               => $recurring,
+        'already_processed_today' => $processedToday,
+    ]);
+}
+
+/**
+ * Mark an opportunity as processing / processed / failed.
+ */
+public function markOpportunity(Request $request)
+{
+    $validated = $request->validate([
+        'brand_id'         => 'required|integer|exists:brands,id',
+        'fingerprint'      => 'required|string|size:64',
+        'stable_key'       => 'required|string|size:64',
+        'opportunity_type' => 'required|string',
+        'status'           => 'required|in:processing,processed,failed,escalated',
+        'opportunity_data' => 'nullable|array',
+        'action_id'        => 'nullable|integer',
+    ]);
+
+    $brandId = $validated['brand_id'];
+    $fp      = $validated['fingerprint'];
+    $sk      = $validated['stable_key'];
+
+    // How many times has this stable_key been seen before today?
+    $priorCount = AgentOpportunityTracking::forBrand($brandId)
+        ->forStableKey($sk)
+        ->where('fingerprint', '!=', $fp)
+        ->count();
+
+    $tracking = AgentOpportunityTracking::firstOrNew([
+        'fingerprint' => $fp,
+    ]);
+
+    $tracking->fill([
+        'brand_id'         => $brandId,
+        'stable_key'       => $sk,
+        'tracked_date'     => today(),
+        'opportunity_type' => $validated['opportunity_type'],
+        'opportunity_data' => $validated['opportunity_data'] ?? null,
+        'status'           => $validated['status'],
+        'action_id'        => $validated['action_id'] ?? null,
+        'last_processed_at'=> now(),
+        'recurrence_count' => $priorCount + 1,
+    ]);
+
+    if (!$tracking->exists) {
+        $tracking->first_seen_at = now();
+    }
+
+    $tracking->last_seen_at = now();
+    $tracking->times_seen   = ($tracking->times_seen ?? 0) + 1;
+
+    $tracking->save();
+
+    return response()->json([
+        'success'     => true,
+        'tracking_id' => $tracking->id,
+        'status'      => $tracking->status,
+    ]);
+}
 }
