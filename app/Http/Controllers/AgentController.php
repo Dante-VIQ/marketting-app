@@ -10,6 +10,7 @@ use App\Models\AiAction;
 use App\Models\AnalyticsSnapshot;
 use App\Models\Brand;
 use App\Models\Campaign;
+use App\Models\ConfidenceCalibration;
 use App\Models\Lead;
 use App\Models\SeoIssue;
 use App\Services\AI\AiGatewayService;
@@ -1281,6 +1282,117 @@ class AgentController extends Controller
                 ];
             }),
             'count' => $escalations->count(),
+        ]);
+    }
+
+    /**
+     * Get calibration data for a brand + opportunity type.
+     * Used by the agent before scoring confidence.
+     */
+    public function getCalibration(Request $request, $brandId)
+    {
+        $opportunityType = $request->query('type');
+        $actionName      = $request->query('action');
+
+        $query = ConfidenceCalibration::forBrand($brandId);
+
+        if ($opportunityType) {
+            $query->where('opportunity_type', $opportunityType);
+        }
+        if ($actionName) {
+            $query->where('action_name', $actionName);
+        }
+
+        $buckets = $query->orderBy('confidence_bucket')->get()->map(function ($cal) {
+            return [
+                'confidence_bucket'    => $cal->confidence_bucket,
+                'range'                => sprintf('%.1f–%.1f', $cal->confidence_bucket / 10, ($cal->confidence_bucket + 1) / 10),
+                'opportunity_type'     => $cal->opportunity_type,
+                'action_name'          => $cal->action_name,
+                'total_predictions'    => $cal->total_predictions,
+                'successful_predictions' => $cal->successful_predictions,
+                'actual_accuracy'      => $cal->actual_accuracy,
+                'sample_sufficient'    => $cal->total_predictions >= 10,
+            ];
+        });
+
+        return response()->json([
+            'brand_id'  => $brandId,
+            'buckets'   => $buckets,
+            'has_data'  => $buckets->isNotEmpty(),
+        ]);
+    }
+
+    /**
+     * Record an observed outcome against a confidence prediction.
+     * Called by the agent after every verified execution.
+     */
+    public function recordCalibration(Request $request)
+    {
+        $validated = $request->validate([
+            'brand_id'          => 'required|integer|exists:brands,id',
+            'stated_confidence' => 'required|numeric|min:0|max:1',
+            'opportunity_type'  => 'required|string',
+            'action_name'       => 'nullable|string',
+            'was_successful'    => 'required|boolean',
+        ]);
+
+        $bucket = ConfidenceCalibration::bucket($validated['stated_confidence']);
+
+        $cal = ConfidenceCalibration::firstOrNew([
+            'brand_id'         => $validated['brand_id'],
+            'confidence_bucket' => $bucket,
+            'opportunity_type' => $validated['opportunity_type'],
+            'action_name'      => $validated['action_name'],
+        ]);
+
+        $cal->total_predictions++;
+        if ($validated['was_successful']) {
+            $cal->successful_predictions++;
+        }
+
+        $cal->actual_accuracy = $cal->total_predictions > 0
+            ? round($cal->successful_predictions / $cal->total_predictions, 4)
+            : 0.0;
+
+        $cal->last_updated_at = now();
+        $cal->save();
+
+        return response()->json([
+            'success'          => true,
+            'bucket'           => $bucket,
+            'total_predictions' => $cal->total_predictions,
+            'actual_accuracy'  => $cal->actual_accuracy,
+        ]);
+    }
+
+    /**
+     * Calibration summary for the dashboard.
+     */
+    public function getCalibrationSummary($brandId)
+    {
+        $rows = ConfidenceCalibration::forBrand($brandId)
+            ->where('total_predictions', '>=', 5)
+            ->orderBy('opportunity_type')
+            ->orderBy('confidence_bucket')
+            ->get();
+
+        // Group by opportunity type
+        $grouped = $rows->groupBy('opportunity_type')->map(function ($group) {
+            return $group->map(function ($cal) {
+                return [
+                    'bucket'    => $cal->confidence_bucket,
+                    'range'     => sprintf('%.1f–%.1f', $cal->confidence_bucket / 10, ($cal->confidence_bucket + 1) / 10),
+                    'samples'   => $cal->total_predictions,
+                    'accuracy'  => $cal->actual_accuracy,
+                    'drift'     => round($cal->actual_accuracy - ($cal->confidence_bucket / 10), 3),
+                ];
+            })->values();
+        });
+
+        return response()->json([
+            'brand_id' => $brandId,
+            'by_type'  => $grouped,
         ]);
     }
 }

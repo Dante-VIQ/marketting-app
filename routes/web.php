@@ -33,6 +33,10 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::post('/{brand}/toggle-active', [BrandController::class, 'toggleActive'])->name('toggle-active');
     });
 
+    Route::get('/calibration', function () {
+    return view('calibration');
+})->name('calibration');
+
     // // Analytics
     // Route::prefix('analytics')->name('analytics.')->group(function () {
     //     Route::get('/', function () {
@@ -79,6 +83,7 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('/published', function () {
             return view('content.published');
         })->name('published');
+
         Route::post('/generate-all', [App\Http\Controllers\ContentController::class, 'generateAll'])->name('generate-all');
         Route::get('/content/queue-status', [App\Http\Controllers\ContentController::class, 'queueStatus'])->name('content.queue-status');
     });
