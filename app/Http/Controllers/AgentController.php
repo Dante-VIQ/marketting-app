@@ -1125,4 +1125,83 @@ class AgentController extends Controller
             'retry_status' => $action->retry_status,
         ]);
     }
+
+    /**
+ * Get full history of a recurring opportunity by stable_key.
+ */
+public function getOpportunityHistory($brandId, $stableKey)
+{
+    $trackings = AgentOpportunityTracking::where('brand_id', $brandId)
+        ->where('stable_key', $stableKey)
+        ->orderBy('tracked_date', 'asc')
+        ->get();
+
+    if ($trackings->isEmpty()) {
+        return response()->json([
+            'brand_id'    => $brandId,
+            'stable_key'  => $stableKey,
+            'attempts'    => [],
+            'summary'     => [
+                'total_attempts'    => 0,
+                'successful'        => 0,
+                'failed'            => 0,
+                'first_seen'        => null,
+                'last_seen'         => null,
+            ],
+        ]);
+    }
+
+    $attempts = [];
+    $successCount = 0;
+    $failCount = 0;
+
+    foreach ($trackings as $index => $tracking) {
+        $action = $tracking->action_id
+            ? AiAction::find($tracking->action_id)
+            : null;
+
+        $attempt = [
+            'attempt_number'  => $index + 1,
+            'date'            => optional($tracking->tracked_date)->toDateString(),
+            'status'          => $tracking->status,
+            'action_id'       => $tracking->action_id,
+            'action_name'     => $action?->title,
+            'action_category' => $action?->category,
+            'rejection_reason'=> $action?->rejection_reason,
+            'review_notes'    => $action?->review_notes,
+            'retry_status'    => $action?->retry_status,
+            'expected_approach'=> $action?->expected_retry_approach,
+        ];
+
+        if (in_array($tracking->status, ['processed'])) {
+            $successCount++;
+        } elseif (in_array($tracking->status, ['failed', 'escalated'])) {
+            $failCount++;
+        }
+
+        $attempts[] = $attempt;
+    }
+
+    // Gather human rejection reasons across all attempts
+    $rejectionReasons = collect($attempts)
+        ->pluck('rejection_reason')
+        ->filter()
+        ->unique()
+        ->values()
+        ->toArray();
+
+    return response()->json([
+        'brand_id'   => $brandId,
+        'stable_key' => $stableKey,
+        'attempts'   => $attempts,
+        'summary'    => [
+            'total_attempts'    => count($attempts),
+            'successful'        => $successCount,
+            'failed'            => $failCount,
+            'first_seen'        => optional($trackings->first()->tracked_date)->toDateString(),
+            'last_seen'         => optional($trackings->last()->tracked_date)->toDateString(),
+            'rejection_reasons' => $rejectionReasons,
+        ],
+    ]);
+}
 }

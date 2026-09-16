@@ -23,7 +23,7 @@ Route::get('/test-auth', function (Request $request) {
     ]);
 });
 
-Route::prefix('agent')->name('agent.')    ->middleware(['verify.api.key', 'agent.brand', 'throttle:agent'])->group(function () {
+Route::prefix('agent')->name('agent.')->middleware(['verify.api.key', 'agent.brand', 'throttle:agent'])->group(function () {
     // ===== OPPORTUNITIES =====
     Route::get('/opportunities/{brandId}', [AgentController::class, 'getOpportunities']);
 
@@ -70,8 +70,8 @@ Route::prefix('agent')->name('agent.')    ->middleware(['verify.api.key', 'agent
     Route::get('/ai/ping', [AgentController::class, 'pingAI']);
 
     Route::post('/actions/rollback/{brandId}', [AgentController::class, 'rollbackAction']);
-    
-        // Analytics analysis
+
+    // Analytics analysis
     Route::get('/analytics/analyze/{brandId}', [AgentController::class, 'analyzeAnalytics']);
 
     Route::post('/refresh-data/{brandId}', [AgentController::class, 'refreshData']);
@@ -79,11 +79,13 @@ Route::prefix('agent')->name('agent.')    ->middleware(['verify.api.key', 'agent
     Route::get('/data-status/{brandId}', [AgentController::class, 'dataStatus']);
 
     Route::post('/opportunities/check', [AgentController::class, 'checkOpportunities']);
-Route::post('/opportunities/mark', [AgentController::class, 'markOpportunity']);
+    Route::post('/opportunities/mark', [AgentController::class, 'markOpportunity']);
 
-Route::get('/actions/outcomes/{brandId}', [AgentController::class, 'getPendingOutcomes']);
-Route::post('/actions/acknowledge', [AgentController::class, 'acknowledgeOutcomes']);
-Route::post('/actions/{actionId}/authorize-retry', [AgentController::class, 'authorizeRetry']);
+    Route::get('/actions/outcomes/{brandId}', [AgentController::class, 'getPendingOutcomes']);
+    Route::post('/actions/acknowledge', [AgentController::class, 'acknowledgeOutcomes']);
+    Route::post('/actions/{actionId}/authorize-retry', [AgentController::class, 'authorizeRetry']);
+
+    Route::get('/agent/opportunities/history/{brandId}/{stableKey}', [AgentController::class, 'getOpportunityHistory']);
 });
 
 // Public ping
