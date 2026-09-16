@@ -34,8 +34,8 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     });
 
     Route::get('/calibration', function () {
-    return view('calibration');
-})->name('calibration');
+        return view('calibration');
+    })->name('calibration');
 
     // // Analytics
     // Route::prefix('analytics')->name('analytics.')->group(function () {

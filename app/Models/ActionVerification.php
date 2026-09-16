@@ -9,24 +9,28 @@ class ActionVerification extends Model
 {
     protected $fillable = [
         'brand_id',
-        'action_name',
-        'opportunity_type',
-        'experience_id',
-        'before_metrics',
-        'after_metrics',
-        'improvement_percentage',
+        'action_id',
+        'phase',
+        'metrics_before',
+        'metrics_after',
+        'metric_deltas',
         'was_successful',
-        'status',
-        'verification_notes',
+        'improvement_score',
+        'rollback_triggered',
+        'rollback_reason',
+        'rollback_at',
         'verified_at',
     ];
 
-    protected $casts = [
-        'before_metrics' => 'array',
-        'after_metrics' => 'array',
-        'improvement_percentage' => 'decimal:2',
-        'was_successful' => 'boolean',
-        'verified_at' => 'datetime',
+   protected $casts = [
+        'metrics_before'     => 'array',
+        'metrics_after'      => 'array',
+        'metric_deltas'      => 'array',
+        'was_successful'     => 'boolean',
+        'improvement_score'  => 'float',
+        'rollback_triggered' => 'boolean',
+        'rollback_at'        => 'datetime',
+        'verified_at'        => 'datetime',
     ];
 
     public function brand(): BelongsTo
@@ -37,5 +41,15 @@ class ActionVerification extends Model
     public function experience(): BelongsTo
     {
         return $this->belongsTo(AgentExperience::class);
+    }
+
+        public function action(): BelongsTo
+    {
+        return $this->belongsTo(AiAction::class);
+    }
+
+    public function scopeForBrand($query, int $brandId)
+    {
+        return $query->where('brand_id', $brandId);
     }
 }

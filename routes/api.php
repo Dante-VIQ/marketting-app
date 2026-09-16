@@ -93,6 +93,11 @@ Route::prefix('agent')->name('agent.')->middleware(['verify.api.key', 'agent.bra
     Route::get('/calibration/{brandId}', [AgentController::class, 'getCalibration']);
     Route::post('/calibration/record', [AgentController::class, 'recordCalibration']);
     Route::get('/calibration/summary/{brandId}', [AgentController::class, 'getCalibrationSummary']);
+
+    Route::post('/verification/register', [AgentController::class, 'registerVerification']);
+    Route::get('/verification/due/{brandId}', [AgentController::class, 'getDueVerifications']);
+    Route::post('/verification/record', [AgentController::class, 'recordVerification']);
+    Route::post('/actions/{actionId}/rollback', [AgentController::class, 'rollbackAction']);
 });
 
 // Public ping

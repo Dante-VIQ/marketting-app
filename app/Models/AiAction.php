@@ -40,6 +40,13 @@ class AiAction extends Model
         'human_response_notes',
         'human_response_at',
         'snooze_until',
+        'verified_immediate',
+        'verified_hour_1',
+        'verified_day_1',
+        'verification_status',
+        'metrics_at_execution',
+        'verify_at_hour_1',
+        'verify_at_day_1',
     ];
 
     protected $casts = [
@@ -51,6 +58,12 @@ class AiAction extends Model
         'agent_notified_at' => 'datetime',
         'human_response_at' => 'datetime',
         'snooze_until'  => 'date',
+        'verified_immediate'  => 'boolean',
+        'verified_hour_1'     => 'boolean',
+        'verified_day_1'      => 'boolean',
+        'metrics_at_execution' => 'array',
+        'verify_at_hour_1'    => 'datetime',
+        'verify_at_day_1'     => 'datetime',
     ];
 
     /**
@@ -259,5 +272,26 @@ class AiAction extends Model
         return $this->human_response === 'snooze'
             && $this->snooze_until
             && $this->snooze_until->isFuture();
+    }
+
+    public function needsHour1Verification(): bool
+    {
+        return !$this->verified_hour_1
+            && $this->verify_at_hour_1
+            && $this->verify_at_hour_1->isPast()
+            && $this->verification_status !== 'rolled_back';
+    }
+
+    public function needsDay1Verification(): bool
+    {
+        return !$this->verified_day_1
+            && $this->verify_at_day_1
+            && $this->verify_at_day_1->isPast()
+            && $this->verification_status !== 'rolled_back';
+    }
+
+    public function verifications()
+    {
+        return $this->hasMany(ActionVerification::class, 'action_id');
     }
 }

@@ -783,14 +783,6 @@ class AgentController extends Controller
         return $gaps;
     }
 
-    public function rollbackAction(Request $request, $brandId)
-    {
-        $actionId = $request->input('action_id');
-        $actionName = $request->input('action_name');
-        // Logic to rollback
-        return response()->json(['success' => true, 'message' => "Rollback initiated for $actionName"]);
-    }
-
     public function getSimilarExperiences(Request $request, $brandId)
     {
         $type = $request->input('type');
@@ -1241,7 +1233,7 @@ class AgentController extends Controller
             'agent_notified_at'    => null,
         ]);
 
-        \Log::info('Escalation response recorded', [
+        Log::info('Escalation response recorded', [
             'action_id' => $action->id,
             'response'  => $validated['response'],
             'snooze_until' => $snoozeUntil,
@@ -1395,4 +1387,172 @@ class AgentController extends Controller
             'by_type'  => $grouped,
         ]);
     }
+
+    /**
+ * Register an action for multi-phase verification.
+ * Called by the agent right after successful execution.
+ */
+public function registerVerification(Request $request)
+{
+    $validated = $request->validate([
+        'brand_id'            => 'required|integer|exists:brands,id',
+        'action_id'           => 'required|integer|exists:ai_actions,id',
+        'action_name'         => 'required|string',
+        'metrics_at_execution'=> 'nullable|array',
+    ]);
+
+    $action = AiAction::findOrFail($validated['action_id']);
+    $windows = config("verification.windows.{$validated['action_name']}", null);
+
+    if (!$windows) {
+        return response()->json([
+            'success' => false,
+            'error'   => "No verification config for action: {$validated['action_name']}",
+        ], 400);
+    }
+
+    $now = now();
+
+    $action->update([
+        'metrics_at_execution'  => $validated['metrics_at_execution'] ?? null,
+        'verification_status'   => 'pending',
+        'verify_at_hour_1'      => $windows['hour_1'] ? $now->copy()->addSeconds($windows['hour_1']) : null,
+        'verify_at_day_1'       => $windows['day_1'] ? $now->copy()->addSeconds($windows['day_1']) : null,
+    ]);
+
+    return response()->json([
+        'success'         => true,
+        'action_id'       => $action->id,
+        'schedule'        => [
+            'hour_1' => optional($action->verify_at_hour_1)->toISOString(),
+            'day_1'  => optional($action->verify_at_day_1)->toISOString(),
+        ],
+    ]);
+}
+
+/**
+ * Get actions that are due for a verification phase.
+ */
+public function getDueVerifications($brandId)
+{
+    $hour1Due = AiAction::where('brand_id', $brandId)
+        ->where('verification_status', '!=', 'rolled_back')
+        ->where('verified_hour_1', false)
+        ->whereNotNull('verify_at_hour_1')
+        ->where('verify_at_hour_1', '<=', now())
+        ->get();
+
+    $day1Due = AiAction::where('brand_id', $brandId)
+        ->where('verification_status', '!=', 'rolled_back')
+        ->where('verified_day_1', false)
+        ->whereNotNull('verify_at_day_1')
+        ->where('verify_at_day_1', '<=', now())
+        ->get();
+
+    $format = fn($actions, $phase) => $actions->map(fn($a) => [
+        'action_id'      => $a->id,
+        'action_name'    => $a->title,
+        'action_key'     => $a->category,
+        'phase'          => $phase,
+        'metrics_before' => $a->metrics_at_execution,
+        'executed_at'    => optional($a->executed_at)->toISOString(),
+        'opportunity_type' => $a->category,
+    ]);
+
+    return response()->json([
+        'brand_id' => $brandId,
+        'hour_1'   => $format($hour1Due, 'hour_1'),
+        'day_1'    => $format($day1Due, 'day_1'),
+    ]);
+}
+
+/**
+ * Record a verification result.
+ */
+public function recordVerification(Request $request)
+{
+    $validated = $request->validate([
+        'brand_id'           => 'required|integer|exists:brands,id',
+        'action_id'          => 'required|integer|exists:ai_actions,id',
+        'phase'              => 'required|in:immediate,hour_1,day_1',
+        'metrics_before'     => 'nullable|array',
+        'metrics_after'      => 'required|array',
+        'metric_deltas'      => 'nullable|array',
+        'was_successful'     => 'required|boolean',
+        'improvement_score'  => 'nullable|numeric',
+    ]);
+
+    $action = AiAction::findOrFail($validated['action_id']);
+
+    $verification = ActionVerification::updateOrCreate(
+        ['action_id' => $action->id, 'phase' => $validated['phase']],
+        [
+            'brand_id'          => $validated['brand_id'],
+            'metrics_before'    => $validated['metrics_before'] ?? $action->metrics_at_execution,
+            'metrics_after'     => $validated['metrics_after'],
+            'metric_deltas'     => $validated['metric_deltas'],
+            'was_successful'    => $validated['was_successful'],
+            'improvement_score' => $validated['improvement_score'],
+            'verified_at'       => now(),
+        ]
+    );
+
+    // Mark phase complete on the action
+    $phaseField = "verified_{$validated['phase']}";
+    $action->{$phaseField} = true;
+
+    // Decide overall status
+    if ($validated['phase'] === 'day_1') {
+        $action->verification_status = $validated['was_successful'] ? 'verified' : 'failed';
+    }
+
+    $action->save();
+
+    return response()->json([
+        'success'         => true,
+        'verification_id' => $verification->id,
+        'phase'           => $validated['phase'],
+        'was_successful'  => $verification->was_successful,
+    ]);
+}
+
+/**
+ * Trigger a rollback for a failed action.
+ */
+public function rollbackAction(Request $request, $actionId)
+{
+    $validated = $request->validate([
+        'reason' => 'required|string|max:1000',
+    ]);
+
+    $action = AiAction::findOrFail($actionId);
+
+    $action->update([
+        'verification_status' => 'rolled_back',
+    ]);
+
+    ActionVerification::create([
+        'brand_id'         => $action->brand_id,
+        'action_id'        => $action->id,
+        'phase'            => 'rollback',
+        'metrics_before'   => $action->metrics_at_execution,
+        'metrics_after'    => null,
+        'was_successful'   => false,
+        'rollback_triggered' => true,
+        'rollback_reason'  => $validated['reason'],
+        'rollback_at'      => now(),
+        'verified_at'      => now(),
+    ]);
+
+    Log::warning('Action rolled back', [
+        'action_id' => $action->id,
+        'reason'    => $validated['reason'],
+    ]);
+
+    return response()->json([
+        'success'   => true,
+        'action_id' => $action->id,
+        'status'    => 'rolled_back',
+    ]);
+}
 }
