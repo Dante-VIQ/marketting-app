@@ -86,6 +86,9 @@ Route::prefix('agent')->name('agent.')->middleware(['verify.api.key', 'agent.bra
     Route::post('/actions/{actionId}/authorize-retry', [AgentController::class, 'authorizeRetry']);
 
     Route::get('/agent/opportunities/history/{brandId}/{stableKey}', [AgentController::class, 'getOpportunityHistory']);
+
+    Route::get('/agent/escalations/{brandId}', [AgentController::class, 'getPendingEscalations']);
+    Route::post('/agent/escalations/{actionId}/respond', [AgentController::class, 'respondToEscalation']);
 });
 
 // Public ping

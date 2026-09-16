@@ -1127,81 +1127,160 @@ class AgentController extends Controller
     }
 
     /**
- * Get full history of a recurring opportunity by stable_key.
- */
-public function getOpportunityHistory($brandId, $stableKey)
-{
-    $trackings = AgentOpportunityTracking::where('brand_id', $brandId)
-        ->where('stable_key', $stableKey)
-        ->orderBy('tracked_date', 'asc')
-        ->get();
+     * Get full history of a recurring opportunity by stable_key.
+     */
+    public function getOpportunityHistory($brandId, $stableKey)
+    {
+        $trackings = AgentOpportunityTracking::where('brand_id', $brandId)
+            ->where('stable_key', $stableKey)
+            ->orderBy('tracked_date', 'asc')
+            ->get();
 
-    if ($trackings->isEmpty()) {
+        if ($trackings->isEmpty()) {
+            return response()->json([
+                'brand_id'    => $brandId,
+                'stable_key'  => $stableKey,
+                'attempts'    => [],
+                'summary'     => [
+                    'total_attempts'    => 0,
+                    'successful'        => 0,
+                    'failed'            => 0,
+                    'first_seen'        => null,
+                    'last_seen'         => null,
+                ],
+            ]);
+        }
+
+        $attempts = [];
+        $successCount = 0;
+        $failCount = 0;
+
+        foreach ($trackings as $index => $tracking) {
+            $action = $tracking->action_id
+                ? AiAction::find($tracking->action_id)
+                : null;
+
+            $attempt = [
+                'attempt_number'  => $index + 1,
+                'date'            => optional($tracking->tracked_date)->toDateString(),
+                'status'          => $tracking->status,
+                'action_id'       => $tracking->action_id,
+                'action_name'     => $action?->title,
+                'action_category' => $action?->category,
+                'rejection_reason' => $action?->rejection_reason,
+                'review_notes'    => $action?->review_notes,
+                'retry_status'    => $action?->retry_status,
+                'expected_approach' => $action?->expected_retry_approach,
+            ];
+
+            if (in_array($tracking->status, ['processed'])) {
+                $successCount++;
+            } elseif (in_array($tracking->status, ['failed', 'escalated'])) {
+                $failCount++;
+            }
+
+            $attempts[] = $attempt;
+        }
+
+        // Gather human rejection reasons across all attempts
+        $rejectionReasons = collect($attempts)
+            ->pluck('rejection_reason')
+            ->filter()
+            ->unique()
+            ->values()
+            ->toArray();
+
         return response()->json([
-            'brand_id'    => $brandId,
-            'stable_key'  => $stableKey,
-            'attempts'    => [],
-            'summary'     => [
-                'total_attempts'    => 0,
-                'successful'        => 0,
-                'failed'            => 0,
-                'first_seen'        => null,
-                'last_seen'         => null,
+            'brand_id'   => $brandId,
+            'stable_key' => $stableKey,
+            'attempts'   => $attempts,
+            'summary'    => [
+                'total_attempts'    => count($attempts),
+                'successful'        => $successCount,
+                'failed'            => $failCount,
+                'first_seen'        => optional($trackings->first()->tracked_date)->toDateString(),
+                'last_seen'         => optional($trackings->last()->tracked_date)->toDateString(),
+                'rejection_reasons' => $rejectionReasons,
             ],
         ]);
     }
 
-    $attempts = [];
-    $successCount = 0;
-    $failCount = 0;
+    /**
+     * Human responds to an escalation.
+     */
+    public function respondToEscalation(Request $request, $actionId)
+    {
+        $validated = $request->validate([
+            'response'       => 'required|in:investigate,retry,resolve,snooze',
+            'notes'          => 'nullable|string|max:2000',
+            'snooze_days'    => 'nullable|integer|min:1|max:30',
+        ]);
 
-    foreach ($trackings as $index => $tracking) {
-        $action = $tracking->action_id
-            ? AiAction::find($tracking->action_id)
-            : null;
+        $action = AiAction::findOrFail($actionId);
 
-        $attempt = [
-            'attempt_number'  => $index + 1,
-            'date'            => optional($tracking->tracked_date)->toDateString(),
-            'status'          => $tracking->status,
-            'action_id'       => $tracking->action_id,
-            'action_name'     => $action?->title,
-            'action_category' => $action?->category,
-            'rejection_reason'=> $action?->rejection_reason,
-            'review_notes'    => $action?->review_notes,
-            'retry_status'    => $action?->retry_status,
-            'expected_approach'=> $action?->expected_retry_approach,
-        ];
-
-        if (in_array($tracking->status, ['processed'])) {
-            $successCount++;
-        } elseif (in_array($tracking->status, ['failed', 'escalated'])) {
-            $failCount++;
+        if (!$action->isEscalation()) {
+            return response()->json([
+                'success' => false,
+                'error'   => 'This action is not an escalation.',
+            ], 400);
         }
 
-        $attempts[] = $attempt;
+        $snoozeUntil = null;
+        if ($validated['response'] === 'snooze') {
+            $days = $validated['snooze_days'] ?? 7;
+            $snoozeUntil = now()->addDays($days)->toDateString();
+        }
+
+        $action->update([
+            'human_response'       => $validated['response'],
+            'human_response_notes' => $validated['notes'] ?? null,
+            'human_response_at'    => now(),
+            'snooze_until'         => $snoozeUntil,
+            // Clear agent_notified_at so the agent re-processes this
+            'agent_notified_at'    => null,
+        ]);
+
+        \Log::info('Escalation response recorded', [
+            'action_id' => $action->id,
+            'response'  => $validated['response'],
+            'snooze_until' => $snoozeUntil,
+        ]);
+
+        return response()->json([
+            'success'      => true,
+            'action_id'    => $action->id,
+            'response'     => $validated['response'],
+            'snooze_until' => $snoozeUntil,
+        ]);
     }
 
-    // Gather human rejection reasons across all attempts
-    $rejectionReasons = collect($attempts)
-        ->pluck('rejection_reason')
-        ->filter()
-        ->unique()
-        ->values()
-        ->toArray();
+    /**
+     * Get escalations awaiting human response.
+     */
+    public function getPendingEscalations($brandId)
+    {
+        $escalations = AiAction::where('brand_id', $brandId)
+            ->where('category', 'escalation')
+            ->whereNull('human_response')
+            ->orderBy('created_at', 'desc')
+            ->get();
 
-    return response()->json([
-        'brand_id'   => $brandId,
-        'stable_key' => $stableKey,
-        'attempts'   => $attempts,
-        'summary'    => [
-            'total_attempts'    => count($attempts),
-            'successful'        => $successCount,
-            'failed'            => $failCount,
-            'first_seen'        => optional($trackings->first()->tracked_date)->toDateString(),
-            'last_seen'         => optional($trackings->last()->tracked_date)->toDateString(),
-            'rejection_reasons' => $rejectionReasons,
-        ],
-    ]);
-}
+        return response()->json([
+            'escalations' => $escalations->map(function ($action) {
+                $payload = json_decode($action->suggested_content, true) ?? [];
+                return [
+                    'action_id'        => $action->id,
+                    'title'            => $action->title,
+                    'description'      => $action->description,
+                    'priority'         => $action->priority,
+                    'stable_key'       => $payload['stable_key'] ?? null,
+                    'recurrence_count' => $payload['recurrence_count'] ?? null,
+                    'first_seen'       => $payload['first_seen'] ?? null,
+                    'prior_attempts'   => $payload['prior_attempts'] ?? [],
+                    'created_at'       => optional($action->created_at)->toISOString(),
+                ];
+            }),
+            'count' => $escalations->count(),
+        ]);
+    }
 }

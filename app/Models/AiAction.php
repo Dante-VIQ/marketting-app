@@ -36,6 +36,10 @@ class AiAction extends Model
         'opportunity_fingerprint',
         'opportunity_stable_key',
         'origin',
+        'human_response',
+        'human_response_notes',
+        'human_response_at',
+        'snooze_until',
     ];
 
     protected $casts = [
@@ -45,6 +49,8 @@ class AiAction extends Model
         'approved_at' => 'datetime',
         'executed_at' => 'datetime',
         'agent_notified_at' => 'datetime',
+        'human_response_at' => 'datetime',
+        'snooze_until'  => 'date',
     ];
 
     /**
@@ -236,5 +242,22 @@ class AiAction extends Model
     {
         return $query->where('status', 'approved')
             ->whereNull('executed_at');
+    }
+
+    public function isEscalation(): bool
+    {
+        return $this->category === 'escalation';
+    }
+
+    public function hasResponse(): bool
+    {
+        return !empty($this->human_response);
+    }
+
+    public function isSnoozed(): bool
+    {
+        return $this->human_response === 'snooze'
+            && $this->snooze_until
+            && $this->snooze_until->isFuture();
     }
 }
