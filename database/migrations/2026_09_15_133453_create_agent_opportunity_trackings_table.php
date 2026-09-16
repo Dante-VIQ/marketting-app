@@ -8,7 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('agent_opportunity_trackings', function (Blueprint $table) {
+        Schema::create('agent_opportunity_tracking', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('brand_id');
 

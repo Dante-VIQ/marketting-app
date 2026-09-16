@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\AiBrief;
 use App\Models\Brand;
 use App\Models\ContentDraft;
+use App\Models\PageSnapshot;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -29,6 +30,12 @@ class AiAction extends Model
         'approved_at',
         'executed_at',
         'actual_revenue_impact',
+        'agent_notified_at',
+        'retry_status',
+        'expected_retry_approach',
+        'opportunity_fingerprint',
+        'opportunity_stable_key',
+        'origin',
     ];
 
     protected $casts = [
@@ -37,6 +44,7 @@ class AiAction extends Model
         'priority' => 'integer',
         'approved_at' => 'datetime',
         'executed_at' => 'datetime',
+        'agent_notified_at' => 'datetime',
     ];
 
     /**
@@ -63,14 +71,14 @@ class AiAction extends Model
         return $this->hasOne(PageSnapshot::class, 'action_id');
     }
 
-        /**
+    /**
      * Get the content draft for this action.
      */
     public function contentDraft(): HasOne
     {
         return $this->hasOne(ContentDraft::class, 'action_id');
     }
-    
+
     /**
      * Get the category label.
      */
@@ -207,5 +215,26 @@ class AiAction extends Model
         ];
 
         return $labels[$this->rejection_reason] ?? ucfirst($this->rejection_reason);
+    }
+
+    public function isRetryAuthorized(): bool
+    {
+        return $this->retry_status === 'authorized';
+    }
+
+    public function isRetryHeld(): bool
+    {
+        return $this->retry_status === 'held';
+    }
+
+    public function scopeAwaitingAgentNotification($query)
+    {
+        return $query->whereNull('agent_notified_at');
+    }
+
+    public function scopeAwaitingExecution($query)
+    {
+        return $query->where('status', 'approved')
+            ->whereNull('executed_at');
     }
 }

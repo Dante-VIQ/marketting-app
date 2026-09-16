@@ -80,6 +80,10 @@ Route::prefix('agent')->name('agent.')    ->middleware(['verify.api.key', 'agent
 
     Route::post('/opportunities/check', [AgentController::class, 'checkOpportunities']);
 Route::post('/opportunities/mark', [AgentController::class, 'markOpportunity']);
+
+Route::get('/actions/outcomes/{brandId}', [AgentController::class, 'getPendingOutcomes']);
+Route::post('/actions/acknowledge', [AgentController::class, 'acknowledgeOutcomes']);
+Route::post('/actions/{actionId}/authorize-retry', [AgentController::class, 'authorizeRetry']);
 });
 
 // Public ping

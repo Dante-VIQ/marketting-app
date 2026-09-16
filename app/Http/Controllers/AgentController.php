@@ -492,75 +492,75 @@ class AgentController extends Controller
         ]);
     }
 
-public function executeAction(Request $request)
-{
-    $brandId = $request->input('brandId');
-    $action  = $request->input('action', []);
-    $reason  = $request->input('reason', 'Queued by agent');
+    public function executeAction(Request $request)
+    {
+        $brandId = $request->input('brandId');
+        $action  = $request->input('action', []);
+        $reason  = $request->input('reason', 'Queued by agent');
 
-    // Extract the action name (supports both flat and nested shapes)
-    $actionName = $action['name'] ?? ($action['action']['name'] ?? 'unknown');
+        // Extract the action name (supports both flat and nested shapes)
+        $actionName = $action['name'] ?? ($action['action']['name'] ?? 'unknown');
 
-    // Skip no-op actions entirely
-    if ($actionName === 'no_action_needed' || $actionName === 'unknown') {
+        // Skip no-op actions entirely
+        if ($actionName === 'no_action_needed' || $actionName === 'unknown') {
+            return response()->json([
+                'success' => true,
+                'skipped' => true,
+                'message' => 'No action was needed.',
+            ], 200);
+        }
+
+        // Map raw action names to human-friendly titles + categories
+        $actionMeta = [
+            'trigger_content_generation' => ['title' => 'Generate content',       'category' => 'content'],
+            'create_blog_post'           => ['title' => 'Create blog post',        'category' => 'content'],
+            'generate_content'           => ['title' => 'Generate content',        'category' => 'content'],
+            'resolve_seo_issue'          => ['title' => 'Fix SEO issue',           'category' => 'seo'],
+            'run_site_scan'              => ['title' => 'Run site scan',           'category' => 'seo'],
+            'notify_lead_response'       => ['title' => 'Follow up with lead',     'category' => 'strategy'],
+            'pause_campaign'             => ['title' => 'Pause campaign',          'category' => 'strategy'],
+            'adjust_campaign'            => ['title' => 'Adjust campaign',         'category' => 'strategy'],
+        ];
+
+        $meta  = $actionMeta[$actionName] ?? ['title' => ucwords(str_replace('_', ' ', $actionName)), 'category' => 'strategy'];
+        $title = $meta['title'];
+
+        // Add context to the title if topic/campaign name is present
+        $payload = $action['payload'] ?? $action;
+        if (!empty($payload['topic'])) {
+            $title .= ': ' . substr($payload['topic'], 0, 80);
+        } elseif (!empty($payload['campaignId'])) {
+            $title .= ' (Campaign #' . $payload['campaignId'] . ')';
+        } elseif (!empty($payload['lead_id'])) {
+            $title .= ' (Lead #' . $payload['lead_id'] . ')';
+        }
+
+        // Create the AI action with proper metadata
+        $aiAction = \App\Models\AiAction::create([
+            'brand_id'          => $brandId,
+            'title'             => $title,
+            'description'       => $reason,
+            'category'          => $meta['category'],
+            'suggested_content' => json_encode($payload, JSON_PRETTY_PRINT),
+            'target_url'        => $payload['target_url'] ?? null,
+            'target_keyword'    => $payload['topic'] ?? null,
+            'estimated_impact'  => $payload['estimated_impact'] ?? 100,
+            'priority'          => 3,
+            'status'            => 'pending',
+        ]);
+
+        Log::info('Agent action queued', [
+            'action_id'   => $aiAction->id,
+            'action_name' => $actionName,
+            'brand_id'    => $brandId,
+        ]);
+
         return response()->json([
-            'success' => true,
-            'skipped' => true,
-            'message' => 'No action was needed.',
-        ], 200);
+            'success'   => true,
+            'action_id' => $aiAction->id,
+            'message'   => 'Action queued for review.',
+        ], 201);
     }
-
-    // Map raw action names to human-friendly titles + categories
-    $actionMeta = [
-        'trigger_content_generation' => ['title' => 'Generate content',       'category' => 'content'],
-        'create_blog_post'           => ['title' => 'Create blog post',        'category' => 'content'],
-        'generate_content'           => ['title' => 'Generate content',        'category' => 'content'],
-        'resolve_seo_issue'          => ['title' => 'Fix SEO issue',           'category' => 'seo'],
-        'run_site_scan'              => ['title' => 'Run site scan',           'category' => 'seo'],
-        'notify_lead_response'       => ['title' => 'Follow up with lead',     'category' => 'strategy'],
-        'pause_campaign'             => ['title' => 'Pause campaign',          'category' => 'strategy'],
-        'adjust_campaign'            => ['title' => 'Adjust campaign',         'category' => 'strategy'],
-    ];
-
-    $meta  = $actionMeta[$actionName] ?? ['title' => ucwords(str_replace('_', ' ', $actionName)), 'category' => 'strategy'];
-    $title = $meta['title'];
-
-    // Add context to the title if topic/campaign name is present
-    $payload = $action['payload'] ?? $action;
-    if (!empty($payload['topic'])) {
-        $title .= ': ' . substr($payload['topic'], 0, 80);
-    } elseif (!empty($payload['campaignId'])) {
-        $title .= ' (Campaign #' . $payload['campaignId'] . ')';
-    } elseif (!empty($payload['lead_id'])) {
-        $title .= ' (Lead #' . $payload['lead_id'] . ')';
-    }
-
-    // Create the AI action with proper metadata
-    $aiAction = \App\Models\AiAction::create([
-        'brand_id'          => $brandId,
-        'title'             => $title,
-        'description'       => $reason,
-        'category'          => $meta['category'],
-        'suggested_content' => json_encode($payload, JSON_PRETTY_PRINT),
-        'target_url'        => $payload['target_url'] ?? null,
-        'target_keyword'    => $payload['topic'] ?? null,
-        'estimated_impact'  => $payload['estimated_impact'] ?? 100,
-        'priority'          => 3,
-        'status'            => 'pending',
-    ]);
-
-    Log::info('Agent action queued', [
-        'action_id'   => $aiAction->id,
-        'action_name' => $actionName,
-        'brand_id'    => $brandId,
-    ]);
-
-    return response()->json([
-        'success'   => true,
-        'action_id' => $aiAction->id,
-        'message'   => 'Action queued for review.',
-    ], 201);
-}
 
     // ============= VERIFICATION =============
 
@@ -906,130 +906,223 @@ public function executeAction(Request $request)
     }
 
     /**
- * Check which fingerprints are new (not yet processed today).
- * Returns new, recurring, and already-processed-today lists.
- */
-public function checkOpportunities(Request $request)
-{
-    $validated = $request->validate([
-        'brand_id'                              => 'required|integer|exists:brands,id',
-        'opportunities'                         => 'required|array',
-        'opportunities.*.fingerprint'           => 'required|string|size:64',
-        'opportunities.*.stable_key'            => 'required|string|size:64',
-        'opportunities.*.type'                  => 'required|string',
-    ]);
+     * Check which fingerprints are new (not yet processed today).
+     * Returns new, recurring, and already-processed-today lists.
+     */
+    public function checkOpportunities(Request $request)
+    {
+        $validated = $request->validate([
+            'brand_id'                              => 'required|integer|exists:brands,id',
+            'opportunities'                         => 'required|array',
+            'opportunities.*.fingerprint'           => 'required|string|size:64',
+            'opportunities.*.stable_key'            => 'required|string|size:64',
+            'opportunities.*.type'                  => 'required|string',
+        ]);
 
-    $brandId = $validated['brand_id'];
-    $opps    = $validated['opportunities'];
+        $brandId = $validated['brand_id'];
+        $opps    = $validated['opportunities'];
 
-    $fingerprints = array_column($opps, 'fingerprint');
+        $fingerprints = array_column($opps, 'fingerprint');
 
-    // Which were already processed or are being processed today?
-    $processedToday = AgentOpportunityTracking::forBrand($brandId)
-        ->whereIn('fingerprint', $fingerprints)
-        ->whereDate('tracked_date', today())
-        ->whereIn('status', ['processed', 'processing'])
-        ->pluck('fingerprint')
-        ->toArray();
+        // Which were already processed or are being processed today?
+        $processedToday = AgentOpportunityTracking::forBrand($brandId)
+            ->whereIn('fingerprint', $fingerprints)
+            ->whereDate('tracked_date', today())
+            ->whereIn('status', ['processed', 'processing'])
+            ->pluck('fingerprint')
+            ->toArray();
 
-    $processedSet = array_flip($processedToday);
+        $processedSet = array_flip($processedToday);
 
-    $new       = [];
-    $recurring = [];
+        $new       = [];
+        $recurring = [];
 
-    foreach ($opps as $opp) {
-        $fp = $opp['fingerprint'];
-        if (isset($processedSet[$fp])) {
-            continue; // Already processed today
+        foreach ($opps as $opp) {
+            $fp = $opp['fingerprint'];
+            if (isset($processedSet[$fp])) {
+                continue; // Already processed today
+            }
+
+            $sk = $opp['stable_key'];
+
+            // Has this stable_key been seen on any prior day?
+            $prior = AgentOpportunityTracking::forBrand($brandId)
+                ->forStableKey($sk)
+                ->whereDate('tracked_date', '<', today())
+                ->orderByDesc('tracked_date')
+                ->first();
+
+            if ($prior) {
+                $recurring[] = [
+                    'fingerprint'            => $fp,
+                    'stable_key'             => $sk,
+                    'recurrence_count'       => ($prior->recurrence_count ?? 1) + 1,
+                    'first_seen_at'          => optional($prior->first_seen_at)->toISOString(),
+                    'last_attempt_status'    => $prior->status,
+                    'last_attempt_action_id' => $prior->action_id,
+                ];
+            } else {
+                $new[] = [
+                    'fingerprint' => $fp,
+                    'stable_key'  => $sk,
+                ];
+            }
         }
 
-        $sk = $opp['stable_key'];
+        return response()->json([
+            'new'                     => $new,
+            'recurring'               => $recurring,
+            'already_processed_today' => $processedToday,
+        ]);
+    }
 
-        // Has this stable_key been seen on any prior day?
-        $prior = AgentOpportunityTracking::forBrand($brandId)
+    /**
+     * Mark an opportunity as processing / processed / failed.
+     */
+    public function markOpportunity(Request $request)
+    {
+        $validated = $request->validate([
+            'brand_id'         => 'required|integer|exists:brands,id',
+            'fingerprint'      => 'required|string|size:64',
+            'stable_key'       => 'required|string|size:64',
+            'opportunity_type' => 'required|string',
+            'status'           => 'required|in:processing,processed,failed,escalated',
+            'opportunity_data' => 'nullable|array',
+            'action_id'        => 'nullable|integer',
+        ]);
+
+        $brandId = $validated['brand_id'];
+        $fp      = $validated['fingerprint'];
+        $sk      = $validated['stable_key'];
+
+        // How many times has this stable_key been seen before today?
+        $priorCount = AgentOpportunityTracking::forBrand($brandId)
             ->forStableKey($sk)
-            ->whereDate('tracked_date', '<', today())
-            ->orderByDesc('tracked_date')
-            ->first();
+            ->where('fingerprint', '!=', $fp)
+            ->count();
 
-        if ($prior) {
-            $recurring[] = [
-                'fingerprint'            => $fp,
-                'stable_key'             => $sk,
-                'recurrence_count'       => ($prior->recurrence_count ?? 1) + 1,
-                'first_seen_at'          => optional($prior->first_seen_at)->toISOString(),
-                'last_attempt_status'    => $prior->status,
-                'last_attempt_action_id' => $prior->action_id,
-            ];
-        } else {
-            $new[] = [
-                'fingerprint' => $fp,
-                'stable_key'  => $sk,
-            ];
+        $tracking = AgentOpportunityTracking::firstOrNew([
+            'fingerprint' => $fp,
+        ]);
+
+        $tracking->fill([
+            'brand_id'         => $brandId,
+            'stable_key'       => $sk,
+            'tracked_date'     => today(),
+            'opportunity_type' => $validated['opportunity_type'],
+            'opportunity_data' => $validated['opportunity_data'] ?? null,
+            'status'           => $validated['status'],
+            'action_id'        => $validated['action_id'] ?? null,
+            'last_processed_at' => now(),
+            'recurrence_count' => $priorCount + 1,
+        ]);
+
+        if (!$tracking->exists) {
+            $tracking->first_seen_at = now();
         }
+
+        $tracking->last_seen_at = now();
+        $tracking->times_seen   = ($tracking->times_seen ?? 0) + 1;
+
+        $tracking->save();
+
+        return response()->json([
+            'success'     => true,
+            'tracking_id' => $tracking->id,
+            'status'      => $tracking->status,
+        ]);
     }
 
-    return response()->json([
-        'new'                     => $new,
-        'recurring'               => $recurring,
-        'already_processed_today' => $processedToday,
-    ]);
-}
+    /**
+     * Get outcomes the agent hasn't been notified about yet.
+     * Includes approvals awaiting execution, rejections, and revisions.
+     */
+    public function getPendingOutcomes($brandId)
+    {
+        $brand = Brand::findOrFail($brandId);
 
-/**
- * Mark an opportunity as processing / processed / failed.
- */
-public function markOpportunity(Request $request)
-{
-    $validated = $request->validate([
-        'brand_id'         => 'required|integer|exists:brands,id',
-        'fingerprint'      => 'required|string|size:64',
-        'stable_key'       => 'required|string|size:64',
-        'opportunity_type' => 'required|string',
-        'status'           => 'required|in:processing,processed,failed,escalated',
-        'opportunity_data' => 'nullable|array',
-        'action_id'        => 'nullable|integer',
-    ]);
+        // Actions the agent hasn't been told about
+        $outcomes = AiAction::where('brand_id', $brandId)
+            ->whereNull('agent_notified_at')
+            ->whereIn('status', ['approved', 'rejected', 'revision'])
+            ->orderBy('updated_at', 'asc')
+            ->get();
 
-    $brandId = $validated['brand_id'];
-    $fp      = $validated['fingerprint'];
-    $sk      = $validated['stable_key'];
+        return response()->json([
+            'brand_id' => $brandId,
+            'outcomes' => $outcomes->map(function ($action) {
+                $actionData = null;
+                if ($action->suggested_content) {
+                    $decoded = json_decode($action->suggested_content, true);
+                    $actionData = $decoded ?: ['raw' => $action->suggested_content];
+                }
 
-    // How many times has this stable_key been seen before today?
-    $priorCount = AgentOpportunityTracking::forBrand($brandId)
-        ->forStableKey($sk)
-        ->where('fingerprint', '!=', $fp)
-        ->count();
-
-    $tracking = AgentOpportunityTracking::firstOrNew([
-        'fingerprint' => $fp,
-    ]);
-
-    $tracking->fill([
-        'brand_id'         => $brandId,
-        'stable_key'       => $sk,
-        'tracked_date'     => today(),
-        'opportunity_type' => $validated['opportunity_type'],
-        'opportunity_data' => $validated['opportunity_data'] ?? null,
-        'status'           => $validated['status'],
-        'action_id'        => $validated['action_id'] ?? null,
-        'last_processed_at'=> now(),
-        'recurrence_count' => $priorCount + 1,
-    ]);
-
-    if (!$tracking->exists) {
-        $tracking->first_seen_at = now();
+                return [
+                    'action_id'                => $action->id,
+                    'status'                   => $action->status,
+                    'title'                    => $action->title,
+                    'category'                 => $action->category,
+                    'approved_at'              => optional($action->approved_at)->toISOString(),
+                    'rejected_at'              => optional($action->rejected_at)->toISOString(),
+                    'reviewed_at'              => optional($action->reviewed_at)->toISOString(),
+                    'rejection_reason'         => $action->rejection_reason,
+                    'review_notes'             => $action->review_notes,
+                    'retry_status'             => $action->retry_status ?? 'none',
+                    'expected_retry_approach'  => $action->expected_retry_approach,
+                    'opportunity_fingerprint'  => $action->opportunity_fingerprint,
+                    'opportunity_stable_key'   => $action->opportunity_stable_key,
+                    'origin'                   => $action->origin ?? 'original',
+                    'action_data'              => $actionData,
+                ];
+            }),
+            'count' => $outcomes->count(),
+        ]);
     }
 
-    $tracking->last_seen_at = now();
-    $tracking->times_seen   = ($tracking->times_seen ?? 0) + 1;
+    /**
+     * Acknowledge that the agent has handled these outcomes.
+     */
+    public function acknowledgeOutcomes(Request $request)
+    {
+        $validated = $request->validate([
+            'brand_id'   => 'required|integer|exists:brands,id',
+            'action_ids' => 'required|array',
+            'action_ids.*' => 'required|integer|exists:ai_actions,id',
+        ]);
 
-    $tracking->save();
+        $count = AiAction::where('brand_id', $validated['brand_id'])
+            ->whereIn('id', $validated['action_ids'])
+            ->update(['agent_notified_at' => now()]);
 
-    return response()->json([
-        'success'     => true,
-        'tracking_id' => $tracking->id,
-        'status'      => $tracking->status,
-    ]);
-}
+        return response()->json([
+            'success' => true,
+            'count'   => $count,
+        ]);
+    }
+
+    /**
+     * Authorize a retry for a rejected action, with optional guidance.
+     */
+    public function authorizeRetry(Request $request, $actionId)
+    {
+        $validated = $request->validate([
+            'expected_retry_approach' => 'nullable|string|max:2000',
+            'hold'                    => 'nullable|boolean',
+        ]);
+
+        $action = AiAction::findOrFail($actionId);
+
+        $action->update([
+            'retry_status'            => ($validated['hold'] ?? false) ? 'held' : 'authorized',
+            'expected_retry_approach' => $validated['expected_retry_approach'] ?? null,
+            // Clear agent_notified_at so the agent re-processes this on next cycle
+            'agent_notified_at'       => null,
+        ]);
+
+        return response()->json([
+            'success'      => true,
+            'action_id'    => $action->id,
+            'retry_status' => $action->retry_status,
+        ]);
+    }
 }
