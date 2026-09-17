@@ -8,6 +8,7 @@ use App\Models\AnalyticsSnapshot;
 use App\Models\Brand;
 use App\Models\BusinessGoal;
 use App\Models\KnowledgeBase;
+use App\Models\PageSnapshot;
 use App\Models\RevenueLeak;
 use App\Services\AI\AiGatewayService;
 use Carbon\Carbon;
