@@ -99,6 +99,8 @@ Route::prefix('agent')->name('agent.')->middleware(['verify.api.key', 'agent.bra
     Route::post('/verification/record', [AgentController::class, 'recordVerification']);
     Route::post('/actions/{actionId}/rollback', [AgentController::class, 'rollbackAction']);
     Route::get('/brief/{brandId}', [AgentController::class, 'getBrief']);
+
+    Route::get('/tours/{brandId}', [AgentController::class, 'getTourPackages']);
 });
 
 // Public ping

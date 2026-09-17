@@ -10,6 +10,8 @@ use App\Models\KnowledgeBase;
 use App\Models\PageSnapshot;
 use App\Models\User;
 use App\Services\AI\AiGatewayService;
+use App\Services\AI\ContentServicePolicy;
+use App\Services\ContentTourMatcher;
 use App\Services\Scanner\PageScannerService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -200,6 +202,33 @@ class ContentGeneratorService
                     'draft_id'  => $draft->id,
                     'type'      => $draft->type,
                 ]);
+
+                    // 🎯 TOUR ENFORCEMENT
+                try {
+                    $matcher = app(\App\Services\ContentTourMatcher::class);
+                    $matches = $matcher->findMatches($draft);
+
+                    if ($matches->isNotEmpty()) {
+                        $matcher->applyMatch($draft, $matches);
+
+                        Log::info('Tour match enforced', [
+                            'draft_id' => $draft->id,
+                            'tour_id'  => $draft->tour_package_id,
+                            'score'    => $draft->tour_match_score,
+                            'enforced' => $draft->tour_enforced,
+                        ]);
+                    } else {
+                        Log::info('No tour match found for draft', [
+                            'draft_id' => $draft->id,
+                        ]);
+                    }
+                } catch (\Throwable $e) {
+                    // Never fail the draft because of tour matching
+                    Log::warning('Tour matching failed', [
+                        'draft_id' => $draft->id,
+                        'error'    => $e->getMessage(),
+                    ]);
+                }
 
                 return $draft;
             });
@@ -694,6 +723,45 @@ PROMPT;
             'target_keyword'       => strtolower($topic),
             'meta_description'     => "Learn everything about {$topic} in this comprehensive guide.",
             'estimated_word_count' => $template === 'blog' ? 1500 : 300,
+        ];
+    }
+
+    // In app/Services/AI/ContentGeneratorService.php, inside generateForAction() method
+    // Add after the AI generates the content and before saving the draft:
+
+    protected function enforceTourMatch(ContentDraft $draft): array
+    {
+        $matcher = app(ContentTourMatcher::class);
+        $matches = $matcher->findMatches($draft);
+
+        if ($matches->isEmpty()) {
+            // No tour matched. Flag for human review.
+            Log::warning('Content has no matching tour package', ['draft_id' => $draft->id]);
+            return [
+                'has_tour_match' => false,
+                'message' => 'No matching tour package found. Flagged for review.'
+            ];
+        }
+
+        // Add the top match as a mandatory CTA
+        $bestMatch = $matches->first();
+        $tour = $bestMatch['tour'];
+
+        $draft->affiliate_url = $tour->affiliate_url;
+        $draft->tour_package_id = $tour->id; // Add this column to content_drafts
+        $draft->save();
+
+        Log::info('Content matched to tour package', [
+            'draft_id' => $draft->id,
+            'tour_id' => $tour->id,
+            'score' => $bestMatch['score']
+        ]);
+
+        return [
+            'has_tour_match' => true,
+            'tour' => $tour,
+            'score' => $bestMatch['score'],
+            'all_matches' => $matches->take(3)
         ];
     }
 }

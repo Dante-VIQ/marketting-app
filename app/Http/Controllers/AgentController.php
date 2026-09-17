@@ -22,6 +22,7 @@ use App\Services\Lead\LeadManagerService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
+use App\Models\TourPackage;
 
 class AgentController extends Controller
 {
@@ -1590,4 +1591,32 @@ class AgentController extends Controller
             ],
         ]);
     }
+
+
+public function getTourPackages($brandId)
+{
+    $tours = TourPackage::forBrand((int) $brandId)
+        ->active()
+        ->orderByDesc('created_at')
+        ->get();
+
+    return response()->json([
+        'success' => true,
+        'count'   => $tours->count(),
+        'tours'   => $tours->map(fn($t) => [
+            'id'              => $t->id,
+            'name'            => $t->name,
+            'slug'            => $t->slug,
+            'destination'     => $t->destination,
+            'country'         => $t->country,
+            'duration_days'   => $t->duration_days,
+            'price'           => (float) $t->price,
+            'currency'        => $t->currency,
+            'affiliate_url'   => $t->affiliate_url,
+            'affiliate_network' => $t->affiliate_network,
+            'keywords'        => $t->keywords,
+            'description'     => $t->description,
+        ])->values(),
+    ]);
+}
 }
