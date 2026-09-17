@@ -1389,170 +1389,204 @@ class AgentController extends Controller
     }
 
     /**
- * Register an action for multi-phase verification.
- * Called by the agent right after successful execution.
- */
-public function registerVerification(Request $request)
-{
-    $validated = $request->validate([
-        'brand_id'            => 'required|integer|exists:brands,id',
-        'action_id'           => 'required|integer|exists:ai_actions,id',
-        'action_name'         => 'required|string',
-        'metrics_at_execution'=> 'nullable|array',
-    ]);
+     * Register an action for multi-phase verification.
+     * Called by the agent right after successful execution.
+     */
+    public function registerVerification(Request $request)
+    {
+        $validated = $request->validate([
+            'brand_id'            => 'required|integer|exists:brands,id',
+            'action_id'           => 'required|integer|exists:ai_actions,id',
+            'action_name'         => 'required|string',
+            'metrics_at_execution' => 'nullable|array',
+        ]);
 
-    $action = AiAction::findOrFail($validated['action_id']);
-    $windows = config("verification.windows.{$validated['action_name']}", null);
+        $action = AiAction::findOrFail($validated['action_id']);
+        $windows = config("verification.windows.{$validated['action_name']}", null);
 
-    if (!$windows) {
+        if (!$windows) {
+            return response()->json([
+                'success' => false,
+                'error'   => "No verification config for action: {$validated['action_name']}",
+            ], 400);
+        }
+
+        $now = now();
+
+        $action->update([
+            'metrics_at_execution'  => $validated['metrics_at_execution'] ?? null,
+            'verification_status'   => 'pending',
+            'verify_at_hour_1'      => $windows['hour_1'] ? $now->copy()->addSeconds($windows['hour_1']) : null,
+            'verify_at_day_1'       => $windows['day_1'] ? $now->copy()->addSeconds($windows['day_1']) : null,
+        ]);
+
         return response()->json([
-            'success' => false,
-            'error'   => "No verification config for action: {$validated['action_name']}",
-        ], 400);
+            'success'         => true,
+            'action_id'       => $action->id,
+            'schedule'        => [
+                'hour_1' => optional($action->verify_at_hour_1)->toISOString(),
+                'day_1'  => optional($action->verify_at_day_1)->toISOString(),
+            ],
+        ]);
     }
 
-    $now = now();
+    /**
+     * Get actions that are due for a verification phase.
+     */
+    public function getDueVerifications($brandId)
+    {
+        $hour1Due = AiAction::where('brand_id', $brandId)
+            ->where('verification_status', '!=', 'rolled_back')
+            ->where('verified_hour_1', false)
+            ->whereNotNull('verify_at_hour_1')
+            ->where('verify_at_hour_1', '<=', now())
+            ->get();
 
-    $action->update([
-        'metrics_at_execution'  => $validated['metrics_at_execution'] ?? null,
-        'verification_status'   => 'pending',
-        'verify_at_hour_1'      => $windows['hour_1'] ? $now->copy()->addSeconds($windows['hour_1']) : null,
-        'verify_at_day_1'       => $windows['day_1'] ? $now->copy()->addSeconds($windows['day_1']) : null,
-    ]);
+        $day1Due = AiAction::where('brand_id', $brandId)
+            ->where('verification_status', '!=', 'rolled_back')
+            ->where('verified_day_1', false)
+            ->whereNotNull('verify_at_day_1')
+            ->where('verify_at_day_1', '<=', now())
+            ->get();
 
-    return response()->json([
-        'success'         => true,
-        'action_id'       => $action->id,
-        'schedule'        => [
-            'hour_1' => optional($action->verify_at_hour_1)->toISOString(),
-            'day_1'  => optional($action->verify_at_day_1)->toISOString(),
-        ],
-    ]);
-}
+        $format = fn($actions, $phase) => $actions->map(fn($a) => [
+            'action_id'      => $a->id,
+            'action_name'    => $a->title,
+            'action_key'     => $a->category,
+            'phase'          => $phase,
+            'metrics_before' => $a->metrics_at_execution,
+            'executed_at'    => optional($a->executed_at)->toISOString(),
+            'opportunity_type' => $a->category,
+        ]);
 
-/**
- * Get actions that are due for a verification phase.
- */
-public function getDueVerifications($brandId)
-{
-    $hour1Due = AiAction::where('brand_id', $brandId)
-        ->where('verification_status', '!=', 'rolled_back')
-        ->where('verified_hour_1', false)
-        ->whereNotNull('verify_at_hour_1')
-        ->where('verify_at_hour_1', '<=', now())
-        ->get();
-
-    $day1Due = AiAction::where('brand_id', $brandId)
-        ->where('verification_status', '!=', 'rolled_back')
-        ->where('verified_day_1', false)
-        ->whereNotNull('verify_at_day_1')
-        ->where('verify_at_day_1', '<=', now())
-        ->get();
-
-    $format = fn($actions, $phase) => $actions->map(fn($a) => [
-        'action_id'      => $a->id,
-        'action_name'    => $a->title,
-        'action_key'     => $a->category,
-        'phase'          => $phase,
-        'metrics_before' => $a->metrics_at_execution,
-        'executed_at'    => optional($a->executed_at)->toISOString(),
-        'opportunity_type' => $a->category,
-    ]);
-
-    return response()->json([
-        'brand_id' => $brandId,
-        'hour_1'   => $format($hour1Due, 'hour_1'),
-        'day_1'    => $format($day1Due, 'day_1'),
-    ]);
-}
-
-/**
- * Record a verification result.
- */
-public function recordVerification(Request $request)
-{
-    $validated = $request->validate([
-        'brand_id'           => 'required|integer|exists:brands,id',
-        'action_id'          => 'required|integer|exists:ai_actions,id',
-        'phase'              => 'required|in:immediate,hour_1,day_1',
-        'metrics_before'     => 'nullable|array',
-        'metrics_after'      => 'required|array',
-        'metric_deltas'      => 'nullable|array',
-        'was_successful'     => 'required|boolean',
-        'improvement_score'  => 'nullable|numeric',
-    ]);
-
-    $action = AiAction::findOrFail($validated['action_id']);
-
-    $verification = ActionVerification::updateOrCreate(
-        ['action_id' => $action->id, 'phase' => $validated['phase']],
-        [
-            'brand_id'          => $validated['brand_id'],
-            'metrics_before'    => $validated['metrics_before'] ?? $action->metrics_at_execution,
-            'metrics_after'     => $validated['metrics_after'],
-            'metric_deltas'     => $validated['metric_deltas'],
-            'was_successful'    => $validated['was_successful'],
-            'improvement_score' => $validated['improvement_score'],
-            'verified_at'       => now(),
-        ]
-    );
-
-    // Mark phase complete on the action
-    $phaseField = "verified_{$validated['phase']}";
-    $action->{$phaseField} = true;
-
-    // Decide overall status
-    if ($validated['phase'] === 'day_1') {
-        $action->verification_status = $validated['was_successful'] ? 'verified' : 'failed';
+        return response()->json([
+            'brand_id' => $brandId,
+            'hour_1'   => $format($hour1Due, 'hour_1'),
+            'day_1'    => $format($day1Due, 'day_1'),
+        ]);
     }
 
-    $action->save();
+    /**
+     * Record a verification result.
+     */
+    public function recordVerification(Request $request)
+    {
+        $validated = $request->validate([
+            'brand_id'           => 'required|integer|exists:brands,id',
+            'action_id'          => 'required|integer|exists:ai_actions,id',
+            'phase'              => 'required|in:immediate,hour_1,day_1',
+            'metrics_before'     => 'nullable|array',
+            'metrics_after'      => 'required|array',
+            'metric_deltas'      => 'nullable|array',
+            'was_successful'     => 'required|boolean',
+            'improvement_score'  => 'nullable|numeric',
+        ]);
 
-    return response()->json([
-        'success'         => true,
-        'verification_id' => $verification->id,
-        'phase'           => $validated['phase'],
-        'was_successful'  => $verification->was_successful,
-    ]);
-}
+        $action = AiAction::findOrFail($validated['action_id']);
 
-/**
- * Trigger a rollback for a failed action.
- */
-public function rollbackAction(Request $request, $actionId)
-{
-    $validated = $request->validate([
-        'reason' => 'required|string|max:1000',
-    ]);
+        $verification = ActionVerification::updateOrCreate(
+            ['action_id' => $action->id, 'phase' => $validated['phase']],
+            [
+                'brand_id'          => $validated['brand_id'],
+                'metrics_before'    => $validated['metrics_before'] ?? $action->metrics_at_execution,
+                'metrics_after'     => $validated['metrics_after'],
+                'metric_deltas'     => $validated['metric_deltas'],
+                'was_successful'    => $validated['was_successful'],
+                'improvement_score' => $validated['improvement_score'],
+                'verified_at'       => now(),
+            ]
+        );
 
-    $action = AiAction::findOrFail($actionId);
+        // Mark phase complete on the action
+        $phaseField = "verified_{$validated['phase']}";
+        $action->{$phaseField} = true;
 
-    $action->update([
-        'verification_status' => 'rolled_back',
-    ]);
+        // Decide overall status
+        if ($validated['phase'] === 'day_1') {
+            $action->verification_status = $validated['was_successful'] ? 'verified' : 'failed';
+        }
 
-    ActionVerification::create([
-        'brand_id'         => $action->brand_id,
-        'action_id'        => $action->id,
-        'phase'            => 'rollback',
-        'metrics_before'   => $action->metrics_at_execution,
-        'metrics_after'    => null,
-        'was_successful'   => false,
-        'rollback_triggered' => true,
-        'rollback_reason'  => $validated['reason'],
-        'rollback_at'      => now(),
-        'verified_at'      => now(),
-    ]);
+        $action->save();
 
-    Log::warning('Action rolled back', [
-        'action_id' => $action->id,
-        'reason'    => $validated['reason'],
-    ]);
+        return response()->json([
+            'success'         => true,
+            'verification_id' => $verification->id,
+            'phase'           => $validated['phase'],
+            'was_successful'  => $verification->was_successful,
+        ]);
+    }
 
-    return response()->json([
-        'success'   => true,
-        'action_id' => $action->id,
-        'status'    => 'rolled_back',
-    ]);
-}
+    /**
+     * Trigger a rollback for a failed action.
+     */
+    public function rollbackAction(Request $request, $actionId)
+    {
+        $validated = $request->validate([
+            'reason' => 'required|string|max:1000',
+        ]);
+
+        $action = AiAction::findOrFail($actionId);
+
+        $action->update([
+            'verification_status' => 'rolled_back',
+        ]);
+
+        ActionVerification::create([
+            'brand_id'         => $action->brand_id,
+            'action_id'        => $action->id,
+            'phase'            => 'rollback',
+            'metrics_before'   => $action->metrics_at_execution,
+            'metrics_after'    => null,
+            'was_successful'   => false,
+            'rollback_triggered' => true,
+            'rollback_reason'  => $validated['reason'],
+            'rollback_at'      => now(),
+            'verified_at'      => now(),
+        ]);
+
+        Log::warning('Action rolled back', [
+            'action_id' => $action->id,
+            'reason'    => $validated['reason'],
+        ]);
+
+        return response()->json([
+            'success'   => true,
+            'action_id' => $action->id,
+            'status'    => 'rolled_back',
+        ]);
+    }
+
+    // AgentController.php
+
+    public function getBrief($brandId)
+    {
+        $brief = AiBrief::where('brand_id', $brandId)
+            ->whereDate('brief_date', today())
+            ->orderByDesc('created_at')
+            ->first();
+
+        if (!$brief) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No brief available for today yet.',
+            ], 404);
+        }
+
+        $raw = $brief->raw_llm_output ?? [];
+
+        return response()->json([
+            'success' => true,
+            'brief' => [
+                'id'                       => $brief->id,
+                'brief_date'               => $brief->brief_date->toDateString(),
+                'strategic_diagnosis'      => $brief->strategic_diagnosis,
+                'estimated_revenue_impact' => (float) $brief->estimated_revenue_impact,
+                'confidence_score'         => (float) $brief->confidence_score,
+                'ai_provider'              => $brief->ai_provider,
+                'suggested_actions'        => $raw['actions'] ?? [],
+                'is_approved'              => $brief->is_approved,
+                'generated_at'             => $brief->created_at->toISOString(),
+            ],
+        ]);
+    }
 }
