@@ -7,6 +7,7 @@ use App\Models\ActionVerification;
 use App\Models\AgentExperience;
 use App\Models\AgentOpportunityTracking;
 use App\Models\AiAction;
+use App\Models\AiBrief;
 use App\Models\AnalyticsSnapshot;
 use App\Models\Brand;
 use App\Models\Campaign;
