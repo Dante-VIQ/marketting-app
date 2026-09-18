@@ -530,6 +530,7 @@ public function scan($brandId)
             'priority'         => $issue->severity === 'critical' ? 5 : 3,
             'status'           => 'approved',
             'executed_at'      => now(),
+            'origin' => 'agent',
         ]);
 
         ScanPageJob::dispatch($brand, $issue->page_url, $action);
@@ -605,6 +606,7 @@ public function scan($brandId)
             'estimated_impact'  => $payload['estimated_impact'] ?? 100,
             'priority'          => 3,
             'status'            => 'pending',
+            'origin' => 'agent',
         ]);
 
         Log::info('Agent action queued', [

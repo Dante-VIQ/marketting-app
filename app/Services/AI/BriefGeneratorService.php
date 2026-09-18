@@ -121,6 +121,15 @@ class BriefGeneratorService
 
             if (!empty($parsedData['actions']) && is_array($parsedData['actions'])) {
                 foreach ($parsedData['actions'] as $actionData) {
+                    if ($this->isDuplicateAction($brand->id, $actionData)) {
+                        Log::info('BriefGenerator: Skipped duplicate action', [
+                            'brand_id' => $brand->id,
+                            'title'    => $actionData['title'] ?? '(no title)',
+                            'category' => $actionData['category'] ?? 'unknown',
+                        ]);
+                        continue;
+                    }
+
                     AiAction::create([
                         'brand_id'          => $brand->id,
                         'brief_id'          => $brief->id,
@@ -134,6 +143,7 @@ class BriefGeneratorService
                         'estimated_impact'  => $actionData['estimated_impact'] ?? null,
                         'priority'          => $actionData['priority'] ?? 1,
                         'status'            => 'pending',
+                        'origin'            => 'brief',
                     ]);
                 }
             }
@@ -395,5 +405,81 @@ PROMPT;
                 $this->recursiveKsort($value);
             }
         }
+    }
+
+    /**
+     * Check whether a very similar action already exists for this brand.
+     * Prevents the brief generator from filling the queue with
+     * near-duplicate recommendations day after day.
+     */
+    protected function isDuplicateAction(int $brandId, array $actionData): bool
+    {
+        $category = $actionData['category'] ?? 'strategy';
+        $title    = $actionData['title'] ?? '';
+        $targetUrl = $actionData['target_url'] ?? null;
+
+        // Look back 7 days
+        $cutoff = now()->subDays(7);
+
+        $candidates = AiAction::where('brand_id', $brandId)
+            ->where('category', $category)
+            ->where('created_at', '>=', $cutoff)
+            ->whereIn('status', ['pending', 'approved', 'content_generated'])
+            ->get(['id', 'title', 'target_url']);
+
+        $newSignature = $this->titleSignature($title);
+
+        foreach ($candidates as $existing) {
+            // Same target URL + same category is an immediate duplicate
+            if ($targetUrl && $existing->target_url === $targetUrl) {
+                return true;
+            }
+
+            // Otherwise compare normalized titles
+            $existingSig = $this->titleSignature($existing->title);
+            if ($newSignature === $existingSig) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Normalize a title into a comparable signature.
+     * Strips casing, punctuation, common filler words, and sorts tokens.
+     */
+    protected function titleSignature(string $title): string
+    {
+        $stop = [
+            'the',
+            'a',
+            'an',
+            'and',
+            'or',
+            'for',
+            'to',
+            'of',
+            'in',
+            'on',
+            'with',
+            'our',
+            'your',
+            'launch',
+            'optimize',
+            'create',
+            'publish',
+            'implement',
+            'revise',
+            'improve',
+        ];
+
+        $clean = strtolower($title);
+        $clean = preg_replace('/[^a-z0-9 ]+/', ' ', $clean);
+        $tokens = preg_split('/\s+/', trim($clean));
+        $tokens = array_filter($tokens, fn($t) => $t !== '' && !in_array($t, $stop, true));
+        sort($tokens);
+
+        return implode(' ', $tokens);
     }
 }
