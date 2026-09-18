@@ -29,7 +29,7 @@ class AiActionPolicy
      */
     public function approve(User $user, AiAction $action): bool
     {
-        if ($user->hasRole('super-admin')) return true;
+        if ($user->hasRole('admin')) return true;
         return $user->belongsToBrand($action->brand_id)
             && $user->hasAnyRole(['admin', 'editor']);
     }
