@@ -75,8 +75,6 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         })->name('history');
     });
 
-
-
     // Content
     Route::prefix('content')->name('content.')->group(function () {
         Route::get('/drafts', [App\Http\Controllers\ContentController::class, 'drafts'])->name('drafts');
