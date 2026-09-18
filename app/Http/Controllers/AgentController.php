@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\GenerateContentForActionJob;
+use App\Jobs\ScanPageJob;
 use App\Models\ActionVerification;
 use App\Models\AgentExperience;
 use App\Models\AgentOpportunityTracking;
@@ -14,6 +15,7 @@ use App\Models\Campaign;
 use App\Models\ConfidenceCalibration;
 use App\Models\Lead;
 use App\Models\SeoIssue;
+use App\Models\TourPackage;
 use App\Services\AI\AiGatewayService;
 use App\Services\AI\ContentGeneratorService;
 use App\Services\AI\SeoAssistantService;
@@ -22,7 +24,6 @@ use App\Services\Lead\LeadManagerService;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
-use App\Models\TourPackage;
 
 class AgentController extends Controller
 {
@@ -385,23 +386,41 @@ class AgentController extends Controller
         return response()->json($campaigns);
     }
 
-    public function pauseCampaign(Request $request)
-    {
-        $campaignId = $request->input('campaignId');
-        $brandId = $request->input('brandId');
+public function pauseCampaign(Request $request)
+{
+    $campaignId = $request->input('campaignId');
+    $brandId    = $request->input('brandId');
+    $reason     = $request->input('reason', 'Agent recommendation');
 
-        $campaign = Campaign::where('brand_id', $brandId)
-            ->where('id', $campaignId)
-            ->firstOrFail();
+    $campaign = Campaign::where('brand_id', $brandId)
+        ->where('id', $campaignId)
+        ->firstOrFail();
 
-        $campaign->status = 'paused';
-        $campaign->save();
+    // No real ad-platform integration exists yet — queue for human review.
+    $action = AiAction::create([
+        'brand_id'          => $brandId,
+        'title'             => "Pause campaign: {$campaign->name}",
+        'category'          => 'campaign',
+        'description'       => $reason,
+        'target_keyword'    => null,
+        'estimated_impact'  => 500,
+        'priority'          => 4,
+        'status'            => 'pending',
+    ]);
 
-        return response()->json([
-            'success' => true,
-            'campaign' => $campaign,
-        ]);
-    }
+    Log::info('Campaign pause queued for human review', [
+        'action_id'   => $action->id,
+        'campaign_id' => $campaignId,
+        'brand_id'    => $brandId,
+    ]);
+
+    return response()->json([
+        'success'   => true,
+        'action_id' => $action->id,
+        'queued'    => true,
+        'message'   => 'Campaign pause queued for human approval',
+    ]);
+}
 
     // ============= CONTENT =============
 
@@ -485,15 +504,51 @@ class AgentController extends Controller
 
     // ============= EXECUTION =============
 
-    public function scan($brandId)
-    {
-        // Trigger a full scan
-        // Dispatch job or run sync
-        return response()->json([
-            'success' => true,
-            'message' => 'Scan initiated',
+public function scan($brandId)
+{
+    $brand = Brand::findOrFail($brandId);
+
+    $issues = SeoIssue::where('brand_id', $brandId)
+        ->where('status', 'open')
+        ->whereIn('severity', ['high', 'critical'])
+        ->limit(20)
+        ->get();
+
+    $actionIds = [];
+    foreach ($issues as $issue) {
+        if (!$issue->page_url) {
+            continue;
+        }
+
+        $action = AiAction::create([
+            'brand_id'         => $brandId,
+            'title'            => "Fix SEO: {$issue->type}",
+            'category'         => 'seo',
+            'description'      => $issue->description,
+            'target_url'       => $issue->page_url,
+            'estimated_impact' => $issue->severity === 'critical' ? 1000 : 500,
+            'priority'         => $issue->severity === 'critical' ? 5 : 3,
+            'status'           => 'approved',
+            'executed_at'      => now(),
         ]);
+
+        ScanPageJob::dispatch($brand, $issue->page_url, $action);
+        $actionIds[] = $action->id;
     }
+
+    Log::info('Agent scan queued', [
+        'brand_id' => $brandId,
+        'scans'    => count($actionIds),
+    ]);
+
+    return response()->json([
+        'success'    => true,
+        'action_id'  => $actionIds[0] ?? null,
+        'action_ids' => $actionIds,
+        'queued'     => count($actionIds),
+        'message'    => 'Queued ' . count($actionIds) . ' SEO scans',
+    ]);
+}
 
     public function executeAction(Request $request)
     {

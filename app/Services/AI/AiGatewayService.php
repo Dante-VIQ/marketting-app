@@ -49,43 +49,43 @@ class AiGatewayService
     /**
      * Send a prompt to the AI and get a response.
      */
-public function generate(array $promptData): array
-{
-    $startTime = microtime(true);
+    public function generate(array $promptData): array
+    {
+        $startTime = microtime(true);
 
-    try {
-        $response = match ($this->provider) {
-            'openai' => $this->callOpenAI($promptData),
-            'anthropic' => $this->callAnthropic($promptData),
-            'gemini' => $this->callGeminiWithRetry($promptData), // Use retry version
-            'ollama' => $this->callOllama($promptData),
-            default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
-        };
+        try {
+            $response = match ($this->provider) {
+                'openai' => $this->callOpenAI($promptData),
+                'anthropic' => $this->callAnthropic($promptData),
+                'gemini' => $this->callGeminiWithRetry($promptData), // Use retry version
+                'ollama' => $this->callOllama($promptData),
+                default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
+            };
 
-        $responseTime = (microtime(true) - $startTime) * 1000;
+            $responseTime = (microtime(true) - $startTime) * 1000;
 
-        return [
-            'success' => true,
-            'content' => $response['content'],
-            'tokens_used' => $response['tokens_used'] ?? 0,
-            'model_used' => $this->config['model'],
-            'provider' => $this->provider,
-            'response_time_ms' => round($responseTime, 2),
-            'raw_response' => $response['raw'] ?? null,
-        ];
-    } catch (\Exception $e) {
-        Log::error('AI Gateway error', [
-            'provider' => $this->provider,
-            'error' => $e->getMessage(),
-        ]);
+            return [
+                'success' => true,
+                'content' => $response['content'],
+                'tokens_used' => $response['tokens_used'] ?? 0,
+                'model_used' => $this->config['model'],
+                'provider' => $this->provider,
+                'response_time_ms' => round($responseTime, 2),
+                'raw_response' => $response['raw'] ?? null,
+            ];
+        } catch (\Exception $e) {
+            Log::error('AI Gateway error', [
+                'provider' => $this->provider,
+                'error' => $e->getMessage(),
+            ]);
 
-        return [
-            'success' => false,
-            'error' => $e->getMessage(),
-            'provider' => $this->provider,
-        ];
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+                'provider' => $this->provider,
+            ];
+        }
     }
-}
 
     /**
      * Call OpenAI API.
@@ -158,7 +158,7 @@ public function generate(array $promptData): array
     {
         $model = $this->config['model'];
         $apiKey = $this->config['api_key'];
-        
+
         $endpoint = $this->config['endpoint'] . '/' . $model . ':generateContent?key=' . $apiKey;
 
         // Build the prompt
@@ -279,7 +279,7 @@ public function generate(array $promptData): array
     protected function buildOllamaPrompt(array $promptData): string
     {
         $prompt = '';
-        
+
         if (!empty($promptData['system_prompt'])) {
             $prompt .= "System: " . $promptData['system_prompt'] . "\n\n";
         }
@@ -313,7 +313,7 @@ public function generate(array $promptData): array
                 $response = Http::timeout(5)->get('http://localhost:11434/api/tags');
                 return $response->successful();
             }
-            
+
             return !empty($this->config['api_key']);
         } catch (\Exception $e) {
             return false;
@@ -321,40 +321,40 @@ public function generate(array $promptData): array
     }
 
     /**
- * Call Gemini API with retry logic.
- */
-protected function callGeminiWithRetry(array $promptData, int $maxRetries = 3): array
-{
-    $attempt = 0;
-    $delay = 10; // seconds
+     * Call Gemini API with retry logic.
+     */
+    protected function callGeminiWithRetry(array $promptData, int $maxRetries = 3): array
+    {
+        $attempt = 0;
+        $delay = 10; // seconds
 
-    while ($attempt < $maxRetries) {
-        try {
-            $result = $this->callGemini($promptData);
-            
-            // If we got a quota error response, check if it's a retryable error
-            if (isset($result['error']) && str_contains($result['error'], 'quota')) {
-                throw new \Exception($result['error']);
-            }
-            
-            return $result;
-        } catch (\Exception $e) {
-            $attempt++;
-            
-            // Check if it's a quota error
-            if (str_contains($e->getMessage(), 'quota') || str_contains($e->getMessage(), 'RESOURCE_EXHAUSTED')) {
-                if ($attempt < $maxRetries) {
-                    $this->info("Gemini quota exceeded. Retrying in {$delay} seconds...");
-                    sleep($delay);
-                    $delay *= 2; // Exponential backoff
-                    continue;
+        while ($attempt < $maxRetries) {
+            try {
+                $result = $this->callGemini($promptData);
+
+                // If we got a quota error response, check if it's a retryable error
+                if (isset($result['error']) && str_contains($result['error'], 'quota')) {
+                    throw new \Exception($result['error']);
                 }
-            }
-            
-            throw $e;
-        }
-    }
 
-    throw new \Exception("Max retries exceeded for Gemini API");
-}
+                return $result;
+            } catch (\Exception $e) {
+                $attempt++;
+
+                // Check if it's a quota error
+                if (str_contains($e->getMessage(), 'quota') || str_contains($e->getMessage(), 'RESOURCE_EXHAUSTED')) {
+                    if ($attempt < $maxRetries) {
+                        Log::info("Gemini quota exceeded. Retrying in {$delay} seconds...");
+                        sleep($delay);
+                        $delay *= 2; // Exponential backoff
+                        continue;
+                    }
+                }
+
+                throw $e;
+            }
+        }
+
+        throw new \Exception("Max retries exceeded for Gemini API");
+    }
 }

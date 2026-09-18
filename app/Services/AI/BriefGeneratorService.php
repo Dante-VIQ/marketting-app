@@ -22,7 +22,7 @@ class BriefGeneratorService
 
     public function __construct(AiGatewayService $aiGateway)
     {
-        $this->aiGateway =$aiGateway;
+        $this->aiGateway = $aiGateway;
     }
 
     public function generateForBrand(Brand $brand): ?AiBrief
@@ -42,7 +42,7 @@ class BriefGeneratorService
             return null;
         }
 
-        $hasData = AnalyticsSnapshot::where('brand_id',$brand->id)
+        $hasData = AnalyticsSnapshot::where('brand_id', $brand->id)
             ->where('source', 'ga4')
             ->where('date', '>=', now()->subDays(30)->toDateString())
             ->exists();
@@ -52,10 +52,11 @@ class BriefGeneratorService
             return null;
         }
 
-        $promptData =$this->buildPromptData($brand);$fingerprint = $this->generateFingerprint($promptData);
+        $promptData = $this->buildPromptData($brand);
+        $fingerprint = $this->generateFingerprint($promptData);
 
         // Deduplication check: return existing brief if data hasn't changed today
-        $existingBrief = AiBrief::where('brand_id',$brand->id)
+        $existingBrief = AiBrief::where('brand_id', $brand->id)
             ->where('fingerprint', $fingerprint)
             ->where('created_at', '>=', now()->subHours(20))
             ->first();
@@ -70,7 +71,7 @@ class BriefGeneratorService
 
         Log::info('BriefGenerator: Requesting AI generation', ['brand_id' => $brand->id]);
 
-        $aiResponse =$this->aiGateway->generate([
+        $aiResponse = $this->aiGateway->generate([
             'system_prompt'   => $this->getSystemPrompt($brand),
             'user_prompt'     => json_encode($promptData, JSON_PRETTY_PRINT),
             'temperature'     => 0.7,
@@ -96,20 +97,30 @@ class BriefGeneratorService
             return null;
         }
 
-        return DB::transaction(function () use ($brand, $fingerprint,$parsedData, $aiResponse) {$brief = AiBrief::create([
-                'brand_id'                 => $brand->id,
-                'brief_date'               => Carbon::today(),
-                'fingerprint'              => $fingerprint,
-                'strategic_diagnosis'      => $parsedData['strategic_diagnosis'] ?? 'No diagnosis provided.',
-                'estimated_revenue_impact' => $parsedData['estimated_revenue_impact'] ?? 0.00,                 'confidence_score'         =>$parsedData['confidence_score'] ?? null,
-                'raw_llm_output'           => $parsedData,
-                'ai_provider'              => $this->aiGateway->getProvider(),
-                'model_used'               => $aiResponse['model_used'] ?? null,
-                'tokens_used'              => $aiResponse['tokens_used'] ?? 0,                 'response_time_ms'         =>$aiResponse['response_time_ms'] ?? 0,
-            ]);
+        return DB::transaction(function () use ($brand, $fingerprint, $parsedData, $aiResponse) {
+            // ✅ Idempotent: update if exists, insert if not
+            $brief = AiBrief::updateOrCreate(
+                [
+                    'fingerprint' => $fingerprint,
+                ],
+
+                [
+                    'brand_id'                 => $brand->id,
+                    'brief_date'               => Carbon::today(),
+                    'fingerprint'              => $fingerprint,
+                    'strategic_diagnosis'      => $parsedData['strategic_diagnosis'] ?? 'No diagnosis provided.',
+                    'estimated_revenue_impact' => $parsedData['estimated_revenue_impact'] ?? 0.00,
+                    'confidence_score'         => $parsedData['confidence_score'] ?? null,
+                    'raw_llm_output'           => $parsedData,
+                    'ai_provider'              => $this->aiGateway->getProvider(),
+                    'model_used'               => $aiResponse['model_used'] ?? null,
+                    'tokens_used'              => $aiResponse['tokens_used'] ?? 0,
+                    'response_time_ms'         => $aiResponse['response_time_ms'] ?? 0,
+                ]
+            );
 
             if (!empty($parsedData['actions']) && is_array($parsedData['actions'])) {
-                foreach ($parsedData['actions'] as$actionData) {
+                foreach ($parsedData['actions'] as $actionData) {
                     AiAction::create([
                         'brand_id'          => $brand->id,
                         'brief_id'          => $brief->id,
@@ -149,21 +160,21 @@ class BriefGeneratorService
         $analytics = $this->getAnalyticsSummary($brand, $last30Days, $last7Days);
 
         $revenueLeaks = RevenueLeak::where('brand_id', $brand->id)
-        ->where('status', 'open')
-        ->orderBy('estimated_loss', 'desc')
-        ->limit(5)
-        ->get()
-        ->toArray();
+            ->where('status', 'open')
+            ->orderBy('estimated_loss', 'desc')
+            ->limit(5)
+            ->get()
+            ->toArray();
 
         $knowledge = KnowledgeBase::where('brand_id', $brand->id)
-        ->where('is_active', true)
-        ->pluck('content', 'key')
-        ->toArray();
+            ->where('is_active', true)
+            ->pluck('content', 'key')
+            ->toArray();
 
         $goals = BusinessGoal::where('brand_id', $brand->id)
-        ->where('is_active', true)
-        ->get()
-        ->toArray();
+            ->where('is_active', true)
+            ->get()
+            ->toArray();
 
         // ================================================================
         // FIX: Get page snapshots for pages mentioned in analytics
@@ -205,9 +216,9 @@ class BriefGeneratorService
 
             // Find the page snapshot
             $snapshot = PageSnapshot::where('brand_id', $brand->id)
-            ->where('url', 'like', '%' . $url . '%')
-            ->orderBy('created_at', 'desc')
-            ->first();
+                ->where('url', 'like', '%' . $url . '%')
+                ->orderBy('created_at', 'desc')
+                ->first();
 
             if ($snapshot) {
                 $snapshots[] = [
@@ -234,11 +245,11 @@ class BriefGeneratorService
 
         foreach ($cumulativeMetrics as $metricName) {
             $data = AnalyticsSnapshot::where('brand_id', $brand->id)
-            ->where('source', 'ga4')
-            ->where('metric', $metricName)
-            ->whereNull('dimension')
-            ->where('date', '>=', $last30Days->toDateString())
-            ->get();
+                ->where('source', 'ga4')
+                ->where('metric', $metricName)
+                ->whereNull('dimension')
+                ->where('date', '>=', $last30Days->toDateString())
+                ->get();
 
             $metrics[$metricName] = [
                 'total' => (float) $data->sum('value'),
@@ -254,43 +265,43 @@ class BriefGeneratorService
 
         // Top pages with FULL URLs
         $topPages = AnalyticsSnapshot::where('brand_id', $brand->id)
-        ->where('source', 'ga4')
-        ->where('metric', 'visitors')
-        ->whereNotNull('dimension')
-        ->where('dimension', 'not like', 'source_%')
-        ->where('date', '>=', $last30Days->toDateString())
-        ->select('dimension')
-        ->selectRaw('SUM(value) as total_visitors')
-        ->groupBy('dimension')
-        ->orderBy('total_visitors', 'desc')
-        ->limit(5)
-        ->get()
-        ->map(function ($item) use ($baseUrl) {
-            // Ensure full URL
-            $url = $item->dimension;
-            if (!str_starts_with($url, 'http://') && !str_starts_with($url, 'https://')) {
-                $url = $baseUrl . '/' . ltrim($url, '/');
-                $url = preg_replace('/(?<!:)\/+/', '/', $url);
-            }
-            return [
-                'dimension' => $url,
-                'total_visitors' => $item->total_visitors,
-            ];
-        })
-        ->toArray();
+            ->where('source', 'ga4')
+            ->where('metric', 'visitors')
+            ->whereNotNull('dimension')
+            ->where('dimension', 'not like', 'source_%')
+            ->where('date', '>=', $last30Days->toDateString())
+            ->select('dimension')
+            ->selectRaw('SUM(value) as total_visitors')
+            ->groupBy('dimension')
+            ->orderBy('total_visitors', 'desc')
+            ->limit(5)
+            ->get()
+            ->map(function ($item) use ($baseUrl) {
+                // Ensure full URL
+                $url = $item->dimension;
+                if (!str_starts_with($url, 'http://') && !str_starts_with($url, 'https://')) {
+                    $url = $baseUrl . '/' . ltrim($url, '/');
+                    $url = preg_replace('/(?<!:)\/+/', '/', $url);
+                }
+                return [
+                    'dimension' => $url,
+                    'total_visitors' => $item->total_visitors,
+                ];
+            })
+            ->toArray();
 
         // Channels (these are usually source_* so keep as is)
         $channels = AnalyticsSnapshot::where('brand_id', $brand->id)
-        ->where('source', 'ga4')
-        ->where('metric', 'visitors')
-        ->where('dimension', 'like', 'source_%')
-        ->where('date', '>=', $last30Days->toDateString())
-        ->select('dimension')
-        ->selectRaw('SUM(value) as total_visitors')
-        ->groupBy('dimension')
-        ->orderBy('total_visitors', 'desc')
-        ->get()
-        ->toArray();
+            ->where('source', 'ga4')
+            ->where('metric', 'visitors')
+            ->where('dimension', 'like', 'source_%')
+            ->where('date', '>=', $last30Days->toDateString())
+            ->select('dimension')
+            ->selectRaw('SUM(value) as total_visitors')
+            ->groupBy('dimension')
+            ->orderBy('total_visitors', 'desc')
+            ->get()
+            ->toArray();
 
         return [
             'period' => [
@@ -306,8 +317,8 @@ class BriefGeneratorService
 
     protected function getSystemPrompt(Brand $brand): string
     {
-        $brandVoice =$brand->brand_voice ?? 'Professional and Data-Driven';
-        $domainType =$brand->domain_type ?? 'digital business';
+        $brandVoice = $brand->brand_voice ?? 'Professional and Data-Driven';
+        $domainType = $brand->domain_type ?? 'digital business';
 
         return <<<PROMPT
 You are the Chief Marketing Officer for {$brand->name}, a {$domainType} business.
