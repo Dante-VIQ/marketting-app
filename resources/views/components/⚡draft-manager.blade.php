@@ -2,10 +2,9 @@
 
 use Livewire\Component;
 use App\Models\ContentDraft;
-use App\Models\Brand;
 use App\Services\Content\ContentDraftManagerService;
 use Illuminate\Support\Facades\Auth;
-use App\Services\AI\ContentGeneratorService;
+use Illuminate\Support\Str;
 use Illuminate\Auth\Access\AuthorizationException;
 
 new class extends Component {
@@ -13,9 +12,8 @@ new class extends Component {
     public $drafts = [];
     public $filter = 'all';
     public $expandedDraftId = null;
-    public $statusLabels = [];
 
-    // Revision modal properties
+    // Revision modal
     public $showRevisionModal = false;
     public $revisionDraftId = null;
     public $revisionReason = 'needs_more_detail';
@@ -26,13 +24,6 @@ new class extends Component {
     public function mount()
     {
         $this->brandId = Auth::user()->active_brand_id;
-        $this->statusLabels = [
-            ContentDraft::STATUS_DRAFT => '📄 Draft',
-            ContentDraft::STATUS_REVIEW => '👀 In Review',
-            ContentDraft::STATUS_REVISION => '🔄 Revision Needed',
-            ContentDraft::STATUS_APPROVED => '✅ Approved',
-            ContentDraft::STATUS_PUBLISHED => '🚀 Published',
-        ];
         $this->loadDrafts();
     }
 
@@ -58,29 +49,34 @@ new class extends Component {
 
             if ($draft->action) {
                 $data['action'] = [
-                    'id' => $draft->action->id,
-                    'title' => $draft->action->title,
-                    'category' => $draft->action->category,
-                    'priority' => $draft->action->priority,
-                    'status' => $draft->action->status,
+                    'id'               => $draft->action->id,
+                    'title'            => $draft->action->title,
+                    'category'         => $draft->action->category,
+                    'priority'         => $draft->action->priority,
+                    'status'           => $draft->action->status,
                     'estimated_impact' => $draft->action->estimated_impact,
-                    'target_url' => $draft->action->target_url,
-                    'description' => $draft->action->description,
-                    'created_at' => $draft->action->created_at->toDateTimeString(),
+                    'target_url'       => $draft->action->target_url,
+                    'description'      => $draft->action->description,
+                    'created_at'       => $draft->action->created_at->toDateTimeString(),
                 ];
             }
 
-            $data['type_label'] = $draft->type_label;
-            $data['source_category'] = $draft->source_category;
-            $data['source_description'] = $draft->source_description;
-            $data['word_count'] = $draft->word_count;
-            $data['meta_title_length'] = strlen($draft->meta_title ?? '');
-            $data['meta_description_length'] = strlen($draft->meta_description ?? '');
-            $data['status_badge'] = $draft->status_badge;
-            $data['status_label'] = $draft->status_label;
+            // Render markdown safely — for SEO meta drafts, content is
+            // often just the meta description itself, so markdown still works.
+            $data['content_html'] = Str::markdown($draft->content ?? '', [
+                'html_input'         => 'strip',
+                'allow_unsafe_links' => false,
+            ]);
 
-            // ✅ Pre-compute authorization (avoids passing array to @can)
-            $data['can_publish'] = $user->can('publish', $draft);
+            $data['type_label']             = $draft->type_label;
+            $data['source_category']        = $draft->source_category;
+            $data['source_description']     = $draft->source_description;
+            $data['word_count']             = $draft->word_count;
+            $data['meta_title_length']      = strlen($draft->meta_title ?? '');
+            $data['meta_description_length'] = strlen($draft->meta_description ?? '');
+            $data['status_badge']           = $draft->status_badge;
+            $data['status_label']           = $draft->status_label;
+            $data['can_publish']            = $user->can('publish', $draft);
 
             return $data;
         })->toArray();
@@ -89,6 +85,12 @@ new class extends Component {
     public function submitForReview($draftId, ContentDraftManagerService $draftManager)
     {
         $draft = ContentDraft::findOrFail($draftId);
+
+        if (!Auth::user()->can('update', $draft)) {
+            session()->flash('error', 'You are not authorized to submit this draft.');
+            return;
+        }
+
         $draftManager->submitForReview($draft);
         $this->loadDrafts();
         session()->flash('message', 'Draft submitted for review.');
@@ -97,15 +99,15 @@ new class extends Component {
     public function approveDraft($draftId, ContentDraftManagerService $draftManager)
     {
         $draft = ContentDraft::findOrFail($draftId);
-        $draftManager->approveDraft($draft);
-        $this->loadDrafts();
 
-        if ($draft->action) {
-            $draft->action->status = 'published';
-            $draft->action->executed_at = now();
-            $draft->action->save();
+        if (!Auth::user()->can('update', $draft)) {
+            session()->flash('error', 'You are not authorized to approve this draft.');
+            return;
         }
 
+        // Service handles updating the linked AiAction — no need to duplicate
+        $draftManager->approveDraft($draft);
+        $this->loadDrafts();
         session()->flash('message', 'Draft approved successfully.');
     }
 
@@ -126,19 +128,28 @@ new class extends Component {
 
         $draft = ContentDraft::findOrFail($this->revisionDraftId);
 
+        if (!Auth::user()->can('update', $draft)) {
+            session()->flash('error', 'You are not authorized to request revisions.');
+            return;
+        }
+
         $notes = $this->revisionNotes ?: $this->revisionReason;
         $draftManager->requestRevision($draft, $this->revisionReason, $notes);
 
         $this->showRevisionModal = false;
         $this->revisionDraftId = null;
         $this->loadDrafts();
-
         session()->flash('message', 'Draft sent for revision. The AI will regenerate with your feedback.');
     }
 
     public function regenerateDraft($draftId, ContentDraftManagerService $draftManager)
     {
         $draft = ContentDraft::findOrFail($draftId);
+
+        if (!Auth::user()->can('update', $draft)) {
+            session()->flash('error', 'You are not authorized to regenerate this draft.');
+            return;
+        }
 
         if (!$draft->needsRevision()) {
             session()->flash('error', 'This draft does not need revision.');
@@ -159,14 +170,15 @@ new class extends Component {
     {
         $draft = ContentDraft::findOrFail($draftId);
 
-        try {
-            app(ContentGeneratorService::class)->publish($draft, auth()->user());
-            $draftManager->markAsPublished($draft);
-            $this->loadDrafts();
-            session()->flash('message', '✅ Content published.');
-        } catch (AuthorizationException $e) {
-            session()->flash('error', '🚫 ' . $e->getMessage());
+        // Uses the ContentDraftPolicy::publish method
+        if (!Auth::user()->can('publish', $draft)) {
+            session()->flash('error', 'You are not authorized to publish this content.');
+            return;
         }
+
+        $draftManager->markAsPublished($draft);
+        $this->loadDrafts();
+        session()->flash('message', '✅ Content published.');
     }
 
     public function toggleExpand($draftId)
@@ -183,7 +195,7 @@ new class extends Component {
 ?>
 
 <div>
-    <!-- Flash Messages -->
+    {{-- Flash messages --}}
     @if(session()->has('message'))
         <div class="mb-4 p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg">
             {{ session('message') }}
@@ -196,7 +208,7 @@ new class extends Component {
         </div>
     @endif
 
-    <!-- Header -->
+    {{-- Header + filters --}}
     <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
         <div class="flex items-center space-x-2">
             <h2 class="text-lg font-semibold text-gray-900">Content Drafts</h2>
@@ -205,34 +217,25 @@ new class extends Component {
             </span>
         </div>
 
-        <div class="flex space-x-1">
-            <button wire:click="setFilter('all')"
-                class="px-3 py-1 text-sm rounded {{ $filter === 'all' ? 'bg-gray-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }}">
-                All
-            </button>
-            <button wire:click="setFilter('draft')"
-                class="px-3 py-1 text-sm rounded {{ $filter === 'draft' ? 'bg-yellow-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }}">
-                Drafts
-            </button>
-            <button wire:click="setFilter('review')"
-                class="px-3 py-1 text-sm rounded {{ $filter === 'review' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }}">
-                In Review
-            </button>
-            <button wire:click="setFilter('revision')"
-                class="px-3 py-1 text-sm rounded {{ $filter === 'revision' ? 'bg-orange-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }}">
-                Revision
-            </button>
-            <button wire:click="setFilter('approved')"
-                class="px-3 py-1 text-sm rounded {{ $filter === 'approved' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }}">
-                Approved
-            </button>
-            <button wire:click="setFilter('published')"
-                class="px-3 py-1 text-sm rounded {{ $filter === 'published' ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }}">
-                Published
-            </button>
+        <div class="flex space-x-1 flex-wrap">
+            @foreach([
+                'all'       => ['All',         'bg-gray-600'],
+                'draft'     => ['Drafts',      'bg-yellow-600'],
+                'review'    => ['In Review',   'bg-blue-600'],
+                'revision'  => ['Revision',    'bg-orange-600'],
+                'approved'  => ['Approved',    'bg-green-600'],
+                'published' => ['Published',   'bg-purple-600'],
+            ] as $key => [$label, $activeColor])
+                <button wire:click="setFilter('{{ $key }}')"
+                    class="px-3 py-1 text-sm rounded transition
+                        {{ $filter === $key ? $activeColor . ' text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }}">
+                    {{ $label }}
+                </button>
+            @endforeach
         </div>
     </div>
 
+    {{-- Empty state --}}
     @if(empty($drafts))
         <div class="bg-gray-50 p-8 rounded-lg border border-gray-200 text-center">
             <p class="text-gray-500">No drafts found.</p>
@@ -242,79 +245,97 @@ new class extends Component {
         <div class="space-y-4">
             @foreach($drafts as $draft)
                 <div class="bg-white p-4 rounded-lg border border-gray-200 hover:shadow-md transition">
-                    <div class="flex items-start justify-between">
-                        <div class="flex-1">
-                            <!-- Source Action Header -->
-                            @if(isset($draft['action']) && $draft['action'])
-                                <div class="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <span class="text-xs font-medium text-gray-500">📌 From Action:</span>
-                                        <span class="text-sm font-medium text-gray-900">{{ $draft['action']['title'] }}</span>
-                                    </div>
-                                    <div class="flex flex-wrap items-center gap-2 mt-1">
-                                        <span class="px-2 py-0.5 text-xs rounded-full
-                                                        {{ $draft['action']['category'] === 'seo' ? 'bg-blue-100 text-blue-800' : '' }}
-                                                        {{ $draft['action']['category'] === 'content' ? 'bg-green-100 text-green-800' : '' }}
-                                                        {{ $draft['action']['category'] === 'social' ? 'bg-purple-100 text-purple-800' : '' }}
-                                                        ">
-                                            {{ $draft['action']['category'] ?? 'Unknown' }}
-                                        </span>
-                                        <span class="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
-                                            Priority: {{ $draft['action']['priority'] ?? 0 }}/5
-                                        </span>
-                                        @if(isset($draft['action']['estimated_impact']))
-                                            <span class="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800">
-                                                Impact: ${{ number_format($draft['action']['estimated_impact'], 2) }}
-                                            </span>
-                                        @endif
-                                        <span class="px-2 py-0.5 text-xs rounded-full
-                                                        {{ $draft['action']['status'] === 'pending' ? 'bg-yellow-100 text-yellow-800' : '' }}
-                                                        {{ $draft['action']['status'] === 'approved' ? 'bg-blue-100 text-blue-800' : '' }}
-                                                        {{ $draft['action']['status'] === 'content_generated' ? 'bg-green-100 text-green-800' : '' }}
-                                                        ">
-                                            Action: {{ ucfirst($draft['action']['status'] ?? 'Unknown') }}
-                                        </span>
-                                    </div>
-                                    @if(isset($draft['action']['target_url']))
-                                        <div class="mt-1 text-xs text-gray-500">
-                                            Target: {{ $draft['action']['target_url'] }}
-                                        </div>
-                                    @endif
+
+                    {{-- Source action --}}
+                    @if(!empty($draft['action']))
+                        <div class="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="text-xs font-medium text-gray-500">📌 From Action:</span>
+                                <span class="text-sm font-medium text-gray-900">{{ $draft['action']['title'] }}</span>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-2 mt-1">
+                                <span class="px-2 py-0.5 text-xs rounded-full
+                                    {{ $draft['action']['category'] === 'seo'     ? 'bg-blue-100 text-blue-800' : '' }}
+                                    {{ $draft['action']['category'] === 'content' ? 'bg-green-100 text-green-800' : '' }}
+                                    {{ $draft['action']['category'] === 'social'  ? 'bg-purple-100 text-purple-800' : '' }}">
+                                    {{ $draft['action']['category'] ?? 'Unknown' }}
+                                </span>
+                                <span class="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
+                                    Priority: {{ $draft['action']['priority'] ?? 0 }}/5
+                                </span>
+                                @if(!empty($draft['action']['estimated_impact']))
+                                    <span class="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800">
+                                        Impact: ${{ number_format($draft['action']['estimated_impact'], 2) }}
+                                    </span>
+                                @endif
+                                <span class="px-2 py-0.5 text-xs rounded-full
+                                    {{ $draft['action']['status'] === 'pending'          ? 'bg-yellow-100 text-yellow-800' : '' }}
+                                    {{ $draft['action']['status'] === 'approved'         ? 'bg-blue-100 text-blue-800' : '' }}
+                                    {{ $draft['action']['status'] === 'content_generated' ? 'bg-green-100 text-green-800' : '' }}">
+                                    Action: {{ ucfirst($draft['action']['status'] ?? 'Unknown') }}
+                                </span>
+                            </div>
+                            @if(!empty($draft['action']['target_url']))
+                                <div class="mt-1 text-xs text-gray-500">
+                                    Target: {{ $draft['action']['target_url'] }}
                                 </div>
                             @endif
+                        </div>
+                    @endif
 
-                            {{-- <!-- Content Draft Details --> --}}
-                            <div class="flex flex-wrap items-center gap-2 mb-2">
+                    {{-- Draft header with copy buttons --}}
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0">
+                            {{-- Badges --}}
+                            <div class="flex flex-wrap items-center gap-2 mb-3">
                                 <span class="px-2 py-1 text-xs rounded-full
-                                            {{ $draft['type'] === 'blog' ? 'bg-green-100 text-green-800' : '' }}
-                                            {{ $draft['type'] === 'social' ? 'bg-purple-100 text-purple-800' : '' }}
-                                            {{ $draft['type'] === 'email' ? 'bg-yellow-100 text-yellow-800' : '' }}
-                                            {{ $draft['type'] === 'web_copy' ? 'bg-blue-100 text-blue-800' : '' }}
-                                            {{ $draft['type'] === 'seo_meta' ? 'bg-indigo-100 text-indigo-800' : '' }}
-                                            ">
+                                    {{ $draft['type'] === 'blog'     ? 'bg-green-100 text-green-800' : '' }}
+                                    {{ $draft['type'] === 'social'   ? 'bg-purple-100 text-purple-800' : '' }}
+                                    {{ $draft['type'] === 'email'    ? 'bg-yellow-100 text-yellow-800' : '' }}
+                                    {{ $draft['type'] === 'web_copy' ? 'bg-blue-100 text-blue-800' : '' }}
+                                    {{ $draft['type'] === 'seo_meta' ? 'bg-indigo-100 text-indigo-800' : '' }}">
                                     {{ $draft['type_label'] ?? ucfirst($draft['type']) }}
                                 </span>
 
-                                <span
-                                    class="px-2 py-1 text-xs rounded-full {{ $draft['status_badge'] ?? 'bg-gray-100 text-gray-800' }}">
+                                <span class="px-2 py-1 text-xs rounded-full {{ $draft['status_badge'] ?? 'bg-gray-100 text-gray-800' }}">
                                     {{ $draft['status_label'] ?? ucfirst($draft['status']) }}
                                 </span>
 
-                                @if($draft['target_keyword'])
+                                @if(!empty($draft['target_keyword']))
                                     <span class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-600">
                                         🔑 {{ $draft['target_keyword'] }}
                                     </span>
                                 @endif
                             </div>
 
-                            <h3 class="font-medium text-gray-900">{{ $draft['title'] }}</h3>
+                            {{-- Title with copy + word count --}}
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <h3 class="font-medium text-gray-900">{{ $draft['title'] }}</h3>
+                                @if(($draft['word_count'] ?? 0) > 0)
+                                    <span class="text-xs text-gray-400">
+                                        · {{ number_format($draft['word_count']) }} words
+                                    </span>
+                                @endif
+                                <button type="button"
+                                    x-data="{ copied: false }"
+                                    @click="
+                                        navigator.clipboard.writeText(@js($draft['title']));
+                                        copied = true;
+                                        setTimeout(() => copied = false, 1500);
+                                    "
+                                    class="px-2 py-0.5 text-xs bg-gray-100 hover:bg-gray-200 rounded transition"
+                                    title="Copy title">
+                                    <span x-show="!copied">📋</span>
+                                    <span x-show="copied" class="text-green-600">✓</span>
+                                </button>
+                            </div>
 
-                            <!-- Meta Length Checks -->
+                            {{-- SEO meta inline length checks --}}
                             @if($draft['type'] === 'seo_meta')
                                 <div class="mt-2 space-y-1">
-                                    @if($draft['meta_title'])
+                                    @if(!empty($draft['meta_title']))
                                         @php
-                                            $titleLength = $draft['meta_title_length'] ?? strlen($draft['meta_title']);
+                                            $titleLength = $draft['meta_title_length'];
                                             $titleValid = $titleLength >= 50 && $titleLength <= 60;
                                         @endphp
                                         <div class="text-xs {{ $titleValid ? 'text-green-600' : 'text-red-500' }}">
@@ -322,9 +343,9 @@ new class extends Component {
                                             {{ $titleValid ? '✅' : '⚠️' }}
                                         </div>
                                     @endif
-                                    @if($draft['meta_description'])
+                                    @if(!empty($draft['meta_description']))
                                         @php
-                                            $descLength = $draft['meta_description_length'] ?? strlen($draft['meta_description']);
+                                            $descLength = $draft['meta_description_length'];
                                             $descValid = $descLength >= 140 && $descLength <= 160;
                                         @endphp
                                         <div class="text-xs {{ $descValid ? 'text-green-600' : 'text-red-500' }}">
@@ -335,50 +356,98 @@ new class extends Component {
                                 </div>
                             @endif
 
-                            @if($draft['excerpt'])
-                                <p class="text-sm text-gray-600 mt-1">{{ $draft['excerpt'] }}</p>
+                            @if(!empty($draft['excerpt']))
+                                <p class="text-sm text-gray-600 mt-2">{{ $draft['excerpt'] }}</p>
                             @endif
 
-                            @if(isset($draft['word_count']) && $draft['word_count'] > 0)
-                                <div class="text-xs text-gray-400 mt-1">
-                                    📝 {{ number_format($draft['word_count']) }} words
-                                </div>
-                            @endif
-
-                            <!-- Expand/Collapse -->
+                            {{-- Expand toggle --}}
                             <button wire:click="toggleExpand({{ $draft['id'] }})"
                                 class="text-sm text-blue-600 hover:text-blue-800 mt-2">
                                 {{ $expandedDraftId === $draft['id'] ? '📄 Hide Content' : '📄 View Full Content' }}
                             </button>
 
+                            {{-- Expanded content --}}
                             @if($expandedDraftId === $draft['id'])
-                                <div class="mt-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                    <div class="prose max-w-none text-sm text-gray-700 whitespace-pre-wrap">
-                                        {{ $draft['content'] }}
+                                <div class="mt-3 rounded-lg border border-gray-200 overflow-hidden">
+
+                                    {{-- Copy bar --}}
+                                    <div class="flex items-center justify-between px-4 py-2 bg-gray-100 border-b border-gray-200">
+                                        <span class="text-xs font-medium text-gray-600">
+                                            {{ number_format($draft['word_count'] ?? 0) }} words
+                                            @if($draft['type'] === 'seo_meta') · SEO Meta @endif
+                                        </span>
+                                        <div class="flex gap-2 flex-wrap">
+                                            <button type="button"
+                                                x-data="{ copied: false }"
+                                                @click="
+                                                    navigator.clipboard.writeText(@js($draft['content']));
+                                                    copied = true;
+                                                    setTimeout(() => copied = false, 1500);
+                                                "
+                                                class="px-3 py-1 text-xs bg-white border border-gray-300 hover:bg-gray-50 rounded transition">
+                                                <span x-show="!copied">📋 Copy Content</span>
+                                                <span x-show="copied" class="text-green-600">✓ Copied</span>
+                                            </button>
+
+                                            @if(!empty($draft['meta_title']))
+                                                <button type="button"
+                                                    x-data="{ copied: false }"
+                                                    @click="
+                                                        navigator.clipboard.writeText(@js($draft['meta_title']));
+                                                        copied = true;
+                                                        setTimeout(() => copied = false, 1500);
+                                                    "
+                                                    class="px-3 py-1 text-xs bg-white border border-gray-300 hover:bg-gray-50 rounded transition">
+                                                    <span x-show="!copied">📋 Meta Title</span>
+                                                    <span x-show="copied" class="text-green-600">✓</span>
+                                                </button>
+                                            @endif
+
+                                            @if(!empty($draft['meta_description']))
+                                                <button type="button"
+                                                    x-data="{ copied: false }"
+                                                    @click="
+                                                        navigator.clipboard.writeText(@js($draft['meta_description']));
+                                                        copied = true;
+                                                        setTimeout(() => copied = false, 1500);
+                                                    "
+                                                    class="px-3 py-1 text-xs bg-white border border-gray-300 hover:bg-gray-50 rounded transition">
+                                                    <span x-show="!copied">📋 Meta Desc</span>
+                                                    <span x-show="copied" class="text-green-600">✓</span>
+                                                </button>
+                                            @endif
+                                        </div>
                                     </div>
 
-                                    @if($draft['meta_title'] || $draft['meta_description'])
-                                        <div class="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                                            <p class="text-sm font-medium text-blue-800">🔍 SEO Information</p>
-                                            @if($draft['meta_title'])
-                                                <p class="text-sm text-blue-700">
+                                    {{-- Rendered markdown content --}}
+                                    <div class="p-4 bg-gray-50 max-h-[32rem] overflow-y-auto">
+                                        <div class="prose prose-sm max-w-none text-gray-700">
+                                            {!! $draft['content_html'] !!}
+                                        </div>
+                                    </div>
+
+                                    {{-- SEO block --}}
+                                    @if(!empty($draft['meta_title']) || !empty($draft['meta_description']))
+                                        <div class="p-3 bg-blue-50 border-t border-blue-200">
+                                            <p class="text-xs font-medium text-blue-800 mb-2">🔍 SEO Information</p>
+                                            @if(!empty($draft['meta_title']))
+                                                <p class="text-sm text-blue-700 mb-1">
                                                     <strong>Title:</strong> {{ $draft['meta_title'] }}
-                                                    <span class="text-xs text-gray-500">({{ strlen($draft['meta_title']) }}/50-60
-                                                        chars)</span>
+                                                    <span class="text-xs text-gray-500">({{ $draft['meta_title_length'] }}/50-60 chars)</span>
                                                 </p>
                                             @endif
-                                            @if($draft['meta_description'])
+                                            @if(!empty($draft['meta_description']))
                                                 <p class="text-sm text-blue-700">
                                                     <strong>Description:</strong> {{ $draft['meta_description'] }}
-                                                    <span class="text-xs text-gray-500">({{ strlen($draft['meta_description']) }}/140-160
-                                                        chars)</span>
+                                                    <span class="text-xs text-gray-500">({{ $draft['meta_description_length'] }}/140-160 chars)</span>
                                                 </p>
                                             @endif
                                         </div>
                                     @endif
 
-                                    @if($draft['seo_data'])
-                                        <div class="mt-3 grid grid-cols-2 gap-2">
+                                    {{-- SEO data stats --}}
+                                    @if(!empty($draft['seo_data']))
+                                        <div class="p-3 bg-gray-50 border-t border-gray-200 grid grid-cols-2 gap-2">
                                             @if(isset($draft['seo_data']['word_count']))
                                                 <div class="p-2 bg-green-50 rounded">
                                                     <p class="text-xs text-gray-500">Word Count</p>
@@ -397,8 +466,8 @@ new class extends Component {
                             @endif
                         </div>
 
-                        <!-- Action Buttons -->
-                        <div class="flex flex-col space-y-2 ml-4">
+                        {{-- Action buttons column --}}
+                        <div class="flex flex-col space-y-2 ml-4 flex-shrink-0">
                             @if($draft['status'] === 'draft')
                                 <button wire:click="submitForReview({{ $draft['id'] }})"
                                     wire:confirm="Are you ready to submit this draft for review?"
@@ -413,7 +482,7 @@ new class extends Component {
 
                             @if($draft['status'] === 'review')
                                 <button wire:click="approveDraft({{ $draft['id'] }})"
-                                    wire:confirm="Are you sure you want to approve this draft?"
+                                    wire:confirm="Approve this draft?"
                                     class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
                                     ✅ Approve
                                 </button>
@@ -443,15 +512,15 @@ new class extends Component {
                                 <span class="px-3 py-2 text-sm bg-gray-100 text-gray-600 rounded-lg text-center">
                                     ✅ Published
                                 </span>
-                                @if($draft['published_url'])
-                                    <a href="{{ $draft['published_url'] }}" target="_blank"
+                                @if(!empty($draft['published_url']))
+                                    <a href="{{ $draft['published_url'] }}" target="_blank" rel="noopener"
                                         class="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-center">
                                         🔗 View
                                     </a>
                                 @endif
                             @endif
 
-                            @if(isset($draft['action']) && $draft['action'])
+                            @if(!empty($draft['action']))
                                 <a href="{{ route('actions.queue') }}"
                                     class="px-3 py-1 text-xs text-center bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition">
                                     View in Action Queue →
@@ -464,7 +533,7 @@ new class extends Component {
         </div>
     @endif
 
-    <!-- Revision Modal -->
+    {{-- Revision modal --}}
     @if($showRevisionModal)
         <div class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
             <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
