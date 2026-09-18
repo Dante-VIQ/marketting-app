@@ -4,104 +4,192 @@ use App\Http\Controllers\AgentController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/env-test', function () {
-    return response()->json([
-        'all_env' => $_ENV,
-        'has_key' => isset($_ENV['AGENT_API_KEY']),
-        'key_value' => $_ENV['AGENT_API_KEY'] ?? 'not set',
-    ]);
-});
+/*
+|--------------------------------------------------------------------------
+| Local-Only Debug Routes
+|--------------------------------------------------------------------------
+| These expose sensitive data. They are ONLY available in local env.
+| Delete them from production or they will leak your API key.
+*/
+if (app()->environment('local')) {
+    Route::get('/env-test', function () {
+        return response()->json([
+            'has_key' => !empty(env('LARAVEL_API_KEY')),
+            'key_length' => strlen(env('LARAVEL_API_KEY') ?? ''),
+        ]);
+    });
 
-// In routes/api.php
-Route::get('/test-auth', function (Request $request) {
-    $key = $request->header('X-API-Key');
-    $valid = env('AGENT_API_KEY');
-    return response()->json([
-        'received' => $key,
-        'expected' => $valid,
-        'match' => $key === $valid
-    ]);
-});
+    Route::get('/test-auth', function (Request $request) {
+        $key = $request->header('X-API-Key');
+        $valid = env('LARAVEL_API_KEY');
+        return response()->json([
+            'received' => $key ? 'present' : 'missing',
+            'match' => $key && hash_equals((string) $valid, (string) $key),
+        ]);
+    });
+}
 
-Route::prefix('agent')->name('agent.')->middleware(['verify.api.key', 'agent.brand', 'throttle:agent'])->group(function () {
-    // ===== OPPORTUNITIES =====
-    Route::get('/opportunities/{brandId}', [AgentController::class, 'getOpportunities']);
-
-    // ===== ANALYTICS =====
-    Route::get('/analytics/{brandId}', [AgentController::class, 'getAnalytics']);
-
-    // ===== SEO =====
-    Route::get('/seo/issues/{brandId}', [AgentController::class, 'getSeoIssues']);
-    Route::get('/seo/issue/{brandId}/{issueId}', [AgentController::class, 'getSeoIssueById']);
-    Route::post('/seo/analyze/{brandId}/{issueId}', [AgentController::class, 'analyzeSeoIssue']);
-    Route::get('/seo/recommendations/{brandId}/{issueId}', [AgentController::class, 'getSeoRecommendations']);
-    Route::get('/seo/rankings/{brandId}', [AgentController::class, 'getKeywordRankings']);
-
-    // ===== LEADS =====
-    Route::get('/leads/pending/{brandId}', [AgentController::class, 'getPendingLeads']);
-    Route::get('/lead/{brandId}/{leadId}', [AgentController::class, 'getLead']);
-    Route::get('/lead/engagement/{brandId}/{leadId}', [AgentController::class, 'getLeadEngagement']);
-    Route::get('/lead/context/{brandId}/{leadId}', [AgentController::class, 'getLeadContext']);
-    Route::post('/lead/follow-up/{brandId}', [AgentController::class, 'generateFollowUpMessage']);
-
-    // ===== CAMPAIGNS =====
-    Route::get('/campaigns/{brandId}', [AgentController::class, 'getCampaigns']);
-    Route::post('/campaigns/pause', [AgentController::class, 'pauseCampaign']);
-
-    // ===== CONTENT =====
-    Route::post('/content/generate', [AgentController::class, 'triggerContentGeneration']);
-    Route::post('/content/gap-analysis/{brandId}', [AgentController::class, 'analyzeContentGap']);
-    Route::post('/content/outline', [AgentController::class, 'generateContentOutline']);
-
-    // ===== EXECUTION =====
-    Route::post('/scan/{brandId}', [AgentController::class, 'scan']);
-    Route::post('/actions/pending', [AgentController::class, 'executeAction']);
-
-    // ===== VERIFICATION =====
-    Route::post('/verification/start/{brandId}', [AgentController::class, 'startVerification']);
-    Route::get('/verification/{brandId}/{verificationId}', [AgentController::class, 'getVerification']);
-    Route::post('/verification/complete/{brandId}/{verificationId}', [AgentController::class, 'completeVerification']);
-
-    // ===== LEARNING =====
-    Route::post('/learn/{brandId}', [AgentController::class, 'recordLearning']);
-    Route::get('/experiences/similar/{brandId}', [AgentController::class, 'getSimilarExperiences']);
-
-    // ===== HEALTH =====
-    Route::get('/ai/ping', [AgentController::class, 'pingAI']);
-
-    Route::post('/actions/rollback/{brandId}', [AgentController::class, 'rollbackAction']);
-
-    // Analytics analysis
-    Route::get('/analytics/analyze/{brandId}', [AgentController::class, 'analyzeAnalytics']);
-
-    Route::post('/refresh-data/{brandId}', [AgentController::class, 'refreshData']);
-
-    Route::get('/data-status/{brandId}', [AgentController::class, 'dataStatus']);
-
-    Route::post('/opportunities/check', [AgentController::class, 'checkOpportunities']);
-    Route::post('/opportunities/mark', [AgentController::class, 'markOpportunity']);
-
-    Route::get('/actions/outcomes/{brandId}', [AgentController::class, 'getPendingOutcomes']);
-    Route::post('/actions/acknowledge', [AgentController::class, 'acknowledgeOutcomes']);
-    Route::post('/actions/{actionId}/authorize-retry', [AgentController::class, 'authorizeRetry']);
-
-    Route::get('/opportunities/history/{brandId}/{stableKey}', [AgentController::class, 'getOpportunityHistory']);
-
-    Route::get('/escalations/{brandId}', [AgentController::class, 'getPendingEscalations']);
-    Route::post('/escalations/{actionId}/respond', [AgentController::class, 'respondToEscalation']);
-
-    Route::get('/calibration/{brandId}', [AgentController::class, 'getCalibration']);
-    Route::post('/calibration/record', [AgentController::class, 'recordCalibration']);
-    Route::get('/calibration/summary/{brandId}', [AgentController::class, 'getCalibrationSummary']);
-
-    Route::post('/verification/register', [AgentController::class, 'registerVerification']);
-    Route::get('/verification/due/{brandId}', [AgentController::class, 'getDueVerifications']);
-    Route::post('/verification/record', [AgentController::class, 'recordVerification']);
-    Route::post('/actions/{actionId}/rollback', [AgentController::class, 'rollbackAction']);
-    Route::get('/brief/{brandId}', [AgentController::class, 'getBrief']);
-
-    Route::get('/tours/{brandId}', [AgentController::class, 'getTourPackages']);
-});
-
-// Public ping
+/*
+|--------------------------------------------------------------------------
+| Public Ping
+|--------------------------------------------------------------------------
+*/
 Route::get('/ping', [AgentController::class, 'ping']);
+
+/*
+|--------------------------------------------------------------------------
+| Agent API — All routes require API key + brand check + rate limit
+|--------------------------------------------------------------------------
+*/
+Route::prefix('agent')
+    ->name('agent.')
+    ->middleware(['verify.api.key', 'agent.brand', 'throttle:agent'])
+    ->group(function () {
+
+        /*
+        |-----------------------------------------
+        | Health
+        |-----------------------------------------
+        */
+        Route::get('/ai/ping', [AgentController::class, 'pingAI'])->name('ai.ping');
+
+        /*
+        |-----------------------------------------
+        | Data Freshness
+        |-----------------------------------------
+        */
+        Route::get('/data-status/{brandId}', [AgentController::class, 'dataStatus'])->name('data.status');
+        Route::post('/refresh-data/{brandId}', [AgentController::class, 'refreshData'])->name('data.refresh');
+
+        /*
+        |-----------------------------------------
+        | Brief
+        |-----------------------------------------
+        */
+        Route::get('/brief/{brandId}', [AgentController::class, 'getBrief'])->name('brief');
+
+        /*
+        |-----------------------------------------
+        | Tours
+        |-----------------------------------------
+        */
+        Route::get('/tours/{brandId}', [AgentController::class, 'getTourPackages'])->name('tours.index');
+
+        /*
+        |-----------------------------------------
+        | Opportunities
+        |-----------------------------------------
+        */
+        Route::get('/opportunities/{brandId}', [AgentController::class, 'getOpportunities'])->name('opportunities.index');
+        Route::post('/opportunities/check', [AgentController::class, 'checkOpportunities'])->name('opportunities.check');
+        Route::post('/opportunities/mark', [AgentController::class, 'markOpportunity'])->name('opportunities.mark');
+        Route::get('/opportunities/history/{brandId}/{stableKey}', [AgentController::class, 'getOpportunityHistory'])->name('opportunities.history');
+
+        /*
+        |-----------------------------------------
+        | Analytics
+        |-----------------------------------------
+        */
+        Route::get('/analytics/{brandId}', [AgentController::class, 'getAnalytics'])->name('analytics');
+        Route::get('/analytics/analyze/{brandId}', [AgentController::class, 'analyzeAnalytics'])->name('analytics.analyze');
+
+        /*
+        |-----------------------------------------
+        | SEO — SPECIFIC routes first (rankings, recommendations)
+        |-----------------------------------------
+        */
+        Route::get('/seo/issues/{brandId}', [AgentController::class, 'getSeoIssues'])->name('seo.issues');
+        Route::get('/seo/rankings/{brandId}', [AgentController::class, 'getKeywordRankings'])->name('seo.rankings');
+        Route::get('/seo/recommendations/{brandId}/{issueId}', [AgentController::class, 'getSeoRecommendations'])->name('seo.recommendations');
+        Route::get('/seo/issue/{brandId}/{issueId}', [AgentController::class, 'getSeoIssueById'])->name('seo.issue');
+        Route::post('/seo/analyze/{brandId}/{issueId}', [AgentController::class, 'analyzeSeoIssue'])->name('seo.analyze');
+
+        /*
+        |-----------------------------------------
+        | Leads — SPECIFIC routes first (pending, engagement, context)
+        |-----------------------------------------
+        */
+        Route::get('/leads/pending/{brandId}', [AgentController::class, 'getPendingLeads'])->name('leads.pending');
+        Route::get('/lead/engagement/{brandId}/{leadId}', [AgentController::class, 'getLeadEngagement'])->name('leads.engagement');
+        Route::get('/lead/context/{brandId}/{leadId}', [AgentController::class, 'getLeadContext'])->name('leads.context');
+        Route::get('/lead/{brandId}/{leadId}', [AgentController::class, 'getLead'])->name('leads.show');
+        Route::post('/lead/follow-up/{brandId}', [AgentController::class, 'generateFollowUpMessage'])->name('leads.follow-up');
+
+        /*
+        |-----------------------------------------
+        | Campaigns
+        |-----------------------------------------
+        */
+        Route::get('/campaigns/{brandId}', [AgentController::class, 'getCampaigns'])->name('campaigns.index');
+        Route::post('/campaigns/pause', [AgentController::class, 'pauseCampaign'])->name('campaigns.pause');
+
+        /*
+        |-----------------------------------------
+        | Content — SPECIFIC routes first
+        |-----------------------------------------
+        */
+        Route::post('/content/generate', [AgentController::class, 'triggerContentGeneration'])->name('content.generate');
+        Route::post('/content/outline', [AgentController::class, 'generateContentOutline'])->name('content.outline');
+        Route::post('/content/gap-analysis/{brandId}', [AgentController::class, 'analyzeContentGap'])->name('content.gap-analysis');
+
+        /*
+        |-----------------------------------------
+        | Execution
+        |-----------------------------------------
+        */
+        Route::post('/scan/{brandId}', [AgentController::class, 'scan'])->name('scan');
+        Route::post('/actions/pending', [AgentController::class, 'executeAction'])->name('actions.pending');
+
+        /*
+        |-----------------------------------------
+        | Actions / Outcomes
+        |-----------------------------------------
+        */
+        Route::get('/actions/outcomes/{brandId}', [AgentController::class, 'getPendingOutcomes'])->name('actions.outcomes');
+        Route::post('/actions/acknowledge', [AgentController::class, 'acknowledgeOutcomes'])->name('actions.acknowledge');
+        Route::post('/actions/{actionId}/authorize-retry', [AgentController::class, 'authorizeRetry'])->name('actions.authorize-retry');
+
+        /*
+        |-----------------------------------------
+        | Rollback — ONE canonical route
+        |-----------------------------------------
+        */
+        Route::post('/actions/{actionId}/rollback', [AgentController::class, 'rollbackAction'])->name('actions.rollback');
+
+        /*
+        |-----------------------------------------
+        | Escalations
+        |-----------------------------------------
+        */
+        Route::get('/escalations/{brandId}', [AgentController::class, 'getPendingEscalations'])->name('escalations.index');
+        Route::post('/escalations/{actionId}/respond', [AgentController::class, 'respondToEscalation'])->name('escalations.respond');
+
+        /*
+        |-----------------------------------------
+        | Calibration
+        |-----------------------------------------
+        */
+        Route::get('/calibration/{brandId}', [AgentController::class, 'getCalibration'])->name('calibration.index');
+        Route::get('/calibration/summary/{brandId}', [AgentController::class, 'getCalibrationSummary'])->name('calibration.summary');
+        Route::post('/calibration/record', [AgentController::class, 'recordCalibration'])->name('calibration.record');
+
+        /*
+        |-----------------------------------------
+        | Verification — SPECIFIC routes FIRST (due, register, record)
+        |-----------------------------------------
+        */
+        Route::get('/verification/due/{brandId}', [AgentController::class, 'getDueVerifications'])->name('verification.due');
+        Route::post('/verification/register', [AgentController::class, 'registerVerification'])->name('verification.register');
+        Route::post('/verification/record', [AgentController::class, 'recordVerification'])->name('verification.record');
+        Route::post('/verification/start/{brandId}', [AgentController::class, 'startVerification'])->name('verification.start');
+        Route::post('/verification/complete/{brandId}/{verificationId}', [AgentController::class, 'completeVerification'])->name('verification.complete');
+        Route::get('/verification/{brandId}/{verificationId}', [AgentController::class, 'getVerification'])->name('verification.show');
+
+        /*
+        |-----------------------------------------
+        | Learning
+        |-----------------------------------------
+        */
+        Route::post('/learn/{brandId}', [AgentController::class, 'recordLearning'])->name('learn');
+        Route::get('/experiences/similar/{brandId}', [AgentController::class, 'getSimilarExperiences'])->name('experiences.similar');
+    });
