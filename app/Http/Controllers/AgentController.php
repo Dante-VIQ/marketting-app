@@ -622,6 +622,94 @@ public function scan($brandId)
         ], 201);
     }
 
+        /**
+     * Execute an approved action. Called by the Python agent after a human
+     * approves a queued action. Routes by category to the right service.
+     */
+    public function executeApprovedAction($actionId)
+    {
+        $action = AiAction::findOrFail($actionId);
+
+        if ($action->status !== 'approved') {
+            return response()->json([
+                'success' => false,
+                'error'   => "Action status is '{$action->status}', not approved.",
+            ], 400);
+        }
+
+        if ($action->executed_at) {
+            return response()->json([
+                'success'      => true,
+                'already_done' => true,
+                'action_id'    => $action->id,
+                'executed_at'  => $action->executed_at->toISOString(),
+            ]);
+        }
+
+        $brand = Brand::findOrFail($action->brand_id);
+        $result = null;
+
+        try {
+            switch ($action->category) {
+                case 'seo':
+                    if ($action->target_url) {
+                        \App\Jobs\ScanPageJob::dispatch($brand, $action->target_url, $action);
+                        $result = ['dispatched' => 'ScanPageJob', 'target_url' => $action->target_url];
+                    } else {
+                        $result = ['skipped' => 'no target_url'];
+                    }
+                    break;
+
+                case 'content':
+                case 'social':
+                case 'email':
+                case 'web_copy':
+                    \App\Jobs\GenerateContentForActionJob::dispatch($action);
+                    $result = ['dispatched' => 'GenerateContentForActionJob'];
+                    break;
+
+                case 'campaign':
+                    // No real ad-platform integration exists. Log the intent.
+                    $result = ['noted' => 'campaign action requires manual execution'];
+                    break;
+
+                case 'strategy':
+                default:
+                    // Nothing to auto-execute — was a human-facing suggestion
+                    $result = ['noted' => 'no automated execution for this category'];
+                    break;
+            }
+
+            $action->update([
+                'executed_at' => now(),
+                'origin'      => $action->origin ?? 'human',
+            ]);
+
+            Log::info('Approved action executed', [
+                'action_id' => $action->id,
+                'category'  => $action->category,
+                'result'    => $result,
+            ]);
+
+            return response()->json([
+                'success'   => true,
+                'action_id' => $action->id,
+                'category'  => $action->category,
+                'result'    => $result,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to execute approved action', [
+                'action_id' => $action->id,
+                'error'     => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
     // ============= VERIFICATION =============
 
     public function startVerification(Request $request, $brandId)

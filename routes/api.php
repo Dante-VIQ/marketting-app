@@ -192,4 +192,7 @@ Route::prefix('agent')
         */
         Route::post('/learn/{brandId}', [AgentController::class, 'recordLearning'])->name('learn');
         Route::get('/experiences/similar/{brandId}', [AgentController::class, 'getSimilarExperiences'])->name('experiences.similar');
+
+        Route::post('/actions/{actionId}/execute', [AgentController::class, 'executeApprovedAction'])
+            ->name('actions.execute');
     });
