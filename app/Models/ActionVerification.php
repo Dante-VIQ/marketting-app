@@ -20,6 +20,7 @@ class ActionVerification extends Model
         'rollback_reason',
         'rollback_at',
         'verified_at',
+        'attribution',
     ];
 
    protected $casts = [

@@ -195,4 +195,7 @@ Route::prefix('agent')
 
         Route::post('/actions/{actionId}/execute', [AgentController::class, 'executeApprovedAction'])
             ->name('actions.execute');
+
+        Route::get('/metrics/{brandId}/{actionId}', [AgentController::class, 'getActionMetrics'])
+            ->name('metrics');
     });

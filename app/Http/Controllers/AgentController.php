@@ -386,41 +386,41 @@ class AgentController extends Controller
         return response()->json($campaigns);
     }
 
-public function pauseCampaign(Request $request)
-{
-    $campaignId = $request->input('campaignId');
-    $brandId    = $request->input('brandId');
-    $reason     = $request->input('reason', 'Agent recommendation');
+    public function pauseCampaign(Request $request)
+    {
+        $campaignId = $request->input('campaignId');
+        $brandId    = $request->input('brandId');
+        $reason     = $request->input('reason', 'Agent recommendation');
 
-    $campaign = Campaign::where('brand_id', $brandId)
-        ->where('id', $campaignId)
-        ->firstOrFail();
+        $campaign = Campaign::where('brand_id', $brandId)
+            ->where('id', $campaignId)
+            ->firstOrFail();
 
-    // No real ad-platform integration exists yet — queue for human review.
-    $action = AiAction::create([
-        'brand_id'          => $brandId,
-        'title'             => "Pause campaign: {$campaign->name}",
-        'category'          => 'campaign',
-        'description'       => $reason,
-        'target_keyword'    => null,
-        'estimated_impact'  => 500,
-        'priority'          => 4,
-        'status'            => 'pending',
-    ]);
+        // No real ad-platform integration exists yet — queue for human review.
+        $action = AiAction::create([
+            'brand_id'          => $brandId,
+            'title'             => "Pause campaign: {$campaign->name}",
+            'category'          => 'campaign',
+            'description'       => $reason,
+            'target_keyword'    => null,
+            'estimated_impact'  => 500,
+            'priority'          => 4,
+            'status'            => 'pending',
+        ]);
 
-    Log::info('Campaign pause queued for human review', [
-        'action_id'   => $action->id,
-        'campaign_id' => $campaignId,
-        'brand_id'    => $brandId,
-    ]);
+        Log::info('Campaign pause queued for human review', [
+            'action_id'   => $action->id,
+            'campaign_id' => $campaignId,
+            'brand_id'    => $brandId,
+        ]);
 
-    return response()->json([
-        'success'   => true,
-        'action_id' => $action->id,
-        'queued'    => true,
-        'message'   => 'Campaign pause queued for human approval',
-    ]);
-}
+        return response()->json([
+            'success'   => true,
+            'action_id' => $action->id,
+            'queued'    => true,
+            'message'   => 'Campaign pause queued for human approval',
+        ]);
+    }
 
     // ============= CONTENT =============
 
@@ -504,52 +504,63 @@ public function pauseCampaign(Request $request)
 
     // ============= EXECUTION =============
 
-public function scan($brandId)
-{
-    $brand = Brand::findOrFail($brandId);
+    public function scan($brandId)
+    {
+        $brand = Brand::findOrFail($brandId);
 
-    $issues = SeoIssue::where('brand_id', $brandId)
-        ->where('status', 'open')
-        ->whereIn('severity', ['high', 'critical'])
-        ->limit(20)
-        ->get();
+        $issues = SeoIssue::where('brand_id', $brandId)
+            ->where('status', 'open')
+            ->whereIn('severity', ['high', 'critical'])
+            ->limit(20)
+            ->get();
 
-    $actionIds = [];
-    foreach ($issues as $issue) {
-        if (!$issue->page_url) {
-            continue;
+        $actionIds = [];
+        foreach ($issues as $issue) {
+            if (!$issue->page_url) {
+                continue;
+            }
+
+            $action = AiAction::create([
+                'brand_id'         => $brandId,
+                'title'            => "Fix SEO: {$issue->type}",
+                'category'         => 'seo',
+                'description'      => $issue->description,
+                'target_url'       => $issue->page_url,
+                'estimated_impact' => $issue->severity === 'critical' ? 1000 : 500,
+                'priority'         => $issue->severity === 'critical' ? 5 : 3,
+                'status'           => 'approved',
+                'executed_at'      => now(),
+                'origin' => 'agent',
+            ]);
+
+            ScanPageJob::dispatch($brand, $issue->page_url, $action);
+            $actionIds[] = $action->id;
         }
 
-        $action = AiAction::create([
-            'brand_id'         => $brandId,
-            'title'            => "Fix SEO: {$issue->type}",
-            'category'         => 'seo',
-            'description'      => $issue->description,
-            'target_url'       => $issue->page_url,
-            'estimated_impact' => $issue->severity === 'critical' ? 1000 : 500,
-            'priority'         => $issue->severity === 'critical' ? 5 : 3,
-            'status'           => 'approved',
-            'executed_at'      => now(),
-            'origin' => 'agent',
+        \App\Models\GuardianAuditLog::create([
+            'brand_id'    => $brandId,
+            'user_id'     => null,
+            'fingerprint' => 'agent_scan_' . now()->timestamp,
+            'event_type'  => 'agent_scan_dispatched',
+            'metadata'    => [
+                'action_ids' => $actionIds,
+                'issue_count' => count($issues),
+            ],
         ]);
 
-        ScanPageJob::dispatch($brand, $issue->page_url, $action);
-        $actionIds[] = $action->id;
+        Log::info('Agent scan queued', [
+            'brand_id' => $brandId,
+            'scans'    => count($actionIds),
+        ]);
+
+        return response()->json([
+            'success'    => true,
+            'action_id'  => $actionIds[0] ?? null,
+            'action_ids' => $actionIds,
+            'queued'     => count($actionIds),
+            'message'    => 'Queued ' . count($actionIds) . ' SEO scans',
+        ]);
     }
-
-    Log::info('Agent scan queued', [
-        'brand_id' => $brandId,
-        'scans'    => count($actionIds),
-    ]);
-
-    return response()->json([
-        'success'    => true,
-        'action_id'  => $actionIds[0] ?? null,
-        'action_ids' => $actionIds,
-        'queued'     => count($actionIds),
-        'message'    => 'Queued ' . count($actionIds) . ' SEO scans',
-    ]);
-}
 
     public function executeAction(Request $request)
     {
@@ -622,7 +633,7 @@ public function scan($brandId)
         ], 201);
     }
 
-        /**
+    /**
      * Execute an approved action. Called by the Python agent after a human
      * approves a queued action. Routes by category to the right service.
      */
@@ -691,13 +702,24 @@ public function scan($brandId)
                 'result'    => $result,
             ]);
 
+            \App\Models\GuardianAuditLog::create([
+                'brand_id'    => $action->brand_id,
+                'user_id'     => null,   // ← distinguishes agent from human
+                'fingerprint' => 'agent_action_' . $action->id,
+                'event_type'  => 'agent_action_executed',
+                'metadata'    => [
+                    'action_id'   => $action->id,
+                    'category'    => $action->category,
+                    'target_url'  => $action->target_url,
+                    'result'      => $result,
+                ],
+            ]);
             return response()->json([
                 'success'   => true,
                 'action_id' => $action->id,
                 'category'  => $action->category,
                 'result'    => $result,
             ]);
-
         } catch (\Exception $e) {
             Log::error('Failed to execute approved action', [
                 'action_id' => $action->id,
@@ -1627,6 +1649,7 @@ public function scan($brandId)
             'metric_deltas'      => 'nullable|array',
             'was_successful'     => 'required|boolean',
             'improvement_score'  => 'nullable|numeric',
+            'attribution'        => 'nullable|in:agent,human,mixed,unknown',
         ]);
 
         $action = AiAction::findOrFail($validated['action_id']);
@@ -1640,6 +1663,7 @@ public function scan($brandId)
                 'metric_deltas'     => $validated['metric_deltas'],
                 'was_successful'    => $validated['was_successful'],
                 'improvement_score' => $validated['improvement_score'],
+                'attribution'       => $validated['attribution'] ?? 'unknown',
                 'verified_at'       => now(),
             ]
         );
@@ -1738,30 +1762,113 @@ public function scan($brandId)
     }
 
 
-public function getTourPackages($brandId)
-{
-    $tours = TourPackage::forBrand((int) $brandId)
-        ->active()
-        ->orderByDesc('created_at')
-        ->get();
+    public function getTourPackages($brandId)
+    {
+        $tours = TourPackage::forBrand((int) $brandId)
+            ->active()
+            ->orderByDesc('created_at')
+            ->get();
 
-    return response()->json([
-        'success' => true,
-        'count'   => $tours->count(),
-        'tours'   => $tours->map(fn($t) => [
-            'id'              => $t->id,
-            'name'            => $t->name,
-            'slug'            => $t->slug,
-            'destination'     => $t->destination,
-            'country'         => $t->country,
-            'duration_days'   => $t->duration_days,
-            'price'           => (float) $t->price,
-            'currency'        => $t->currency,
-            'affiliate_url'   => $t->affiliate_url,
-            'affiliate_network' => $t->affiliate_network,
-            'keywords'        => $t->keywords,
-            'description'     => $t->description,
-        ])->values(),
-    ]);
-}
+        return response()->json([
+            'success' => true,
+            'count'   => $tours->count(),
+            'tours'   => $tours->map(fn($t) => [
+                'id'              => $t->id,
+                'name'            => $t->name,
+                'slug'            => $t->slug,
+                'destination'     => $t->destination,
+                'country'         => $t->country,
+                'duration_days'   => $t->duration_days,
+                'price'           => (float) $t->price,
+                'currency'        => $t->currency,
+                'affiliate_url'   => $t->affiliate_url,
+                'affiliate_network' => $t->affiliate_network,
+                'keywords'        => $t->keywords,
+                'description'     => $t->description,
+            ])->values(),
+        ]);
+    }
+
+        /**
+     * Return the current metric snapshot for an action's category.
+     * Single source of truth for verification. Reads real Laravel state,
+     * not GA4 revenue which is unreliable for affiliate-led businesses.
+     */
+    public function getActionMetrics($brandId, $actionId)
+    {
+        $action = AiAction::where('brand_id', $brandId)->findOrFail($actionId);
+
+        $metrics = match ($action->category) {
+            'seo' => [
+                'open_seo_issues'     => SeoIssue::where('brand_id', $brandId)
+                    ->where('status', 'open')->count(),
+                'resolved_seo_issues' => SeoIssue::where('brand_id', $brandId)
+                    ->where('status', 'resolved')
+                    ->where('resolved_at', '>=', $action->created_at)
+                    ->count(),
+            ],
+
+            'content', 'social', 'email', 'web_copy' => [
+                'published_drafts' => \App\Models\ContentDraft::where('brand_id', $brandId)
+                    ->where('action_id', $action->id)
+                    ->where('status', 'published')
+                    ->count(),
+                'drafts_total' => \App\Models\ContentDraft::where('brand_id', $brandId)
+                    ->where('action_id', $action->id)
+                    ->count(),
+            ],
+
+            'strategy', 'campaign' => [
+                'leads_pending'   => \App\Models\Lead::where('brand_id', $brandId)
+                    ->where('status', 'new')->count(),
+                'leads_contacted' => \App\Models\Lead::where('brand_id', $brandId)
+                    ->where('status', 'contacted')->count(),
+                'leads_won'       => \App\Models\Lead::where('brand_id', $brandId)
+                    ->where('status', 'won')->count(),
+            ],
+
+            default => [],
+        };
+
+        // Affiliate revenue — the actual money signal for Vumbi.
+        // 7-day and 30-day rolling windows, from affiliate_data.
+        $affiliateNow = \App\Models\AffiliateData::where('brand_id', $brandId)
+            ->where('date', '>=', now()->subDays(7)->toDateString())
+            ->selectRaw('SUM(clicks) as clicks, SUM(bookings) as bookings,
+                         SUM(commission_earned) as commission, SUM(revenue_generated) as revenue')
+            ->first();
+
+        $metrics['affiliate_7d_clicks']     = (int) ($affiliateNow->clicks ?? 0);
+        $metrics['affiliate_7d_bookings']   = (int) ($affiliateNow->bookings ?? 0);
+        $metrics['affiliate_7d_commission'] = (float) ($affiliateNow->commission ?? 0);
+        $metrics['affiliate_7d_revenue']    = (float) ($affiliateNow->revenue ?? 0);
+
+        // Attribution hint for the Python verifier
+        $agentActed = \App\Models\GuardianAuditLog::where('brand_id', $brandId)
+            ->where('event_type', 'agent_action_executed')
+            ->where('metadata->action_id', $action->id)
+            ->exists();
+
+        $humanActed = \App\Models\GuardianAuditLog::where('brand_id', $brandId)
+            ->where('event_type', 'seo_issue_resolved')
+            ->whereNotNull('user_id')
+            ->where('created_at', '>=', $action->created_at)
+            ->exists();
+
+        $attribution = match (true) {
+            $agentActed && $humanActed => 'mixed',
+            $agentActed                => 'agent',
+            $humanActed                => 'human',
+            default                    => 'unknown',
+        };
+
+        return response()->json([
+            'brand_id'    => $brandId,
+            'action_id'   => $action->id,
+            'category'    => $action->category,
+            'metrics'     => $metrics,
+            'attribution' => $attribution,
+            'as_of'       => now()->toISOString(),
+        ]);
+    }
 }
