@@ -48,8 +48,6 @@ class AgentController extends Controller
         $this->dataCollection = $dataCollection;
     }
 
-
-
     /**
      * Check if today's data is fresh for a brand.
      * GET /api/agent/data-status/{brandId}
@@ -97,13 +95,13 @@ class AgentController extends Controller
             ], 500);
         }
     }
+
     // ============= OPPORTUNITIES =============
 
     public function getOpportunities($brandId)
     {
         $brand = Brand::findOrFail($brandId);
 
-        // Collect all opportunities
         $opportunities = [];
 
         // SEO issues
@@ -121,8 +119,9 @@ class AgentController extends Controller
                 'description' => $issue->description ?? 'SEO issue detected',
                 'source' => 'seo_monitor',
                 'detectedAt' => $issue->created_at->toISOString(),
+                'target_url' => $issue->page_url,
                 'payload' => [
-                    'page' => $issue->page,
+                    'page' => $issue->page_url,
                     'issue_type' => $issue->type,
                     'status' => $issue->status,
                 ],
@@ -146,6 +145,7 @@ class AgentController extends Controller
                 'description' => "Lead needs follow-up. Score: {$lead->score}",
                 'source' => 'lead_monitor',
                 'detectedAt' => $lead->created_at->toISOString(),
+                'target_url' => null,
                 'payload' => [
                     'lead_id' => $lead->id,
                     'name' => $lead->name,
@@ -171,6 +171,7 @@ class AgentController extends Controller
                 'description' => "Conversions dropped below 5. Current: {$analytics->conversions}",
                 'source' => 'analytics_monitor',
                 'detectedAt' => now()->toISOString(),
+                'target_url' => null,
                 'payload' => [
                     'conversions' => $analytics->conversions,
                     'visitors' => $analytics->visitors,
@@ -180,20 +181,22 @@ class AgentController extends Controller
             ];
         }
 
-        // Check if content gaps exist
+        // Content gaps — driven by real tour inventory, not a hardcoded list
         $contentGaps = $this->detectContentGaps($brandId);
         foreach ($contentGaps as $gap) {
             $opportunities[] = [
-                'id' => 'content_gap_' . time(),
+                'id' => 'content_gap_' . ($gap['tour_id'] ?? time()),
                 'type' => 'content_generation',
                 'severity' => 'medium',
                 'title' => "Content Gap: {$gap['topic']}",
                 'description' => $gap['reason'],
                 'source' => 'content_monitor',
                 'detectedAt' => now()->toISOString(),
+                'target_url' => null,
                 'payload' => [
                     'topic' => $gap['topic'],
                     'template' => 'blog',
+                    'tour_id' => $gap['tour_id'] ?? null,
                 ],
                 'impact' => 300,
                 'requires_approval' => true,
@@ -210,7 +213,6 @@ class AgentController extends Controller
 
     public function getAnalytics($brandId)
     {
-        // Ensure fresh data (may trigger collection)
         $this->dataCollection->ensureFreshData($brandId);
 
         $analytics = AnalyticsSnapshot::where('brand_id', $brandId)
@@ -251,10 +253,13 @@ class AgentController extends Controller
         return response()->json([
             'issues' => $issues->map(function ($issue) {
                 return [
+                    'id' => $issue->id,
                     'type' => $issue->type,
                     'description' => $issue->description,
                     'severity' => $issue->severity ?? 'medium',
-                    'page' => $issue->page,
+                    'page' => $issue->page_url,
+                    'status' => $issue->status,
+                    'created_at' => $issue->created_at->toISOString(),
                 ];
             }),
             'score' => $this->calculateSeoScore($issues),
@@ -276,7 +281,6 @@ class AgentController extends Controller
             ->where('id', $issueId)
             ->firstOrFail();
 
-        // Use the SEO assistant to analyze
         $analysis = $this->seoAssistant->analyzeIssue($brandId, $issue);
 
         return response()->json([
@@ -406,6 +410,7 @@ class AgentController extends Controller
             'estimated_impact'  => 500,
             'priority'          => 4,
             'status'            => 'pending',
+            'origin'            => 'agent',
         ]);
 
         Log::info('Campaign pause queued for human review', [
@@ -428,7 +433,6 @@ class AgentController extends Controller
     {
         $topic = $request->input('topic');
 
-        // Use content generator service
         $analysis = $this->contentGenerator->analyzeGap($brandId, $topic);
 
         return response()->json($analysis);
@@ -455,10 +459,8 @@ class AgentController extends Controller
             $topic = $request->input('topic');
             $template = $request->input('template', 'blog');
 
-            // Validate brand exists
             $brand = \App\Models\Brand::findOrFail($brandId);
 
-            // Map template to valid category ENUM
             $categoryMap = [
                 'blog' => 'content',
                 'social' => 'social',
@@ -467,7 +469,6 @@ class AgentController extends Controller
             ];
             $category = $categoryMap[$template] ?? 'content';
 
-            // ✅ 1. Create the AiAction first
             $action = \App\Models\AiAction::create([
                 'brand_id' => $brandId,
                 'title' => 'Generate content: ' . substr($topic, 0, 100),
@@ -478,9 +479,9 @@ class AgentController extends Controller
                 'status' => 'approved',
                 'estimated_impact' => 500,
                 'priority' => 3,
+                'origin' => 'agent',
             ]);
 
-            // ✅ 2. Dispatch the job with the AiAction object (not the int)
             \App\Jobs\GenerateContentForActionJob::dispatch($action);
 
             return response()->json([
@@ -500,7 +501,6 @@ class AgentController extends Controller
             ], 500);
         }
     }
-
 
     // ============= EXECUTION =============
 
@@ -530,7 +530,7 @@ class AgentController extends Controller
                 'priority'         => $issue->severity === 'critical' ? 5 : 3,
                 'status'           => 'approved',
                 'executed_at'      => now(),
-                'origin' => 'agent',
+                'origin'           => 'agent',
             ]);
 
             ScanPageJob::dispatch($brand, $issue->page_url, $action);
@@ -568,10 +568,8 @@ class AgentController extends Controller
         $action  = $request->input('action', []);
         $reason  = $request->input('reason', 'Queued by agent');
 
-        // Extract the action name (supports both flat and nested shapes)
         $actionName = $action['name'] ?? ($action['action']['name'] ?? 'unknown');
 
-        // Skip no-op actions entirely
         if ($actionName === 'no_action_needed' || $actionName === 'unknown') {
             return response()->json([
                 'success' => true,
@@ -580,7 +578,6 @@ class AgentController extends Controller
             ], 200);
         }
 
-        // Map raw action names to human-friendly titles + categories
         $actionMeta = [
             'trigger_content_generation' => ['title' => 'Generate content',       'category' => 'content'],
             'create_blog_post'           => ['title' => 'Create blog post',        'category' => 'content'],
@@ -595,7 +592,6 @@ class AgentController extends Controller
         $meta  = $actionMeta[$actionName] ?? ['title' => ucwords(str_replace('_', ' ', $actionName)), 'category' => 'strategy'];
         $title = $meta['title'];
 
-        // Add context to the title if topic/campaign name is present
         $payload = $action['payload'] ?? $action;
         if (!empty($payload['topic'])) {
             $title .= ': ' . substr($payload['topic'], 0, 80);
@@ -605,7 +601,6 @@ class AgentController extends Controller
             $title .= ' (Lead #' . $payload['lead_id'] . ')';
         }
 
-        // Create the AI action with proper metadata
         $aiAction = \App\Models\AiAction::create([
             'brand_id'          => $brandId,
             'title'             => $title,
@@ -617,7 +612,7 @@ class AgentController extends Controller
             'estimated_impact'  => $payload['estimated_impact'] ?? 100,
             'priority'          => 3,
             'status'            => 'pending',
-            'origin' => 'agent',
+            'origin'            => 'agent',
         ]);
 
         Log::info('Agent action queued', [
@@ -680,13 +675,11 @@ class AgentController extends Controller
                     break;
 
                 case 'campaign':
-                    // No real ad-platform integration exists. Log the intent.
                     $result = ['noted' => 'campaign action requires manual execution'];
                     break;
 
                 case 'strategy':
                 default:
-                    // Nothing to auto-execute — was a human-facing suggestion
                     $result = ['noted' => 'no automated execution for this category'];
                     break;
             }
@@ -704,7 +697,7 @@ class AgentController extends Controller
 
             \App\Models\GuardianAuditLog::create([
                 'brand_id'    => $action->brand_id,
-                'user_id'     => null,   // ← distinguishes agent from human
+                'user_id'     => null,
                 'fingerprint' => 'agent_action_' . $action->id,
                 'event_type'  => 'agent_action_executed',
                 'metadata'    => [
@@ -714,6 +707,7 @@ class AgentController extends Controller
                     'result'      => $result,
                 ],
             ]);
+
             return response()->json([
                 'success'   => true,
                 'action_id' => $action->id,
@@ -732,6 +726,7 @@ class AgentController extends Controller
             ], 500);
         }
     }
+
     // ============= VERIFICATION =============
 
     public function startVerification(Request $request, $brandId)
@@ -789,7 +784,6 @@ class AgentController extends Controller
             'verified_at' => now(),
         ]);
 
-        // Update experience if linked
         if ($verification->experience_id) {
             $experience = AgentExperience::find($verification->experience_id);
             if ($experience) {
@@ -851,44 +845,6 @@ class AgentController extends Controller
         ], 201);
     }
 
-    // public function getSimilarExperiences(Request $request, $brandId)
-    // {
-    //     $type = $request->input('type');
-    //     $severity = $request->input('severity');
-    //     $limit = $request->input('limit', 20);
-    //
-    //     $query = AgentExperience::where('brand_id', $brandId);
-    //
-    //     if ($type) {
-    //         $query->where('opportunity_type', $type);
-    //     }
-    //
-    //     if ($severity) {
-    //         $query->where('severity', $severity);
-    //     }
-    //
-    //     $experiences = $query->orderBy('created_at', 'desc')
-    //         ->limit($limit)
-    //         ->get();
-    //
-    //     $total = $experiences->count();
-    //     $successful = $experiences->where('was_successful', true)->count();
-    //     $successRate = $total > 0 ? ($successful / $total) * 100 : 0;
-    //     $avgImprovement = $experiences->where('was_successful', true)
-    //         ->avg('improvement_percentage') ?? 0;
-    //
-    //     return response()->json([
-    //         'experiences' => $experiences,
-    //         'stats' => [
-    //             'total' => $total,
-    //             'successful' => $successful,
-    //             'success_rate' => round($successRate, 2),
-    //             'avg_improvement' => round($avgImprovement, 2),
-    //             'latest' => $experiences->first(),
-    //         ],
-    //     ]);
-    // }
-
     // ============= HEALTH & UTILITY =============
 
     public function ping()
@@ -903,7 +859,6 @@ class AgentController extends Controller
 
     public function pingAI()
     {
-        // Check if AI Gateway is available
         $available = $this->aiGateway->isAvailable();
 
         return response()->json([
@@ -928,23 +883,34 @@ class AgentController extends Controller
         return max(0, min(100, $score));
     }
 
+    /**
+     * Detect real content gaps by checking whether each active tour
+     * package has matching content. No hardcoded destination list.
+     */
     private function detectContentGaps($brandId)
     {
-        // Simple detection: look for topics with high search volume but no content
-        // This would ideally use Ahrefs data
         $gaps = [];
 
-        // Example: check if there are travel guides for popular destinations
-        $destinations = ['Maasai Mara', 'Nairobi', 'Diani', 'Amboseli', 'Samburu'];
-        foreach ($destinations as $destination) {
+        $tours = TourPackage::forBrand((int) $brandId)->active()->get();
+
+        foreach ($tours as $tour) {
+            $topic = $tour->destination ?: $tour->name;
+            if (!$topic) {
+                continue;
+            }
+
             $hasContent = \App\Models\BlogPost::where('brand_id', $brandId)
-                ->where('title', 'LIKE', "%{$destination}%")
+                ->where(function ($q) use ($topic) {
+                    $q->where('title', 'LIKE', "%{$topic}%")
+                      ->orWhere('content', 'LIKE', "%{$topic}%");
+                })
                 ->exists();
 
             if (!$hasContent) {
                 $gaps[] = [
-                    'topic' => "Complete Guide to {$destination}",
-                    'reason' => "No content exists for {$destination}",
+                    'topic' => "Complete Guide to {$topic}",
+                    'reason' => "No content exists for tour: {$tour->name}",
+                    'tour_id' => $tour->id,
                 ];
             }
         }
@@ -957,7 +923,6 @@ class AgentController extends Controller
         $type = $request->input('type');
         $severity = $request->input('severity');
 
-        // If type or severity missing, return empty (avoid SQL errors)
         if (!$type || !$severity) {
             return response()->json(['experiences' => [], 'stats' => []]);
         }
@@ -986,20 +951,15 @@ class AgentController extends Controller
                 ],
             ]);
         } catch (\Exception $e) {
-            // Log the error but return a friendly response
             Log::error('Error fetching similar experiences: ' . $e->getMessage());
             return response()->json(['experiences' => [], 'stats' => []], 200);
         }
     }
 
-    /**
-     * Analyze analytics data and provide insights for the agent.
-     */
     public function analyzeAnalytics($brandId)
     {
         $brand = Brand::findOrFail($brandId);
 
-        // Fetch the latest analytics snapshot
         $analytics = AnalyticsSnapshot::where('brand_id', $brandId)
             ->latest()
             ->first();
@@ -1016,7 +976,6 @@ class AgentController extends Controller
         $revenue = $analytics->revenue ?? 0;
         $conversionRate = $visitors > 0 ? ($conversions / $visitors) * 100 : 0;
 
-        // Simple analysis logic (can be expanded)
         $issues = [];
         $recommendations = [];
 
@@ -1036,7 +995,6 @@ class AgentController extends Controller
             $recommendations[] = 'Consider upselling or cross-selling strategies.';
         }
 
-        // Additional insights from historical data
         $previous = AnalyticsSnapshot::where('brand_id', $brandId)
             ->where('id', '<', $analytics->id)
             ->latest()
@@ -1067,10 +1025,6 @@ class AgentController extends Controller
         ]);
     }
 
-    /**
-     * Check which fingerprints are new (not yet processed today).
-     * Returns new, recurring, and already-processed-today lists.
-     */
     public function checkOpportunities(Request $request)
     {
         $validated = $request->validate([
@@ -1086,7 +1040,6 @@ class AgentController extends Controller
 
         $fingerprints = array_column($opps, 'fingerprint');
 
-        // Which were already processed or are being processed today?
         $processedToday = AgentOpportunityTracking::forBrand($brandId)
             ->whereIn('fingerprint', $fingerprints)
             ->whereDate('tracked_date', today())
@@ -1102,12 +1055,11 @@ class AgentController extends Controller
         foreach ($opps as $opp) {
             $fp = $opp['fingerprint'];
             if (isset($processedSet[$fp])) {
-                continue; // Already processed today
+                continue;
             }
 
             $sk = $opp['stable_key'];
 
-            // Has this stable_key been seen on any prior day?
             $prior = AgentOpportunityTracking::forBrand($brandId)
                 ->forStableKey($sk)
                 ->whereDate('tracked_date', '<', today())
@@ -1138,9 +1090,6 @@ class AgentController extends Controller
         ]);
     }
 
-    /**
-     * Mark an opportunity as processing / processed / failed.
-     */
     public function markOpportunity(Request $request)
     {
         $validated = $request->validate([
@@ -1148,7 +1097,7 @@ class AgentController extends Controller
             'fingerprint'      => 'required|string|size:64',
             'stable_key'       => 'required|string|size:64',
             'opportunity_type' => 'required|string',
-            'status'           => 'required|in:processing,processed,failed,escalated',
+            'status'           => 'required|in:processing,processed,failed,escalated,resolved',
             'opportunity_data' => 'nullable|array',
             'action_id'        => 'nullable|integer',
         ]);
@@ -1157,7 +1106,6 @@ class AgentController extends Controller
         $fp      = $validated['fingerprint'];
         $sk      = $validated['stable_key'];
 
-        // How many times has this stable_key been seen before today?
         $priorCount = AgentOpportunityTracking::forBrand($brandId)
             ->forStableKey($sk)
             ->where('fingerprint', '!=', $fp)
@@ -1197,16 +1145,23 @@ class AgentController extends Controller
 
     /**
      * Get outcomes the agent hasn't been notified about yet.
-     * Includes approvals awaiting execution, rejections, and revisions.
+     * Includes a safety net for approved actions that were never executed.
      */
     public function getPendingOutcomes($brandId)
     {
         $brand = Brand::findOrFail($brandId);
 
-        // Actions the agent hasn't been told about
         $outcomes = AiAction::where('brand_id', $brandId)
-            ->whereNull('agent_notified_at')
-            ->whereIn('status', ['approved', 'rejected', 'revision'])
+            ->where(function ($q) {
+                $q->where(function ($q2) {
+                    $q2->whereNull('agent_notified_at')
+                       ->whereIn('status', ['approved', 'rejected', 'revision']);
+                })
+                ->orWhere(function ($q2) {
+                    $q2->where('status', 'approved')
+                       ->whereNull('executed_at');
+                });
+            })
             ->orderBy('updated_at', 'asc')
             ->get();
 
@@ -1234,6 +1189,7 @@ class AgentController extends Controller
                     'opportunity_fingerprint'  => $action->opportunity_fingerprint,
                     'opportunity_stable_key'   => $action->opportunity_stable_key,
                     'origin'                   => $action->origin ?? 'original',
+                    'executed_at'              => optional($action->executed_at)->toISOString(),
                     'action_data'              => $actionData,
                 ];
             }),
@@ -1241,9 +1197,6 @@ class AgentController extends Controller
         ]);
     }
 
-    /**
-     * Acknowledge that the agent has handled these outcomes.
-     */
     public function acknowledgeOutcomes(Request $request)
     {
         $validated = $request->validate([
@@ -1262,9 +1215,6 @@ class AgentController extends Controller
         ]);
     }
 
-    /**
-     * Authorize a retry for a rejected action, with optional guidance.
-     */
     public function authorizeRetry(Request $request, $actionId)
     {
         $validated = $request->validate([
@@ -1277,7 +1227,6 @@ class AgentController extends Controller
         $action->update([
             'retry_status'            => ($validated['hold'] ?? false) ? 'held' : 'authorized',
             'expected_retry_approach' => $validated['expected_retry_approach'] ?? null,
-            // Clear agent_notified_at so the agent re-processes this on next cycle
             'agent_notified_at'       => null,
         ]);
 
@@ -1288,9 +1237,6 @@ class AgentController extends Controller
         ]);
     }
 
-    /**
-     * Get full history of a recurring opportunity by stable_key.
-     */
     public function getOpportunityHistory($brandId, $stableKey)
     {
         $trackings = AgentOpportunityTracking::where('brand_id', $brandId)
@@ -1344,7 +1290,6 @@ class AgentController extends Controller
             $attempts[] = $attempt;
         }
 
-        // Gather human rejection reasons across all attempts
         $rejectionReasons = collect($attempts)
             ->pluck('rejection_reason')
             ->filter()
@@ -1367,9 +1312,6 @@ class AgentController extends Controller
         ]);
     }
 
-    /**
-     * Human responds to an escalation.
-     */
     public function respondToEscalation(Request $request, $actionId)
     {
         $validated = $request->validate([
@@ -1398,7 +1340,6 @@ class AgentController extends Controller
             'human_response_notes' => $validated['notes'] ?? null,
             'human_response_at'    => now(),
             'snooze_until'         => $snoozeUntil,
-            // Clear agent_notified_at so the agent re-processes this
             'agent_notified_at'    => null,
         ]);
 
@@ -1416,9 +1357,6 @@ class AgentController extends Controller
         ]);
     }
 
-    /**
-     * Get escalations awaiting human response.
-     */
     public function getPendingEscalations($brandId)
     {
         $escalations = AiAction::where('brand_id', $brandId)
@@ -1446,10 +1384,6 @@ class AgentController extends Controller
         ]);
     }
 
-    /**
-     * Get calibration data for a brand + opportunity type.
-     * Used by the agent before scoring confidence.
-     */
     public function getCalibration(Request $request, $brandId)
     {
         $opportunityType = $request->query('type');
@@ -1484,10 +1418,6 @@ class AgentController extends Controller
         ]);
     }
 
-    /**
-     * Record an observed outcome against a confidence prediction.
-     * Called by the agent after every verified execution.
-     */
     public function recordCalibration(Request $request)
     {
         $validated = $request->validate([
@@ -1527,9 +1457,6 @@ class AgentController extends Controller
         ]);
     }
 
-    /**
-     * Calibration summary for the dashboard.
-     */
     public function getCalibrationSummary($brandId)
     {
         $rows = ConfidenceCalibration::forBrand($brandId)
@@ -1538,7 +1465,6 @@ class AgentController extends Controller
             ->orderBy('confidence_bucket')
             ->get();
 
-        // Group by opportunity type
         $grouped = $rows->groupBy('opportunity_type')->map(function ($group) {
             return $group->map(function ($cal) {
                 return [
@@ -1557,10 +1483,6 @@ class AgentController extends Controller
         ]);
     }
 
-    /**
-     * Register an action for multi-phase verification.
-     * Called by the agent right after successful execution.
-     */
     public function registerVerification(Request $request)
     {
         $validated = $request->validate([
@@ -1601,6 +1523,8 @@ class AgentController extends Controller
 
     /**
      * Get actions that are due for a verification phase.
+     * `action_name` is set to the category so the Python verifier
+     * can route metric fetching correctly.
      */
     public function getDueVerifications($brandId)
     {
@@ -1620,7 +1544,8 @@ class AgentController extends Controller
 
         $format = fn($actions, $phase) => $actions->map(fn($a) => [
             'action_id'      => $a->id,
-            'action_name'    => $a->title,
+            'action_name'    => $a->category,
+            'action_title'   => $a->title,
             'action_key'     => $a->category,
             'phase'          => $phase,
             'metrics_before' => $a->metrics_at_execution,
@@ -1635,19 +1560,16 @@ class AgentController extends Controller
         ]);
     }
 
-    /**
-     * Record a verification result.
-     */
     public function recordVerification(Request $request)
     {
         $validated = $request->validate([
             'brand_id'           => 'required|integer|exists:brands,id',
             'action_id'          => 'required|integer|exists:ai_actions,id',
-            'phase'              => 'required|in:immediate,hour_1,day_1',
+            'phase'              => 'required|in:immediate,hour_1,day_1,week_1',
             'metrics_before'     => 'nullable|array',
             'metrics_after'      => 'required|array',
             'metric_deltas'      => 'nullable|array',
-            'was_successful'     => 'required|boolean',
+            'was_successful'     => 'nullable|boolean',
             'improvement_score'  => 'nullable|numeric',
             'attribution'        => 'nullable|in:agent,human,mixed,unknown',
         ]);
@@ -1661,20 +1583,20 @@ class AgentController extends Controller
                 'metrics_before'    => $validated['metrics_before'] ?? $action->metrics_at_execution,
                 'metrics_after'     => $validated['metrics_after'],
                 'metric_deltas'     => $validated['metric_deltas'],
-                'was_successful'    => $validated['was_successful'],
+                'was_successful'    => $validated['was_successful'] ?? false,
                 'improvement_score' => $validated['improvement_score'],
                 'attribution'       => $validated['attribution'] ?? 'unknown',
                 'verified_at'       => now(),
             ]
         );
 
-        // Mark phase complete on the action
         $phaseField = "verified_{$validated['phase']}";
-        $action->{$phaseField} = true;
+        if (in_array($validated['phase'], ['immediate', 'hour_1', 'day_1'])) {
+            $action->{$phaseField} = true;
+        }
 
-        // Decide overall status
         if ($validated['phase'] === 'day_1') {
-            $action->verification_status = $validated['was_successful'] ? 'verified' : 'failed';
+            $action->verification_status = ($validated['was_successful'] ?? false) ? 'verified' : 'failed';
         }
 
         $action->save();
@@ -1687,9 +1609,6 @@ class AgentController extends Controller
         ]);
     }
 
-    /**
-     * Trigger a rollback for a failed action.
-     */
     public function rollbackAction(Request $request, $actionId)
     {
         $validated = $request->validate([
@@ -1727,8 +1646,6 @@ class AgentController extends Controller
         ]);
     }
 
-    // AgentController.php
-
     public function getBrief($brandId)
     {
         $brief = AiBrief::where('brand_id', $brandId)
@@ -1761,7 +1678,6 @@ class AgentController extends Controller
         ]);
     }
 
-
     public function getTourPackages($brandId)
     {
         $tours = TourPackage::forBrand((int) $brandId)
@@ -1789,7 +1705,7 @@ class AgentController extends Controller
         ]);
     }
 
-        /**
+    /**
      * Return the current metric snapshot for an action's category.
      * Single source of truth for verification. Reads real Laravel state,
      * not GA4 revenue which is unreliable for affiliate-led businesses.
@@ -1830,8 +1746,6 @@ class AgentController extends Controller
             default => [],
         };
 
-        // Affiliate revenue — the actual money signal for Vumbi.
-        // 7-day and 30-day rolling windows, from affiliate_data.
         $affiliateNow = \App\Models\AffiliateData::where('brand_id', $brandId)
             ->where('date', '>=', now()->subDays(7)->toDateString())
             ->selectRaw('SUM(clicks) as clicks, SUM(bookings) as bookings,
@@ -1843,7 +1757,6 @@ class AgentController extends Controller
         $metrics['affiliate_7d_commission'] = (float) ($affiliateNow->commission ?? 0);
         $metrics['affiliate_7d_revenue']    = (float) ($affiliateNow->revenue ?? 0);
 
-        // Attribution hint for the Python verifier
         $agentActed = \App\Models\GuardianAuditLog::where('brand_id', $brandId)
             ->where('event_type', 'agent_action_executed')
             ->where('metadata->action_id', $action->id)
@@ -1869,6 +1782,29 @@ class AgentController extends Controller
             'metrics'     => $metrics,
             'attribution' => $attribution,
             'as_of'       => now()->toISOString(),
+        ]);
+    }
+
+    /**
+     * Mark a stable_key's tracking rows resolved after a human escalation response.
+     * Called by the Python agent when a human clicks "Resolve" on an escalation.
+     */
+    public function resolveOpportunity($brandId, $stableKey)
+    {
+        $count = AgentOpportunityTracking::forBrand($brandId)
+            ->forStableKey($stableKey)
+            ->whereIn('status', ['escalated', 'processing'])
+            ->update(['status' => 'resolved', 'last_processed_at' => now()]);
+
+        Log::info('Opportunity marked resolved by agent', [
+            'brand_id'   => $brandId,
+            'stable_key' => substr($stableKey, 0, 16) . '...',
+            'rows'       => $count,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'resolved_count' => $count,
         ]);
     }
 }

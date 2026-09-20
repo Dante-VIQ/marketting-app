@@ -1,33 +1,7 @@
 <?php
 
 use App\Http\Controllers\AgentController;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-
-/*
-|--------------------------------------------------------------------------
-| Local-Only Debug Routes
-|--------------------------------------------------------------------------
-| These expose sensitive data. They are ONLY available in local env.
-| Delete them from production or they will leak your API key.
-*/
-if (app()->environment('local')) {
-    Route::get('/env-test', function () {
-        return response()->json([
-            'has_key' => !empty(env('LARAVEL_API_KEY')),
-            'key_length' => strlen(env('LARAVEL_API_KEY') ?? ''),
-        ]);
-    });
-
-    Route::get('/test-auth', function (Request $request) {
-        $key = $request->header('X-API-Key');
-        $valid = env('LARAVEL_API_KEY');
-        return response()->json([
-            'received' => $key ? 'present' : 'missing',
-            'match' => $key && hash_equals((string) $valid, (string) $key),
-        ]);
-    });
-}
 
 /*
 |--------------------------------------------------------------------------
@@ -84,6 +58,7 @@ Route::prefix('agent')
         Route::post('/opportunities/check', [AgentController::class, 'checkOpportunities'])->name('opportunities.check');
         Route::post('/opportunities/mark', [AgentController::class, 'markOpportunity'])->name('opportunities.mark');
         Route::get('/opportunities/history/{brandId}/{stableKey}', [AgentController::class, 'getOpportunityHistory'])->name('opportunities.history');
+        Route::post('/opportunities/resolve/{brandId}/{stableKey}', [AgentController::class, 'resolveOpportunity'])->name('opportunities.resolve');
 
         /*
         |-----------------------------------------
@@ -95,7 +70,7 @@ Route::prefix('agent')
 
         /*
         |-----------------------------------------
-        | SEO — SPECIFIC routes first (rankings, recommendations)
+        | SEO
         |-----------------------------------------
         */
         Route::get('/seo/issues/{brandId}', [AgentController::class, 'getSeoIssues'])->name('seo.issues');
@@ -106,7 +81,7 @@ Route::prefix('agent')
 
         /*
         |-----------------------------------------
-        | Leads — SPECIFIC routes first (pending, engagement, context)
+        | Leads
         |-----------------------------------------
         */
         Route::get('/leads/pending/{brandId}', [AgentController::class, 'getPendingLeads'])->name('leads.pending');
@@ -125,7 +100,7 @@ Route::prefix('agent')
 
         /*
         |-----------------------------------------
-        | Content — SPECIFIC routes first
+        | Content
         |-----------------------------------------
         */
         Route::post('/content/generate', [AgentController::class, 'triggerContentGeneration'])->name('content.generate');
@@ -139,6 +114,8 @@ Route::prefix('agent')
         */
         Route::post('/scan/{brandId}', [AgentController::class, 'scan'])->name('scan');
         Route::post('/actions/pending', [AgentController::class, 'executeAction'])->name('actions.pending');
+        Route::post('/actions/{actionId}/execute', [AgentController::class, 'executeApprovedAction'])->name('actions.execute');
+        Route::post('/actions/{actionId}/rollback', [AgentController::class, 'rollbackAction'])->name('actions.rollback');
 
         /*
         |-----------------------------------------
@@ -151,10 +128,10 @@ Route::prefix('agent')
 
         /*
         |-----------------------------------------
-        | Rollback — ONE canonical route
+        | Metrics — per-action snapshot for verification
         |-----------------------------------------
         */
-        Route::post('/actions/{actionId}/rollback', [AgentController::class, 'rollbackAction'])->name('actions.rollback');
+        Route::get('/metrics/{brandId}/{actionId}', [AgentController::class, 'getActionMetrics'])->name('metrics');
 
         /*
         |-----------------------------------------
@@ -183,7 +160,6 @@ Route::prefix('agent')
         Route::post('/verification/record', [AgentController::class, 'recordVerification'])->name('verification.record');
         Route::post('/verification/start/{brandId}', [AgentController::class, 'startVerification'])->name('verification.start');
         Route::post('/verification/complete/{brandId}/{verificationId}', [AgentController::class, 'completeVerification'])->name('verification.complete');
-        Route::get('/verification/{brandId}/{verificationId}', [AgentController::class, 'getVerification'])->name('verification.show');
 
         /*
         |-----------------------------------------
@@ -193,9 +169,4 @@ Route::prefix('agent')
         Route::post('/learn/{brandId}', [AgentController::class, 'recordLearning'])->name('learn');
         Route::get('/experiences/similar/{brandId}', [AgentController::class, 'getSimilarExperiences'])->name('experiences.similar');
 
-        Route::post('/actions/{actionId}/execute', [AgentController::class, 'executeApprovedAction'])
-            ->name('actions.execute');
-
-        Route::get('/metrics/{brandId}/{actionId}', [AgentController::class, 'getActionMetrics'])
-            ->name('metrics');
     });
