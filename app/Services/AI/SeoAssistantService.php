@@ -247,58 +247,55 @@ class SeoAssistantService
         }
     }
 
-protected function generateRecommendations(Brand $brand): void
-{
-    // Get or create a "SEO Brief" for the day
-    $brief = \App\Models\AiBrief::firstOrCreate(
-        [
-            'brand_id' => $brand->id,
-            'brief_date' => Carbon::today()->toDateString(),
-            'fingerprint' => 'seo_' . $brand->id . '_' . Carbon::today()->toDateString(),
-        ],
-        [
-            'strategic_diagnosis' => 'Daily SEO recommendations',
-            'estimated_revenue_impact' => 0,
-            'confidence_score' => 100,
-            'raw_llm_output' => [],
-            'ai_provider' => 'system',
-            'model_used' => 'seo_checker',
-            'tokens_used' => 0,
-            'response_time_ms' => 0,
-        ]
-    );
+    protected function generateRecommendations(Brand $brand): void
+    {
+        // This method does NOT create briefs. BriefGeneratorService owns briefs.
+        // Instead, it attaches SEO fix actions to today's existing brief if one exists.
+        // If no brief exists yet, actions are created without a brief_id (orphans) —
+        // they'll still surface in the action queue and be processed by the agent.
 
-    $issues = SeoIssue::where('brand_id', $brand->id)
-        ->where('status', 'open')
-        ->whereIn('severity', ['high', 'critical'])
-        ->limit(5)
-        ->get();
+        $brief = \App\Models\AiBrief::where('brand_id', $brand->id)
+            ->whereDate('brief_date', Carbon::today())
+            ->orderByDesc('created_at')
+            ->first();
 
-    foreach ($issues as $issue) {
-        $existingAction = AiAction::where('brand_id', $brand->id)
-            ->where('brief_id', $brief->id)
-            ->where('category', 'seo')
-            ->where('target_url', $issue->page_url)
-            ->where('title', "Fix: " . $issue->type)
-            ->whereIn('status', ['pending', 'approved', 'in_progress'])
-            ->exists();
-
-        if (!$existingAction) {
-            AiAction::create([
-                'brand_id'          => $brand->id,
-                'brief_id'          => $brief->id, // Now we have a brief_id
-                'title'             => "Fix: " . $issue->type,
-                'category'          => 'seo',
-                'description'       => $issue->description,
-                'suggested_content' => $issue->recommendation,
-                'target_url'        => $issue->page_url,
-                'estimated_impact'  => $issue->severity === 'critical' ? 1000 : 500,
-                'priority'          => $issue->severity === 'critical' ? 5 : 3,
-                'status'            => 'pending',
+        if (!$brief) {
+            \Illuminate\Support\Facades\Log::info('SeoAssistant: no brief yet for today, creating orphan SEO actions', [
+                'brand_id' => $brand->id,
             ]);
         }
+
+        $issues = SeoIssue::where('brand_id', $brand->id)
+            ->where('status', 'open')
+            ->whereIn('severity', ['high', 'critical'])
+            ->limit(5)
+            ->get();
+
+        foreach ($issues as $issue) {
+            $existingAction = AiAction::where('brand_id', $brand->id)
+                ->where('category', 'seo')
+                ->where('target_url', $issue->page_url)
+                ->where('title', "Fix: " . $issue->type)
+                ->whereIn('status', ['pending', 'approved', 'in_progress'])
+                ->exists();
+
+            if (!$existingAction) {
+                AiAction::create([
+                    'brand_id'          => $brand->id,
+                    'brief_id'          => $brief?->id,
+                    'title'             => "Fix: " . $issue->type,
+                    'category'          => 'seo',
+                    'description'       => $issue->description,
+                    'suggested_content' => $issue->recommendation,
+                    'target_url'        => $issue->page_url,
+                    'estimated_impact'  => $issue->severity === 'critical' ? 1000 : 500,
+                    'priority'          => $issue->severity === 'critical' ? 5 : 3,
+                    'status'            => 'pending',
+                    'origin'            => 'scheduler',
+                ]);
+            }
+        }
     }
-}
 
     /**
      * Get open SEO issues formatted for API/UI response.
@@ -309,7 +306,7 @@ protected function generateRecommendations(Brand $brand): void
             ->where('status', 'open')
             ->orderByRaw("CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END")
             ->get()
-            ->map(fn ($issue) => [
+            ->map(fn($issue) => [
                 'id'             => $issue->id,
                 'page'           => $issue->page_url,
                 'severity'       => $issue->severity,

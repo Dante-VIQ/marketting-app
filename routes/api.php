@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Route;
 | Public Ping
 |--------------------------------------------------------------------------
 */
+
 Route::get('/ping', [AgentController::class, 'ping']);
 
 /*
@@ -115,7 +116,9 @@ Route::prefix('agent')
         Route::post('/scan/{brandId}', [AgentController::class, 'scan'])->name('scan');
         Route::post('/actions/pending', [AgentController::class, 'executeAction'])->name('actions.pending');
         Route::post('/actions/{actionId}/execute', [AgentController::class, 'executeApprovedAction'])->name('actions.execute');
-        Route::post('/actions/{actionId}/rollback', [AgentController::class, 'rollbackAction'])->name('actions.rollback');
+        Route::post('/actions/{actionId}/request-rollback', [AgentController::class, 'requestRollback'])->name('actions.request-rollback');
+
+        Route::get('/actions/count/{brandId}', [AgentController::class, 'getActionCount'])->name('actions.count');
 
         /*
         |-----------------------------------------
@@ -168,5 +171,4 @@ Route::prefix('agent')
         */
         Route::post('/learn/{brandId}', [AgentController::class, 'recordLearning'])->name('learn');
         Route::get('/experiences/similar/{brandId}', [AgentController::class, 'getSimilarExperiences'])->name('experiences.similar');
-
     });

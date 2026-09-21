@@ -592,6 +592,13 @@ class AgentController extends Controller
         $meta  = $actionMeta[$actionName] ?? ['title' => ucwords(str_replace('_', ' ', $actionName)), 'category' => 'strategy'];
         $title = $meta['title'];
 
+        // Respect an explicitly-passed category from the caller. The Python agent
+        // sends category='escalation' for escalations, which the map doesn't cover.
+        $explicitCategory = $action['category'] ?? null;
+        if ($explicitCategory && is_string($explicitCategory)) {
+            $meta['category'] = $explicitCategory;
+        }
+
         $payload = $action['payload'] ?? $action;
         if (!empty($payload['topic'])) {
             $title .= ': ' . substr($payload['topic'], 0, 80);
@@ -655,6 +662,43 @@ class AgentController extends Controller
 
         $brand = Brand::findOrFail($action->brand_id);
         $result = null;
+
+        // ─── Hard frequency cap per category ───
+        $hourlyCaps = [
+            'seo'         => 50,
+            'content'     => 5,
+            'social'      => 5,
+            'email'       => 5,
+            'web_copy'    => 5,
+            'strategy'    => 20,
+            'campaign'    => 3,
+            'analytics'   => 10,
+            'escalation'  => 10,
+        ];
+        $cap = $hourlyCaps[$action->category] ?? 10;
+
+        $recentCount = AiAction::where('brand_id', $action->brand_id)
+            ->where('category', $action->category)
+            ->where('executed_at', '>=', now()->subHour())
+            ->count();
+
+        if ($recentCount >= $cap) {
+            Log::warning('Action rejected by frequency cap', [
+                'action_id' => $action->id,
+                'category'  => $action->category,
+                'recent'    => $recentCount,
+                'cap'       => $cap,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error'   => "Hourly cap reached for category '{$action->category}' "
+                           . "({$recentCount}/{$cap}).",
+                'action_id' => $action->id,
+                'cap'       => $cap,
+                'recent'    => $recentCount,
+            ], 429);
+        }
 
         try {
             switch ($action->category) {
@@ -1626,7 +1670,14 @@ class AgentController extends Controller
         ]);
     }
 
-    public function rollbackAction(Request $request, $actionId)
+    /**
+     * Request a rollback for a failed action.
+     *
+     * HONESTY NOTE: This does NOT undo the action. It marks the action as
+     * rollback_requested and logs the intent. Real reversal (unpublishing
+     * content, reopening SEO issues, resuming campaigns) is not yet implemented.
+     */
+    public function requestRollback(Request $request, $actionId)
     {
         $validated = $request->validate([
             'reason' => 'required|string|max:1000',
@@ -1651,7 +1702,7 @@ class AgentController extends Controller
             'verified_at'      => now(),
         ]);
 
-        Log::warning('Action rolled back', [
+        Log::warning('Rollback REQUESTED — no reversal performed', [
             'action_id' => $action->id,
             'reason'    => $validated['reason'],
         ]);
@@ -1660,6 +1711,7 @@ class AgentController extends Controller
             'success'   => true,
             'action_id' => $action->id,
             'status'    => 'rolled_back',
+            'note'      => 'Rollback requested. Automatic reversal not yet implemented.',
         ]);
     }
 
@@ -1822,6 +1874,41 @@ class AgentController extends Controller
         return response()->json([
             'success' => true,
             'resolved_count' => $count,
+        ]);
+    }
+
+        /**
+     * How many actions of a given category have been executed or created
+     * in the last N seconds? Used by the agent to enforce max_frequency_per_hour.
+     */
+    public function getActionCount(Request $request, $brandId)
+    {
+        $category = $request->query('category');
+        $window   = (int) $request->query('window', 3600); // seconds
+
+        if (!$category) {
+            return response()->json([
+                'success' => false,
+                'error'   => 'category query param required',
+            ], 400);
+        }
+
+        $since = now()->subSeconds($window);
+
+        $count = AiAction::where('brand_id', $brandId)
+            ->where('category', $category)
+            ->where(function ($q) use ($since) {
+                $q->where('created_at', '>=', $since)
+                  ->orWhere('executed_at', '>=', $since);
+            })
+            ->count();
+
+        return response()->json([
+            'success'  => true,
+            'brand_id' => (int) $brandId,
+            'category' => $category,
+            'window'   => $window,
+            'count'    => $count,
         ]);
     }
 }
