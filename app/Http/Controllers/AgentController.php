@@ -902,7 +902,7 @@ class AgentController extends Controller
             $hasContent = \App\Models\BlogPost::where('brand_id', $brandId)
                 ->where(function ($q) use ($topic) {
                     $q->where('title', 'LIKE', "%{$topic}%")
-                      ->orWhere('content', 'LIKE', "%{$topic}%");
+                        ->orWhere('content', 'LIKE', "%{$topic}%");
                 })
                 ->exists();
 
@@ -1155,12 +1155,12 @@ class AgentController extends Controller
             ->where(function ($q) {
                 $q->where(function ($q2) {
                     $q2->whereNull('agent_notified_at')
-                       ->whereIn('status', ['approved', 'rejected', 'revision']);
+                        ->whereIn('status', ['approved', 'rejected', 'revision']);
                 })
-                ->orWhere(function ($q2) {
-                    $q2->where('status', 'approved')
-                       ->whereNull('executed_at');
-                });
+                    ->orWhere(function ($q2) {
+                        $q2->where('status', 'approved')
+                            ->whereNull('executed_at');
+                    });
             })
             ->orderBy('updated_at', 'asc')
             ->get();
@@ -1486,10 +1486,11 @@ class AgentController extends Controller
     public function registerVerification(Request $request)
     {
         $validated = $request->validate([
-            'brand_id'            => 'required|integer|exists:brands,id',
-            'action_id'           => 'required|integer|exists:ai_actions,id',
-            'action_name'         => 'required|string',
+            'brand_id'             => 'required|integer|exists:brands,id',
+            'action_id'            => 'required|integer|exists:ai_actions,id',
+            'action_name'          => 'required|string',
             'metrics_at_execution' => 'nullable|array',
+            'stated_confidence'    => 'nullable|numeric|min:0|max:1',
         ]);
 
         $action = AiAction::findOrFail($validated['action_id']);
@@ -1502,10 +1503,17 @@ class AgentController extends Controller
             ], 400);
         }
 
+        // Merge stated_confidence into the metrics snapshot so it survives
+        // to verification time. AiAction has no dedicated column for it.
+        $metrics = $validated['metrics_at_execution'] ?? [];
+        if (isset($validated['stated_confidence'])) {
+            $metrics['stated_confidence'] = $validated['stated_confidence'];
+        }
+
         $now = now();
 
         $action->update([
-            'metrics_at_execution'  => $validated['metrics_at_execution'] ?? null,
+            'metrics_at_execution'  => $metrics,
             'verification_status'   => 'pending',
             'verify_at_hour_1'      => $windows['hour_1'] ? $now->copy()->addSeconds($windows['hour_1']) : null,
             'verify_at_day_1'       => $windows['day_1'] ? $now->copy()->addSeconds($windows['day_1']) : null,
