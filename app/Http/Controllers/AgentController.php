@@ -602,17 +602,18 @@ class AgentController extends Controller
         }
 
         $aiAction = \App\Models\AiAction::create([
-            'brand_id'          => $brandId,
-            'title'             => $title,
-            'description'       => $reason,
-            'category'          => $meta['category'],
-            'suggested_content' => json_encode($payload, JSON_PRETTY_PRINT),
-            'target_url'        => $payload['target_url'] ?? null,
-            'target_keyword'    => $payload['topic'] ?? null,
-            'estimated_impact'  => $payload['estimated_impact'] ?? 100,
-            'priority'          => 3,
-            'status'            => 'pending',
-            'origin'            => 'agent',
+            'brand_id'               => $brandId,
+            'title'                  => $title,
+            'description'            => $reason,
+            'category'               => $meta['category'],
+            'suggested_content'      => json_encode($payload, JSON_PRETTY_PRINT),
+            'target_url'             => $payload['target_url'] ?? null,
+            'target_keyword'         => $payload['topic'] ?? null,
+            'estimated_impact'       => $payload['estimated_impact'] ?? 100,
+            'priority'               => 3,
+            'status'                 => 'pending',
+            'origin'                 => 'agent',
+            'opportunity_stable_key' => $action['target'] ?? ($payload['stable_key'] ?? null),
         ]);
 
         Log::info('Agent action queued', [
@@ -1067,6 +1068,13 @@ class AgentController extends Controller
                 ->first();
 
             if ($prior) {
+                // Is there already an escalation waiting on this stable_key?
+                $hasPendingEscalation = AiAction::where('brand_id', $brandId)
+                    ->where('category', 'escalation')
+                    ->whereIn('status', ['pending', 'approved'])
+                    ->where('opportunity_stable_key', $sk)
+                    ->exists();
+
                 $recurring[] = [
                     'fingerprint'            => $fp,
                     'stable_key'             => $sk,
@@ -1074,6 +1082,7 @@ class AgentController extends Controller
                     'first_seen_at'          => optional($prior->first_seen_at)->toISOString(),
                     'last_attempt_status'    => $prior->status,
                     'last_attempt_action_id' => $prior->action_id,
+                    'has_pending_escalation' => $hasPendingEscalation,
                 ];
             } else {
                 $new[] = [
