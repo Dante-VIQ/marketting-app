@@ -147,23 +147,6 @@ class SeoController extends Controller
     }
 
     /**
-     * Show a specific SEO issue.
-     */
-    public function showIssue($id)
-    {
-        $user = Auth::user();
-        $brand = $user->activeBrand;
-
-        if (!$brand) {
-            return redirect()->route('brands.index')->with('warning', 'Please select a brand first.');
-        }
-
-        $issue = SeoIssue::where('brand_id', $brand->id)->findOrFail($id);
-
-        return view('seo.show-issue', compact('issue'));
-    }
-
-    /**
      * Mark an SEO issue as resolved.
      */
     public function resolveIssue(Request $request, $id)
@@ -239,5 +222,24 @@ public function runChecks()
         
         return redirect()->route('seo.index')->with('error', 'SEO checks failed: ' . $e->getMessage());
     }
+}
+
+public function showIssue($id)
+{
+    $user = Auth::user();
+    $brand = $user->activeBrand;
+
+    if (!$brand) {
+        return redirect()->route('brands.index')->with('warning', 'Please select a brand first.');
+    }
+
+    $issue = SeoIssue::where('brand_id', $brand->id)->findOrFail($id);
+
+    $relatedActions = \App\Models\AiAction::where('brand_id', $issue->brand_id)
+        ->where('category', 'seo')
+        ->where('target_url', $issue->page_url)
+        ->get();
+
+    return view('seo.show-issue', compact('issue', 'relatedActions'));
 }
 }

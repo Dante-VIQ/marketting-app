@@ -90,7 +90,7 @@ Route::prefix('agent')
         Route::get('/lead/context/{brandId}/{leadId}', [AgentController::class, 'getLeadContext'])->name('leads.context');
         Route::get('/lead/{brandId}/{leadId}', [AgentController::class, 'getLead'])->name('leads.show');
         Route::post('/lead/follow-up/{brandId}', [AgentController::class, 'generateFollowUpMessage'])->name('leads.follow-up');
-
+    
         /*
         |-----------------------------------------
         | Campaigns

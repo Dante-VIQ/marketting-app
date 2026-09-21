@@ -9,6 +9,7 @@ use App\Models\RevenueLeak;
 use App\Models\GuardianAuditLog;
 use App\Models\Campaign;
 use App\Models\Lead;
+use App\Models\AffiliateData;
 use App\Services\Analytics\DashboardDataService;
 use App\Services\AI\AiGatewayService;
 use Illuminate\Http\Request;
@@ -41,21 +42,21 @@ class DashboardController extends Controller
 
         $activeBrand = $user->activeBrand;
 
-        // Get dashboard data
+        // Dashboard data
         $dashboardData = $dashboardDataService->getDashboardData($activeBrand);
-        $topPages = $dashboardDataService->getTopPages($activeBrand);
+        $topPages      = $dashboardDataService->getTopPages($activeBrand);
 
-        // Get today's brief
+        // Today's brief
         $todayBrief = AiBrief::where('brand_id', $activeBrand->id)
             ->whereDate('brief_date', now()->toDateString())
             ->first();
 
-        // Get pending actions count
+        // Pending actions count
         $pendingActionsCount = AiAction::where('brand_id', $activeBrand->id)
             ->where('status', 'pending')
             ->count();
 
-        // Get recent actions (last 7 days)
+        // Recent actions (last 7 days)
         $recentActions = AiAction::where('brand_id', $activeBrand->id)
             ->where('created_at', '>=', now()->subDays(7))
             ->orderBy('created_at', 'desc')
@@ -63,7 +64,7 @@ class DashboardController extends Controller
             ->get()
             ->toArray();
 
-        // Get revenue leaks
+        // Open revenue leaks
         $revenueLeaks = RevenueLeak::where('brand_id', $activeBrand->id)
             ->where('status', 'open')
             ->orderBy('estimated_loss', 'desc')
@@ -71,15 +72,20 @@ class DashboardController extends Controller
             ->get()
             ->toArray();
 
-        // Get AI status
+        // Affiliate revenue (last 30 days) — the real money signal for Vumbi
+        $affiliateRevenue = AffiliateData::where('brand_id', $activeBrand->id)
+            ->where('date', '>=', now()->subDays(30)->toDateString())
+            ->sum('commission_earned');
+
+        // AI status
         $aiStatus = [
-            'available' => $aiGateway->isAvailable(),
-            'provider' => $aiGateway->getProvider(),
-            'model' => config("ai.providers." . $aiGateway->getProvider() . ".model", 'N/A'),
+            'available'  => $aiGateway->isAvailable(),
+            'provider'   => $aiGateway->getProvider(),
+            'model'      => config("ai.providers." . $aiGateway->getProvider() . ".model", 'N/A'),
             'last_brief' => $todayBrief ? $todayBrief->created_at->diffForHumans() : 'Never',
         ];
 
-        // Get guardian stats
+        // Guardian stats
         $aiCallsCount = GuardianAuditLog::where('brand_id', $activeBrand->id)
             ->where('event_type', 'brief_generated')
             ->count();
@@ -90,30 +96,28 @@ class DashboardController extends Controller
         $avgResponseTime = GuardianAuditLog::where('brand_id', $activeBrand->id)
             ->avg('response_time_ms');
 
-        // Get campaign stats
+        // Campaign stats
         $activeCampaigns = Campaign::where('brand_id', $activeBrand->id)
             ->where('status', 'active')
             ->count();
 
-        // Get lead stats
+        // Lead stats
         $hotLeads = Lead::where('brand_id', $activeBrand->id)
             ->where('score', 'hot')
             ->where('status', '!=', 'won')
             ->where('status', '!=', 'lost')
             ->count();
 
-        // Get pending actions count for badge
+        // Badge counts
         $pendingCount = AiAction::where('brand_id', $activeBrand->id)
             ->where('status', 'pending')
             ->count();
 
-        // Get hot leads count for badge
         $hotLeadsCount = Lead::where('brand_id', $activeBrand->id)
             ->where('score', 'hot')
             ->where('status', '!=', 'won')
             ->where('status', '!=', 'lost')
             ->count();
-
 
         return view('dashboard.index', compact(
             'activeBrand',
@@ -123,6 +127,7 @@ class DashboardController extends Controller
             'pendingActionsCount',
             'recentActions',
             'revenueLeaks',
+            'affiliateRevenue',    // ✅ was missing
             'aiStatus',
             'aiCallsCount',
             'totalTokensUsed',

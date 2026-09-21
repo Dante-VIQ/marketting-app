@@ -1,7 +1,8 @@
 <aside
     class="w-64 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md border-r border-slate-200/60 dark:border-slate-800/60 flex-shrink-0 h-full overflow-y-auto transition-colors duration-200">
     <nav class="p-4 space-y-1">
-        <!-- ==================== CORE ==================== -->
+
+        {{-- ==================== CORE ==================== --}}
         <div class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 py-2">
             Core
         </div>
@@ -16,7 +17,7 @@
             <span>Dashboard</span>
         </a>
 
-        <!-- ==================== ANALYTICS & INTELLIGENCE ==================== -->
+        {{-- ==================== ANALYTICS & INTELLIGENCE ==================== --}}
         <div class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 py-2 mt-5">
             Analytics & Intelligence
         </div>
@@ -29,8 +30,7 @@
                     d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
             <span>Analytics</span>
-            <span
-                class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50">Live</span>
+            <span class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50">Live</span>
         </a>
 
         <a href="{{ route('briefs.index') }}"
@@ -40,8 +40,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
             <span>AI Brief</span>
-            <span
-                class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-50 dark:bg-sky-950 text-sky-600 dark:text-sky-400 border border-sky-200/50 dark:border-sky-800/50">Daily</span>
+            <span class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-50 dark:bg-sky-950 text-sky-600 dark:text-sky-400 border border-sky-200/50 dark:border-sky-800/50">Daily</span>
         </a>
 
         <a href="{{ route('seo.index') }}"
@@ -52,11 +51,22 @@
                     d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <span>SEO Assistant</span>
-            <span
-                class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border border-amber-200/50 dark:border-amber-800/50">Monitor</span>
+            <span class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border border-amber-200/50 dark:border-amber-800/50">Monitor</span>
         </a>
 
-        <!-- ==================== MARKETING ==================== -->
+        {{-- Calibration --}}
+        <a href="{{ route('calibration') }}"
+            class="group flex items-center px-3 py-2 text-sm font-medium rounded-xl transition-all duration-150 {{ request()->routeIs('calibration') ? 'bg-white/90 dark:bg-slate-800/90 text-emerald-600 dark:text-emerald-400 shadow-xs border border-emerald-100 dark:border-emerald-900/50' : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-white' }}">
+            <svg class="w-5 h-5 mr-3 flex-shrink-0 {{ request()->routeIs('calibration') ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300' }}"
+                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+            </svg>
+            <span>Calibration</span>
+            <span class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 dark:bg-violet-950 text-violet-600 dark:text-violet-400 border border-violet-200/50 dark:border-violet-800/50">Trust</span>
+        </a>
+
+        {{-- ==================== MARKETING ==================== --}}
         <div class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 py-2 mt-5">
             Marketing
         </div>
@@ -91,8 +101,7 @@
                     d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v14m0 0V6m0 14H5m14 0h3m-3 0h-3M5 10h10M5 14h6m-6 4h10" />
             </svg>
             <span>Blog</span>
-            <span
-                class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50">Content</span>
+            <span class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50">Content</span>
         </a>
 
         <a href="{{ route('content.drafts') }}"
@@ -103,9 +112,9 @@
                     d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v14m0 0V6m0 14H5m14 0h3m-3 0h-3M5 10h10M5 14h6m-6 4h10" />
             </svg>
             <span>Drafts</span>
-            <span
-                class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50">Content</span>
+            <span class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50">Content</span>
         </a>
+
         <a href="{{ route('affiliate.index') }}"
             class="group flex items-center px-3 py-2 text-sm font-medium rounded-xl transition-all duration-150 {{ request()->routeIs('affiliate.*') ? 'bg-white/90 dark:bg-slate-800/90 text-emerald-600 dark:text-emerald-400 shadow-xs border border-emerald-100 dark:border-emerald-900/50' : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-white' }}">
             <svg class="w-5 h-5 mr-3 flex-shrink-0 {{ request()->routeIs('affiliate.*') ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300' }}"
@@ -116,7 +125,7 @@
             <span>Affiliate</span>
         </a>
 
-        <!-- ==================== WORKFLOW ==================== -->
+        {{-- ==================== WORKFLOW ==================== --}}
         <div class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 py-2 mt-5">
             Workflow
         </div>
@@ -129,8 +138,7 @@
                     d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
             </svg>
             <span>Action Queue</span>
-            <span
-                class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border border-amber-200/50 dark:border-amber-800/50"
+            <span class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border border-amber-200/50 dark:border-amber-800/50"
                 id="pending-count">0</span>
         </a>
 
@@ -144,7 +152,19 @@
             <span>Action History</span>
         </a>
 
-        <!-- ==================== SCANNER ==================== -->
+        {{-- Recurring Issues --}}
+        <a href="{{ route('recurring-issues') }}"
+            class="group flex items-center px-3 py-2 text-sm font-medium rounded-xl transition-all duration-150 {{ request()->routeIs('recurring-issues') ? 'bg-white/90 dark:bg-slate-800/90 text-emerald-600 dark:text-emerald-400 shadow-xs border border-emerald-100 dark:border-emerald-900/50' : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-white' }}">
+            <svg class="w-5 h-5 mr-3 flex-shrink-0 {{ request()->routeIs('recurring-issues') ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300' }}"
+                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span>Recurring Issues</span>
+            <span class="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border border-amber-200/50 dark:border-amber-800/50">Escalated</span>
+        </a>
+
+        {{-- ==================== SCANNER ==================== --}}
         <div class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 py-2 mt-5">
             Scanner
         </div>
@@ -159,7 +179,7 @@
             <span>Page Scanner</span>
         </a>
 
-        <!-- ==================== SYSTEM ==================== -->
+        {{-- ==================== SYSTEM ==================== --}}
         <div class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 py-2 mt-5">
             System
         </div>
@@ -204,7 +224,7 @@
             <span>Policies</span>
         </a>
 
-        <!-- ==================== GUIDES ==================== -->
+        {{-- ==================== GUIDES ==================== --}}
         <div class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 py-2 mt-5">
             Guides
         </div>
@@ -219,13 +239,12 @@
             <span>Travel Guides</span>
         </a>
 
-        <!-- ==================== AI PROVIDER STATUS ==================== -->
+        {{-- ==================== AI PROVIDER STATUS ==================== --}}
         <div
             class="mt-6 p-3 bg-white/40 dark:bg-slate-800/40 backdrop-blur-xs rounded-xl border border-slate-200/60 dark:border-slate-800">
             <div class="flex items-center justify-between text-xs">
                 <span class="text-slate-500 dark:text-slate-400">AI Provider</span>
-                <span
-                    class="font-medium text-slate-700 dark:text-slate-200">{{ config('ai.provider', 'ollama') }}</span>
+                <span class="font-medium text-slate-700 dark:text-slate-200">{{ config('ai.provider', 'ollama') }}</span>
             </div>
             <div class="flex items-center justify-between text-xs mt-1.5">
                 <span class="text-slate-500 dark:text-slate-400">Status</span>

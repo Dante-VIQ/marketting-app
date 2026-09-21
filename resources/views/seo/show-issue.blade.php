@@ -90,13 +90,8 @@
                     <h2 class="text-lg font-semibold text-gray-900">📋 Related Actions</h2>
                 </div>
                 <div class="p-6">
-                    @php
-                        $relatedActions = App\Models\AiAction::where('brand_id', $issue->brand_id)
-                            ->where('category', 'seo')
-                            ->where('target_url', $issue->page_url)
-                            ->get();
-                    @endphp
-                    @if($relatedActions->count() > 0)
+
+                    @if($relatedActions)
                         <div class="space-y-2">
                             @foreach($relatedActions as $action)
                                 <div class="p-3 bg-gray-50 rounded-lg">

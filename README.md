@@ -11,6 +11,21 @@ This Laravel application provides the data models, business services, and API en
 
 ---
 
+## Table of Contents
+
+- [Purpose](#-purpose)
+- [Architecture Diagram](#-architecture-diagram-mermaid)
+- [Integration with Strands Agent](#-integration-with-strands-agent)
+- [Quick Start](#-quick-start)
+- [Configuration](#configuration)
+- [Directory Structure](#-directory-structure)
+- [API Endpoints](#-api-endpoints)
+- [Key Models](#-key-models)
+- [Testing](#-testing)
+- [License & Acknowledgments](#-license--acknowledgments)
+
+---
+
 ## 🎯 Purpose
 
 - **Central data store** – All business data in one place
@@ -19,75 +34,122 @@ This Laravel application provides the data models, business services, and API en
 - **Governance** – Guardian audit logging, policies, and incident management
 - **Human control plane** – UI for monitoring and approving agent actions
 
-
 ---
 
 ## 🏗️ Architecture Diagram (Mermaid)
 
 ```mermaid
-graph TB
-    subgraph "Presentation Layer"
-        UI["Livewire UI - Briefs, Actions, SEO, Guardian"]
-        API_Routes["/api/agent/*"]
-        Web_Routes["/briefs, /actions, /seo"]
-    end
+flowchart TD
 
-    subgraph "Service Layer"
-        subgraph "AI Services"
-            AI_Gateway["AiGatewayService - Gemini Integration"]
-            Brief_Gen["BriefGeneratorService"]
-            Content_Gen["ContentGeneratorService - Content & SEO Meta"]
-        end
+subgraph group_presentation["Presentation"]
+  node_web_ui["Livewire Control Plane"]
+  node_api_gateway["Agent API Gateway"]
+  node_lead_api["Lead Intake API"]
+  node_routes["HTTP Routes<br/>[api.php]"]
+end
 
-        subgraph "Business Services"
-            Lead_Mgr["LeadManagerService - Scoring & Follow-up"]
-            SEO_Asst["SeoAssistantService - Analysis & Recommendations"]
-            Scanner["PageScannerService - Page Capture"]
-            Analytics["AnalyticsService"]
-            Campaign["CampaignService"]
-        end
+subgraph group_domain["Marketing Services"]
+  node_lead_service["Lead Management"]
+  node_seo_service["SEO Analysis"]
+  node_scanner["Page Scanner"]
+  node_analytics["Analytics Collection"]
+  node_campaigns["Campaign Management"]
+  node_content_manager["Draft Management"]
+  node_content_generator["Content Generation"]
+  node_brand_context["Brand Context"]
+end
 
-        subgraph "Governance"
-            Guardian["GuardianService - Policies, Audit, Incidents"]
-            Verify["VerificationService"]
-            Learn["LearningService"]
-        end
-    end
+subgraph group_governance["Governance Automation"]
+  node_guardian["Guardian Governance"]
+  node_approval["Action Approval"]
+  node_scheduler["Task Scheduler"]
+  node_jobs["Queued Jobs"]
+end
 
-    subgraph "Data Layer"
-        Models["Models - Brand, SeoIssue, Lead, Campaign, ContentDraft, AiAction, AgentExperience, ActionVerification"]
-    end
+subgraph group_data["Data Layer"]
+  node_models["Marketing Models"]
+end
 
-    subgraph "External"
-        Gemini[(Google Gemini)]
-        Ahrefs[(Ahrefs API)]
-        Agent["Strands Agent - TypeScript"]
-    end
+subgraph group_integrations["External Integrations"]
+  node_ai_gateway["AI Gateway"]
+  node_ahrefs_service["Ahrefs Connector<br/>[AhrefsService.php]"]
+end
 
-    subgraph "Database"
-        DB[(MySQL - 30+ Tables)]
-    end
+node_human(("Marketing User"))
+node_strands(("Strands Agent"))
+node_gemini{{"Google Gemini"}}
+node_ahrefs{{"Ahrefs API"}}
+node_ga4{{"Google Analytics"}}
+node_mysql[("MySQL Database")]
 
-    UI --> Models
-    API_Routes --> AI_Gateway
-    API_Routes --> Lead_Mgr
-    API_Routes --> SEO_Asst
-    API_Routes --> Guardian
-    API_Routes --> Verify
-    API_Routes --> Learn
+node_human -->|"uses"| node_web_ui
+node_strands -->|"calls"| node_routes
+node_routes -->|"dispatches"| node_api_gateway
+node_routes -->|"dispatches"| node_lead_api
+node_web_ui -->|"manages drafts"| node_content_manager
+node_web_ui -->|"configures brands"| node_brand_context
+node_lead_api -->|"creates lead"| node_lead_service
+node_api_gateway -->|"reads leads"| node_lead_service
+node_api_gateway -->|"reads SEO"| node_seo_service
+node_api_gateway -->|"reads analytics"| node_analytics
+node_api_gateway -->|"manages actions"| node_approval
+node_api_gateway -->|"checks health"| node_guardian
+node_api_gateway -->|"dispatches jobs"| node_jobs
+node_lead_service -->|"qualifies leads"| node_ai_gateway
+node_content_manager -->|"regenerates drafts"| node_content_generator
+node_content_manager -->|"updates drafts"| node_models
+node_content_generator -->|"generates content"| node_ai_gateway
+node_seo_service -->|"requests SEO data"| node_ahrefs_service
+node_analytics -.->|"collects metrics"| node_ga4
+node_ahrefs_service -.->|"fetches data"| node_ahrefs
+node_ai_gateway -.->|"generates text"| node_gemini
+node_scheduler -->|"dispatches tasks"| node_jobs
+node_scheduler -->|"runs follow-ups"| node_lead_service
+node_jobs -->|"runs scans"| node_scanner
+node_jobs -->|"collects analytics"| node_analytics
+node_jobs -->|"generates drafts"| node_content_generator
+node_campaigns -->|"stores recommendations"| node_models
+node_guardian -->|"records governance"| node_models
+node_approval -->|"updates actions"| node_models
+node_lead_service -->|"stores leads"| node_models
+node_seo_service -->|"stores issues"| node_models
+node_analytics -->|"stores snapshots"| node_models
+node_scanner -->|"stores snapshots"| node_models
+node_brand_context -->|"reads brands"| node_models
+node_models -->|"persists data"| node_mysql
 
-    AI_Gateway --> Gemini
-    SEO_Asst --> Ahrefs
-    Agent --> API_Routes
+click node_web_ui "https://github.com/dante-viq/marketting-app/tree/main/resources/views/components"
+click node_api_gateway "https://github.com/dante-viq/marketting-app/blob/main/app/Http/Controllers/AgentController.php"
+click node_lead_api "https://github.com/dante-viq/marketting-app/blob/main/app/Http/Controllers/Api/TravelLeadController.php"
+click node_lead_service "https://github.com/dante-viq/marketting-app/blob/main/app/Services/Lead/LeadManagerService.php"
+click node_seo_service "https://github.com/dante-viq/marketting-app/blob/main/app/Services/AI/SeoAssistantService.php"
+click node_scanner "https://github.com/dante-viq/marketting-app/blob/main/app/Services/Scanner/PageScannerService.php"
+click node_analytics "https://github.com/dante-viq/marketting-app/blob/main/app/Services/Analytics/AnalyticsCollectorService.php"
+click node_campaigns "https://github.com/dante-viq/marketting-app/blob/main/app/Services/Campaign/CampaignManagerService.php"
+click node_content_manager "https://github.com/dante-viq/marketting-app/blob/main/app/Services/Content/ContentDraftManagerService.php"
+click node_content_generator "https://github.com/dante-viq/marketting-app/blob/main/app/Services/AI/ContentGeneratorService.php"
+click node_ai_gateway "https://github.com/dante-viq/marketting-app/blob/main/app/Services/AI/AiGatewayService.php"
+click node_ahrefs_service "https://github.com/dante-viq/marketting-app/blob/main/app/Services/Ahrefs/AhrefsService.php"
+click node_guardian "https://github.com/dante-viq/marketting-app/blob/main/app/Services/Guardian/GuardianService.php"
+click node_approval "https://github.com/dante-viq/marketting-app/blob/main/app/Services/AI/ActionApprovalService.php"
+click node_scheduler "https://github.com/dante-viq/marketting-app/blob/main/app/Services/Schedule/ScheduleTaskManagerService.php"
+click node_jobs "https://github.com/dante-viq/marketting-app/tree/main/app/Jobs"
+click node_brand_context "https://github.com/dante-viq/marketting-app/blob/main/app/Services/BrandContextService.php"
+click node_models "https://github.com/dante-viq/marketting-app/tree/main/app/Models"
+click node_routes "https://github.com/dante-viq/marketting-app/blob/main/routes/api.php"
 
-    AI_Gateway --> Models
-    Lead_Mgr --> Models
-    SEO_Asst --> Models
-    Guardian --> Models
-    Verify --> Models
-    Learn --> Models
-
-    Models --> DB
+classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
+classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+classDef toneAmber fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+classDef toneMint fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
+classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
+classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
+class node_web_ui,node_api_gateway,node_lead_api,node_routes,node_human toneBlue
+class node_lead_service,node_seo_service,node_scanner,node_analytics,node_campaigns,node_content_manager,node_content_generator,node_brand_context,node_mysql toneAmber
+class node_guardian,node_approval,node_scheduler,node_jobs,node_ahrefs toneMint
+class node_models toneRose
+class node_ai_gateway,node_ahrefs_service,node_strands,node_gemini,node_ga4 toneIndigo
 ```
 
 ---
@@ -95,7 +157,6 @@ graph TB
 ## 🔄 Integration with Strands Agent
 
 ```mermaid
-
 graph TB
     subgraph Agent["🤖 Strands Agent (TypeScript)"]
         direction TB
@@ -179,170 +240,30 @@ graph TB
 - MySQL 8.0+
 - Node.js (for asset compilation)
 - Google Gemini API key
+- Optional: Ahrefs API key
 
 ### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/Dante-VIQ/marketting-app.git
 cd marketting-app
-``
+```
 
 ### 2. Install Dependencies
 
 ```bash
 composer install
 npm install && npm run build
-``
+```
 
 ### 3. Configure Environment
 
 ```bash
 cp .env.example .env
 php artisan key:generate
-``
+```
 
-## Edit .env:
-
-```env
-APP_NAME="Vumbi Marketing Platform"
-APP_URL=http://localhost:8000
-
-DB_CONNECTION=mysql
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_DATABASE=vumbi
-DB_USERNAME=root
-DB_PASSWORD=
-
-# Agent Authentication
-AGENT_API_KEY=your_super_secret_key_here
-
-# AI Services
-GEMINI_API_KEY=your_gemini_key_here
-
-# Ahrefs (optional)
-AHREFS_API_KEY=your_ahrefs_key
-
-4. Run Migrations & Seeders
-bash
-
-php artisan migrate
-php artisan db:seed --class=BrandSeeder
-
-5. Start the Server
-bash
-
-php artisan serve
-``
-
-### 📁 Directory Structure
-
-```text
-app/
-├── Http/
-│   ├── Controllers/
-│   │   ├── AgentController.php      # Agent API endpoints
-│   │   ├── BriefController.php      # AI Brief UI
-│   │   ├── ActionController.php     # Action management
-│   │   ├── SeoController.php        # SEO management
-│   │   └── GuardianController.php   # Governance UI
-│   └── Middleware/
-│       └── VerifyApiKey.php         # Agent authentication
-├── Models/
-│   ├── Brand.php                    # Tenant/brand management
-│   ├── AnalyticsSnapshot.php        # Analytics data
-│   ├── SeoIssue.php                 # SEO issues
-│   ├── Lead.php                     # Lead management
-│   ├── Campaign.php                 # Campaign tracking
-│   ├── ContentDraft.php             # Generated content
-│   ├── AiAction.php                 # AI action queue
-│   ├── AgentExperience.php          # Agent learning memory
-│   ├── ActionVerification.php       # Action verification
-│   ├── GuardianAuditLog.php         # Audit trail
-│   ├── GuardianPolicy.php           # Governance policies
-│   └── KnowledgeBase.php            # Business knowledge
-├── Services/
-│   ├── AI/
-│   │   ├── AiGatewayService.php     # Gemini AI integration
-│   │   ├── BriefGeneratorService.php # AI brief generation
-│   │   └── ContentGeneratorService.php # Content generation
-│   ├── Lead/
-│   │   └── LeadManagerService.php   # Lead management
-│   ├── SEO/
-│   │   ├── SeoAssistantService.php  # SEO analysis
-│   │   └── PageScannerService.php   # Page scanning
-│   ├── Guardian/
-│   │   └── GuardianService.php      # Governance
-│   └── Analytics/
-│       └── AnalyticsService.php     # Analytics
-├── routes/
-│   ├── api.php                      # API routes
-│   └── web.php                      # UI routes
-└── database/
-    └── migrations/                  # Database migrations
-``
-### 🔌 API Endpoints
-
-All endpoints require the X-API-Key header.
-Method	Endpoint	Purpose
-Opportunities
-GET	/api/agent/opportunities/{brandId}	Fetch all opportunities
-Analytics
-GET	/api/agent/analytics/{brandId}	Fetch analytics data
-SEO
-GET	/api/agent/seo/issues/{brandId}	Fetch SEO issues
-GET	/api/agent/seo/issue/{brandId}/{issueId}	Get specific issue
-# 🧩 Vumbi API — Marketing Operations Platform
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Laravel 13](https://img.shields.io/badge/Laravel-13-ff2d20)](https://laravel.com) [![PHP 8.3](https://img.shields.io/badge/PHP-8.3-777bb4)](https://php.net)
-
-A concise, production-ready API backend that powers the Vumbi AI marketing agent. Provides tenant (brand) data, analytics, SEO tooling, lead management, content generation, and governance.
-
-## Table of Contents
-
-- Purpose
-- Quick Start
-- Configuration
-- API Endpoints (summary)
-- Key Models
-- Project Layout
-- Architecture (Mermaid)
-- Testing
-- License & Acknowledgments
-
-## Purpose
-
-- Central data store for brands and marketing artifacts
-- Business services: AI brief & content generation, lead workflows, SEO analysis
-- API gateway for the Strands agent and UI clients
-- Governance: audit logs, verification, incident reporting
-
-## Quick Start
-
-Prerequisites:
-
-- PHP 8.3+, Composer
-- MySQL 8.0+
-- Node.js (for building assets)
-- Optional: Google Gemini & Ahrefs API keys
-
-Clone and install:
-
-```bash
-git clone https://github.com/Dante-VIQ/marketting-app.git
-cd marketting-app
-composer install
-npm install && npm run build
-cp .env.example .env
-php artisan key:generate
-php artisan migrate
-php artisan db:seed --class=BrandSeeder
-php artisan serve --host=127.0.0.1 --port=8000
-````
-
-Configuration notes:
-
-Create or edit `.env` with the values below (example):
+Edit `.env`:
 
 ```env
 APP_NAME="Vumbi Marketing Platform"
@@ -365,29 +286,117 @@ GEMINI_API_KEY=your_gemini_key_here
 AHREFS_API_KEY=your_ahrefs_key
 ```
 
-## API Endpoints (summary)
+### 4. Run Migrations & Seeders
 
-All agent endpoints require the `X-API-Key` header for authentication.
+```bash
+php artisan migrate
+php artisan db:seed --class=BrandSeeder
+```
+
+### 5. Start the Server
+
+```bash
+php artisan serve
+```
+
+Or bind to a specific host/port:
+
+```bash
+php artisan serve --host=127.0.0.1 --port=8000
+```
+
+---
+
+## 📁 Directory Structure
+
+```text
+app/
+├── Http/
+│   ├── Controllers/
+│   │   ├── AgentController.php      # Agent API endpoints
+│   │   ├── BriefController.php      # AI Brief UI
+│   │   ├── ActionController.php     # Action management
+│   │   ├── SeoController.php        # SEO management
+│   │   ├── GuardianController.php   # Governance UI
+│   │   └── Api/
+│   │       └── TravelLeadController.php
+│   └── Middleware/
+│       └── VerifyApiKey.php         # Agent authentication
+├── Models/
+│   ├── Brand.php                    # Tenant/brand management
+│   ├── AnalyticsSnapshot.php        # Analytics data
+│   ├── SeoIssue.php                 # SEO issues
+│   ├── Lead.php                     # Lead management
+│   ├── Campaign.php                 # Campaign tracking
+│   ├── ContentDraft.php             # Generated content
+│   ├── AiAction.php                 # AI action queue
+│   ├── AgentExperience.php          # Agent learning memory
+│   ├── ActionVerification.php       # Action verification
+│   ├── GuardianAuditLog.php         # Audit trail
+│   ├── GuardianPolicy.php           # Governance policies
+│   └── KnowledgeBase.php            # Business knowledge
+├── Services/
+│   ├── AI/
+│   │   ├── AiGatewayService.php     # Gemini AI integration
+│   │   ├── BriefGeneratorService.php # AI brief generation
+│   │   ├── ContentGeneratorService.php # Content generation
+│   │   ├── SeoAssistantService.php  # SEO analysis
+│   │   └── ActionApprovalService.php # Action approval
+│   ├── Lead/
+│   │   └── LeadManagerService.php   # Lead management
+│   ├── Scanner/
+│   │   └── PageScannerService.php   # Page scanning
+│   ├── Analytics/
+│   │   └── AnalyticsCollectorService.php # Analytics collection
+│   ├── Campaign/
+│   │   └── CampaignManagerService.php # Campaign management
+│   ├── Content/
+│   │   └── ContentDraftManagerService.php # Draft management
+│   ├── Guardian/
+│   │   └── GuardianService.php      # Governance
+│   ├── Schedule/
+│   │   └── ScheduleTaskManagerService.php # Scheduling
+│   ├── Ahrefs/
+│   │   └── AhrefsService.php        # Ahrefs connector
+│   └── BrandContextService.php      # Brand context
+└── Jobs/                            # Queued jobs
+routes/
+├── api.php                          # API routes
+└── web.php                          # UI routes
+database/
+└── migrations/                      # Database migrations
+resources/
+└── views/
+    └── components/                  # Livewire/UI components
+```
+
+---
+
+## 🔌 API Endpoints
+
+All `/api/agent/*` endpoints require the `X-API-Key` header unless configured otherwise.
 
 | Area          | Method | Endpoint                                   | Purpose                       |
 | ------------- | -----: | ------------------------------------------ | ----------------------------- |
-| Opportunities |    GET | /api/agent/opportunities/{brandId}         | Fetch opportunities for brand |
-| Analytics     |    GET | /api/agent/analytics/{brandId}             | Fetch analytics snapshot      |
-| SEO           |    GET | /api/agent/seo/issues/{brandId}            | List SEO issues               |
-| SEO           |    GET | /api/agent/seo/issue/{brandId}/{issueId}   | Get specific SEO issue        |
-| SEO           |   POST | /api/agent/seo/analyze/{brandId}/{issueId} | Run analysis on issue         |
-| Leads         |    GET | /api/agent/leads/pending/{brandId}         | Pending leads for brand       |
-| Leads         |   POST | /api/agent/lead/follow-up/{brandId}        | Generate follow-up content    |
-| Content       |   POST | /api/agent/content/generate                | Generate content draft        |
-| Actions       |   POST | /api/agent/actions/pending                 | Create pending action         |
-| Scan          |   POST | /api/agent/scan/{brandId}                  | Trigger page scan             |
-| Verification  |   POST | /api/agent/verification/start/{brandId}    | Start verification flow       |
-| Learning      |   POST | /api/agent/learn/{brandId}                 | Record learning/example       |
-| Health        |    GET | /api/agent/ai/ping                         | AI service health check       |
+| Opportunities |    GET | `/api/agent/opportunities/{brandId}`       | Fetch opportunities for brand |
+| Analytics     |    GET | `/api/agent/analytics/{brandId}`           | Fetch analytics snapshot      |
+| SEO           |    GET | `/api/agent/seo/issues/{brandId}`          | List SEO issues               |
+| SEO           |    GET | `/api/agent/seo/issue/{brandId}/{issueId}` | Get specific SEO issue        |
+| SEO           |   POST | `/api/agent/seo/analyze/{brandId}/{issueId}` | Run analysis on issue       |
+| Leads         |    GET | `/api/agent/leads/pending/{brandId}`       | Pending leads for brand       |
+| Leads         |   POST | `/api/agent/lead/follow-up/{brandId}`      | Generate follow-up content    |
+| Content       |   POST | `/api/agent/content/generate`              | Generate content draft        |
+| Actions       |   POST | `/api/agent/actions/pending`               | Create pending action         |
+| Scan          |   POST | `/api/agent/scan/{brandId}`                | Trigger page scan             |
+| Verification  |   POST | `/api/agent/verification/start/{brandId}`  | Start verification flow       |
+| Learning      |   POST | `/api/agent/learn/{brandId}`               | Record learning/example       |
+| Health        |    GET | `/api/agent/ai/ping`                       | AI service health check       |
 
-For a full list, see the route definitions in `routes/api.php`.
+For the full list, see `routes/api.php`.
 
-## Key Models (overview)
+---
+
+## 🧱 Key Models
 
 | Model              | Purpose                                  |
 | ------------------ | ---------------------------------------- |
@@ -402,57 +411,9 @@ For a full list, see the route definitions in `routes/api.php`.
 | ActionVerification | Verification results for actions         |
 | GuardianAuditLog   | Audit trail for governance events        |
 
-## Project Layout
+---
 
-Top-level layout (important folders):
-
-```
-app/
-├── Http/
-│   ├── Controllers/
-│   └── Middleware/
-├── Models/
-├── Services/
-├── Jobs/
-routes/
-config/
-database/
-public/
-resources/
-tests/
-```
-
-See `app/Services` for the core business logic and AI integrations.
-
-## Architecture
-
-Use the following Mermaid diagram when you want a visual overview (rendered by compatible viewers):
-
-```mermaid
-graph TB
-  subgraph Presentation
-    UI[Livewire UI]
-    API[/api/agent/*]
-  end
-  subgraph Services
-    AI[AI Gateway / Gemini]
-    SEO[SeoAssistant]
-    Lead[LeadManager]
-    Content[ContentGenerator]
-    Guardian[GuardianService]
-  end
-  subgraph Data
-    Models[Models / DB]
-  end
-  API --> AI
-  API --> Lead
-  API --> SEO
-  AI --> Models
-  Lead --> Models
-  SEO --> Models
-```
-
-## Testing
+## 🧪 Testing
 
 Run unit and feature tests:
 
@@ -466,7 +427,9 @@ Quick API test:
 curl -H "X-API-Key: ${AGENT_API_KEY}" http://localhost:8000/api/agent/analytics/1
 ```
 
-## License & Acknowledgments
+---
+
+## 📄 License & Acknowledgments
 
 This project is licensed under the MIT License.
 

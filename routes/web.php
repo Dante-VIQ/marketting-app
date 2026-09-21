@@ -53,9 +53,13 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('/', [AnalyticsController::class, 'index'])->name('index');
         Route::post('/fetch', [AnalyticsController::class, 'fetch'])->name('fetch');
 
-        Route::get('/revenue-leaks', function () {
-            return view('analytics.revenue-leaks');
-        })->name('revenue-leaks');
+Route::get('/revenue-leaks', function () {
+    $brand = auth()->user()->activeBrand;
+    $leaks = $brand
+        ? App\Models\RevenueLeak::where('brand_id', $brand->id)->orderByDesc('estimated_loss')->get()
+        : collect();
+    return view('analytics.revenue-leaks', compact('leaks'));
+})->name('revenue-leaks');
     });
 
     // AI Briefs
@@ -98,9 +102,10 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('/', function () {
             return view('campaigns.index');
         })->name('index');
-        Route::get('/{id}', function ($id) {
-            return view('campaigns.show', ['id' => $id]);
-        })->name('show');
+Route::get('/{id}', function ($id) {
+    $campaign = App\Models\Campaign::findOrFail($id);
+    return view('campaigns.show', compact('campaign'));
+})->name('show');
     });
 
     // Leads
@@ -108,10 +113,14 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('/', function () {
             return view('leads.index');
         })->name('index');
-        Route::get('/{id}', function ($id) {
-            return view('leads.show', ['id' => $id]);
-        })->name('show');
+Route::get('/{id}', function ($id) {
+    $lead = App\Models\Lead::with('interactions')->findOrFail($id);
+    return view('leads.show', compact('lead'));
+})->name('show');
     });
+
+    Route::view('/leads/thank-you', 'leads.thank-you')->name('leads.thank-you');
+Route::get('/recurring-issues', fn () => view('recurring-issues'))->name('recurring-issues');
 
     // Lead update endpoint (for responding to follow-up)
     Route::get('/leads/{lead}/update', function ($leadId, Request $request) {
@@ -224,17 +233,22 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     });
 
     // Travel Guides
-    Route::prefix('guides')->name('guides.')->group(function () {
-        Route::get('/', function () {
-            return view('guides.index');
-        })->name('index');
-        Route::get('/suggest', function () {
-            $service = app(App\Services\AI\TravelGuideSuggesterService::class);
-            $brand = auth()->user()->activeBrand;
-            $suggestions = $service->suggestGuides($brand);
-            return redirect()->route('guides.index')->with('message', 'Guide suggestions generated!');
-        })->name('suggest');
-    });
+Route::prefix('guides')->name('guides.')->group(function () {
+    Route::get('/', function () {
+        $brand = auth()->user()->activeBrand;
+        $guides = $brand
+            ? App\Models\TravelGuide::where('brand_id', $brand->id)->orderByDesc('created_at')->get()
+            : collect();
+        return view('guides.index', compact('guides'));
+    })->name('index');
+
+    Route::get('/suggest', function () {
+        $service = app(App\Services\AI\TravelGuideSuggesterService::class);
+        $brand = auth()->user()->activeBrand;
+        $service->suggestGuides($brand);
+        return redirect()->route('guides.index')->with('message', 'Guide suggestions generated!');
+    })->name('suggest');
+});
 
     // // Affiliate Suggestions
     // Route::prefix('affiliate')->name('affiliate.')->group(function () {
@@ -285,4 +299,6 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         $contacts = \App\Models\Contact::latest()->paginate(20);
         return view('admin.contacts', compact('contacts'));
     })->name('admin.contacts');
+
+    Route::view('/recurring-issues', 'recurring-issues')->name('recurring-issues');
 });
