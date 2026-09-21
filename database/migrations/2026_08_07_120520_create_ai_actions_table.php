@@ -10,33 +10,49 @@ return new class extends Migration
     {
         Schema::create('ai_actions', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('brand_id');
-            $table->unsignedBigInteger('brief_id');
+
+            $table->foreignId('brand_id')
+                ->constrained('brands')
+                ->cascadeOnDelete();
+
+            // If actions can exist without a brief, add ->nullable()
+            // and use ->nullOnDelete() instead of ->cascadeOnDelete().
+            $table->foreignId('brief_id')
+                ->constrained('ai_briefs')
+                ->cascadeOnDelete();
+
             $table->string('title');
+
             $table->enum('category', [
-                'seo', 
-                'content', 
-                'social', 
-                'email', 
-                'web_copy', 
-                'campaign', 
-                'strategy', 
-                'analytics'
+                'seo',
+                'content',
+                'social',
+                'email',
+                'web_copy',
+                'campaign',
+                'strategy',
+                'analytics',
             ]);
+
             $table->text('description');
+
             $table->longText('suggested_content')->nullable();
-            $table->longText('content_draft')->nullable(); // Full blog posts, web copy
-            $table->string('target_platform')->nullable(); // facebook, linkedin, twitter, blog, email
-            $table->string('target_url')->nullable(); // For web copy or SEO
+            $table->longText('content_draft')->nullable();
+
+            $table->string('target_platform')->nullable();
+            $table->string('target_url')->nullable();
+
             $table->decimal('estimated_impact', 15, 2)->nullable();
+
             $table->enum('status', [
-                'pending', 
-                'approved', 
-                'rejected', 
-                'content_generated', 
-                'published', 
-                'completed'
+                'pending',
+                'approved',
+                'rejected',
+                'content_generated',
+                'published',
+                'completed',
             ])->default('pending');
+
             $table->enum('rejection_reason', [
                 'too_short',
                 'tone_wrong',
@@ -44,28 +60,24 @@ return new class extends Migration
                 'off_brand',
                 'duplicate',
                 'low_priority',
-                'other'
+                'other',
             ])->nullable();
+
             $table->text('rejection_notes')->nullable();
-            $table->integer('priority')->default(1); // 1-5, 5 being highest
+
+            $table->unsignedTinyInteger('priority')->default(1);
+
             $table->timestamp('approved_at')->nullable();
             $table->timestamp('executed_at')->nullable();
-            $table->decimal('actual_revenue_impact', 15, 2)->nullable(); // Filled later
+
+            $table->decimal('actual_revenue_impact', 15, 2)->nullable();
+
             $table->timestamps();
-
-            $table->foreign('brand_id')
-                ->references('id')
-                ->on('brands')
-                ->onDelete('cascade');
-
-            $table->foreign('brief_id')
-                ->references('id')
-                ->on('ai_briefs')
-                ->onDelete('cascade');
 
             $table->index(['brand_id', 'status']);
             $table->index(['brand_id', 'category']);
             $table->index('status');
+            $table->index('brief_id');
         });
     }
 
