@@ -6,8 +6,7 @@ use App\Models\Brand;
 use App\Services\AI\ActionApprovalService;
 use Illuminate\Support\Facades\Auth;
 
-new class extends Component
-{
+new class extends Component {
     public $brandId = null;
     public $actions = [];
     public $filter = 'pending';
@@ -19,7 +18,7 @@ new class extends Component
     public $expandedActionId = null;
 
     public $rejectionReasons = [];
-
+    public $pendingEscalationsCount = 0;
     protected $listeners = ['brand-switched' => 'loadActions', 'action-updated' => 'loadActions'];
 
     public function mount()
@@ -44,7 +43,8 @@ new class extends Component
             return;
         }
 
-        $query = AiAction::where('brand_id', $this->brandId);
+        $query = AiAction::where('brand_id', $this->brandId)
+            ->where('category', '!=', 'escalation');
 
         if ($this->filter === 'pending') {
             $query->where('status', 'pending');
@@ -61,20 +61,24 @@ new class extends Component
             ->get()
             ->toArray();
 
+        $this->pendingEscalationsCount = AiAction::where('brand_id', $this->brandId)
+            ->where('category', 'escalation')
+            ->whereNull('human_response')
+            ->count();
         $this->selectedActions = [];
         $this->selectAll = false;
     }
 
     public function approveAction($actionId, ActionApprovalService $approvalService)
     {
-        
+
         $user = Auth::user();
         $action = AiAction::findOrFail($actionId);
-            // 🔒 Authorize BEFORE calling the service
-    if (!Gate::allows('approve', $action)) {
-        session()->flash('error', 'You are not authorized to approve this action.');
-        return;
-    }
+        // 🔒 Authorize BEFORE calling the service
+        if (!Gate::allows('approve', $action)) {
+            session()->flash('error', 'You are not authorized to approve this action.');
+            return;
+        }
         $approvalService->approve($action, $user);
         $this->loadActions();
         $this->dispatch('action-updated');
@@ -95,7 +99,7 @@ new class extends Component
     {
         $this->expandedActionId = ($this->expandedActionId === $actionId) ? null : $actionId;
     }
-    
+
 
     public function toggleSelect($actionId)
     {
@@ -181,6 +185,27 @@ new class extends Component
         </div>
     @endif
 
+    @if($pendingEscalationsCount > 0)
+        <div class="mb-4 p-4 rounded-xl border border-amber-300 bg-amber-50 flex items-start justify-between gap-4">
+            <div class="flex items-start gap-3">
+                <span class="text-2xl">🚨</span>
+                <div>
+                    <p class="font-semibold text-amber-900">
+                        {{ $pendingEscalationsCount }} recurring {{ Str::plural('issue', $pendingEscalationsCount) }}
+                        need{{ $pendingEscalationsCount === 1 ? 's' : '' }} your attention
+                    </p>
+                    <p class="text-sm text-amber-800 mt-0.5">
+                        These aren't ordinary actions — the agent has exhausted its standard approaches on them.
+                    </p>
+                </div>
+            </div>
+            <a href="{{ route('recurring-issues') }}"
+                class="flex-shrink-0 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium transition">
+                Review →
+            </a>
+        </div>
+    @endif
+
     <!-- Header -->
     <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
         <div class="flex items-center space-x-2">
@@ -189,20 +214,20 @@ new class extends Component
                 {{ count($actions) }} items
             </span>
         </div>
-        
+
         <div class="flex flex-wrap items-center gap-2">
             <!-- Filter Buttons -->
             <div class="flex space-x-1">
-                <button wire:click="setFilter('pending')" 
-                        class="px-3 py-1 text-sm rounded {{ $filter === 'pending' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }}">
+                <button wire:click="setFilter('pending')"
+                    class="px-3 py-1 text-sm rounded {{ $filter === 'pending' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }}">
                     Pending
                 </button>
-                <button wire:click="setFilter('approved')" 
-                        class="px-3 py-1 text-sm rounded {{ $filter === 'approved' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }}">
+                <button wire:click="setFilter('approved')"
+                    class="px-3 py-1 text-sm rounded {{ $filter === 'approved' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }}">
                     Approved
                 </button>
-                <button wire:click="setFilter('rejected')" 
-                        class="px-3 py-1 text-sm rounded {{ $filter === 'rejected' ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }}">
+                <button wire:click="setFilter('rejected')"
+                    class="px-3 py-1 text-sm rounded {{ $filter === 'rejected' ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }}">
                     Rejected
                 </button>
             </div>
@@ -210,13 +235,13 @@ new class extends Component
             <!-- Bulk Actions -->
             @if($filter === 'pending' && !empty($actions))
                 <div class="flex space-x-1">
-                    <button wire:click="bulkApprove" 
-                            class="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
-                            wire:confirm="Are you sure you want to approve {{ count($selectedActions) }} selected actions?">
+                    <button wire:click="bulkApprove"
+                        class="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+                        wire:confirm="Are you sure you want to approve {{ count($selectedActions) }} selected actions?">
                         Approve Selected
                     </button>
-                    <button wire:click="$set('showBulkRejectModal', true)" 
-                            class="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700">
+                    <button wire:click="$set('showBulkRejectModal', true)"
+                        class="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700">
                         Reject Selected
                     </button>
                 </div>
@@ -240,10 +265,8 @@ new class extends Component
                         <!-- Checkbox (only for pending) -->
                         @if($filter === 'pending')
                             <div class="pt-1">
-                                <input type="checkbox" 
-                                       wire:click="toggleSelect({{ $action['id'] }})"
-                                       {{ in_array($action['id'], $selectedActions) ? 'checked' : '' }}
-                                       class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                <input type="checkbox" wire:click="toggleSelect({{ $action['id'] }})" {{ in_array($action['id'], $selectedActions) ? 'checked' : '' }}
+                                    class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
                             </div>
                         @endif
 
@@ -251,15 +274,15 @@ new class extends Component
                         <div class="flex-1">
                             <div class="flex flex-wrap items-center gap-2 mb-1">
                                 <span class="px-2 py-1 text-xs rounded-full 
-                                    {{ $action['category'] === 'seo' ? 'bg-blue-100 text-blue-800' : '' }}
-                                    {{ $action['category'] === 'content' ? 'bg-green-100 text-green-800' : '' }}
-                                    {{ $action['category'] === 'social' ? 'bg-purple-100 text-purple-800' : '' }}
-                                    {{ $action['category'] === 'email' ? 'bg-yellow-100 text-yellow-800' : '' }}
-                                    {{ $action['category'] === 'campaign' ? 'bg-red-100 text-red-800' : '' }}
-                                    {{ $action['category'] === 'strategy' ? 'bg-indigo-100 text-indigo-800' : '' }}
-                                    {{ $action['category'] === 'web_copy' ? 'bg-teal-100 text-teal-800' : '' }}
-                                    {{ $action['category'] === 'analytics' ? 'bg-gray-100 text-gray-800' : '' }}
-                                ">
+                                                                    {{ $action['category'] === 'seo' ? 'bg-blue-100 text-blue-800' : '' }}
+                                                                    {{ $action['category'] === 'content' ? 'bg-green-100 text-green-800' : '' }}
+                                                                    {{ $action['category'] === 'social' ? 'bg-purple-100 text-purple-800' : '' }}
+                                                                    {{ $action['category'] === 'email' ? 'bg-yellow-100 text-yellow-800' : '' }}
+                                                                    {{ $action['category'] === 'campaign' ? 'bg-red-100 text-red-800' : '' }}
+                                                                    {{ $action['category'] === 'strategy' ? 'bg-indigo-100 text-indigo-800' : '' }}
+                                                                    {{ $action['category'] === 'web_copy' ? 'bg-teal-100 text-teal-800' : '' }}
+                                                                    {{ $action['category'] === 'analytics' ? 'bg-gray-100 text-gray-800' : '' }}
+                                                                ">
                                     {{ ucfirst($action['category']) }}
                                 </span>
                                 <span class="text-xs text-gray-500">Priority: {{ $action['priority'] }}/5</span>
@@ -274,17 +297,29 @@ new class extends Component
 
                             <h3 class="font-medium text-gray-900">{{ $action['title'] }}</h3>
                             <p class="text-sm text-gray-600 mt-1">{{ $action['description'] }}</p>
-                            
+
                             @if($action['suggested_content'])
+                                @php
+                                    $raw = $action['suggested_content'];
+                                    $decoded = json_decode($raw, true);
+                                    $isJson = json_last_error() === JSON_ERROR_NONE && is_array($decoded);
+                                @endphp
+
                                 <div class="mt-2 p-3 bg-gray-50 rounded-lg text-sm text-gray-700 border border-gray-100">
-                                    <strong>Suggested:</strong> {{ $action['suggested_content'] }}
+                                    <strong>Suggested:</strong>
+                                    @if($isJson)
+                                        <pre
+                                            class="mt-1 text-xs bg-white border border-gray-200 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">{{ json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+                                    @else
+                                        <span class="whitespace-pre-wrap break-words">{{ $raw }}</span>
+                                    @endif
                                 </div>
                             @endif
 
                             @if($action['content_draft'])
                                 <div class="mt-2">
-                                    <button wire:click="$set('expandedActionId', {{ $action['id'] }})" 
-                                            class="text-sm text-blue-600 hover:text-blue-800">
+                                    <button wire:click="$set('expandedActionId', {{ $action['id'] }})"
+                                        class="text-sm text-blue-600 hover:text-blue-800">
                                         📄 View Full Draft
                                     </button>
                                 </div>
@@ -319,13 +354,13 @@ new class extends Component
                         <!-- Action Buttons -->
                         @if($action['status'] === 'pending')
                             <div class="flex flex-col space-y-2 ml-4">
-                                <button wire:click="approveAction({{ $action['id'] }})" 
-                                        wire:confirm="Are you sure you want to approve this action?"
-                                        class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+                                <button wire:click="approveAction({{ $action['id'] }})"
+                                    wire:confirm="Are you sure you want to approve this action?"
+                                    class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
                                     ✅ Approve
                                 </button>
-                                <button wire:click="rejectAction({{ $action['id'] }}, 'other')" 
-                                        class="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition">
+                                <button wire:click="rejectAction({{ $action['id'] }}, 'other')"
+                                    class="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition">
                                     ❌ Reject
                                 </button>
                             </div>
@@ -338,43 +373,43 @@ new class extends Component
 
     <!-- Bulk Reject Modal -->
     @if($showBulkRejectModal)
-    <div class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4">Bulk Reject Actions</h3>
-            <p class="text-sm text-gray-600 mb-4">
-                You are about to reject {{ count($selectedActions) }} actions. Please select a reason.
-            </p>
+        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Bulk Reject Actions</h3>
+                <p class="text-sm text-gray-600 mb-4">
+                    You are about to reject {{ count($selectedActions) }} actions. Please select a reason.
+                </p>
 
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">Rejection Reason</label>
-                    <select wire:model="rejectionReason" 
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Rejection Reason</label>
+                        <select wire:model="rejectionReason"
                             class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500">
-                        @foreach($rejectionReasons as $key => $label)
-                            <option value="{{ $key }}">{{ $label }}</option>
-                        @endforeach
-                    </select>
+                            @foreach($rejectionReasons as $key => $label)
+                                <option value="{{ $key }}">{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Additional Notes (Optional)</label>
+                        <textarea wire:model="rejectionNotes" rows="3"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500"
+                            placeholder="Add any additional context..."></textarea>
+                    </div>
                 </div>
 
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">Additional Notes (Optional)</label>
-                    <textarea wire:model="rejectionNotes" rows="3"
-                              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500"
-                              placeholder="Add any additional context..."></textarea>
-                </div>
-            </div>
-
-            <div class="mt-6 flex justify-end space-x-3">
-                <button wire:click="$set('showBulkRejectModal', false)" 
+                <div class="mt-6 flex justify-end space-x-3">
+                    <button wire:click="$set('showBulkRejectModal', false)"
                         class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition">
-                    Cancel
-                </button>
-                <button wire:click="bulkReject" 
+                        Cancel
+                    </button>
+                    <button wire:click="bulkReject"
                         class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">
-                    Reject All
-                </button>
+                        Reject All
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
     @endif
 </div>
