@@ -92,12 +92,18 @@ class BrandPolicy
     // Helpers
     // ============================================================
 
-    protected function isSuperAdmin(User $user): bool
-    {
-        // super-admin is a global role (brand_id NULL), so no team-context
-        // nuance — the default check is safe here.
-        return $user->hasRole('super-admin');
-    }
+protected function isSuperAdmin(User $user): bool
+{
+    // Direct query — super-admin is a global role (roles.brand_id IS NULL).
+    // Using hasRole() here is unreliable when team context is stale.
+    return DB::table('model_has_roles')
+        ->join('roles', 'roles.id', '=', 'model_has_roles.role_id')
+        ->where('model_has_roles.model_id', $user->id)
+        ->where('model_has_roles.model_type', User::class)
+        ->whereNull('roles.brand_id')
+        ->where('roles.name', 'super-admin')
+        ->exists();
+}
 
     /**
      * Check whether a user has one of the given roles *scoped to this brand*.
