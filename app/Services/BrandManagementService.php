@@ -96,11 +96,12 @@ class BrandManagementService
                         'role_id'    => $role->id,
                         'model_id'   => $owner->id,
                         'model_type' => get_class($owner),
+                        'brand_id'   => $brand->id,   // ← team foreign key, required
                     ],
                     []
                 );
             }
-
+ 
             // Also refresh the user's active brand so the UI can navigate immediately
             if (!$owner->active_brand_id) {
                 $owner->active_brand_id = $brand->id;
