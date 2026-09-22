@@ -43,7 +43,12 @@ class BrandSeeder extends Seeder
 
         // Create default roles and permissions
         $brandService = app(BrandManagementService::class);
-        $brandService->setupBrandRolesAndPermissions($brand);
+
+        if (method_exists($brandService, 'setupBrandRolesAndPermissions')) {
+            $brandService->setupBrandRolesAndPermissions($brand);
+        } else {
+            $this->command->warn('Brand roles/permissions setup method not available for this service version.');
+        }
 
         // Find or create admin user
         $admin = User::firstOrCreate(
