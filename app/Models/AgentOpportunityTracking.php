@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class AgentOpportunityTracking extends Model
 {
-    protected $table = 'agent_opportunity_tracking';
+    protected $table = 'agent_opportunity_trackings';
 
     protected $fillable = [
         'brand_id',
