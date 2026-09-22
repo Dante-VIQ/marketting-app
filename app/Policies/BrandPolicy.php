@@ -30,10 +30,14 @@ class BrandPolicy
      * Note: this is deliberately loose — creating a brand is a genesis
      * operation, not a mutation of existing state.
      */
-    public function create(User $user): bool
-    {
-        return $this->isSuperAdmin($user) || $user->hasRole('admin');
-    }
+public function create(User $user): bool
+{
+    // Any authenticated user can create a brand.
+    // They become its owner automatically (see BrandManagementService::createBrand).
+    // There is no cross-tenant risk — creating a new brand does not touch
+    // anyone else's data.
+    return true;
+}
 
     /**
      * Update a brand — owner, admin, or super-admin.

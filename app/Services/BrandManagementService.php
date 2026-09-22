@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Brand;
 use App\Models\GuardianAuditLog;
 use App\Models\User;
+use App\Services\BrandConfigValidator;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -72,22 +73,41 @@ class BrandManagementService
             ]);
 
             // Create default roles and permissions
-            $this->createDefaultRolesAndPermissions($brand);
+            $this->setupBrandRolesAndPermissions($brand);
 
             // Attach user to brand
             $brand->users()->attach($owner->id);
 
             // Set brand context
+            // Set brand context
             $owner->setBrandContext($brand);
 
-            // Assign owner role for this brand
+            // Assign owner role for this brand.
+            // We insert directly into model_has_roles rather than using Spatie's
+            // attach() helper because team-context can be stale during this call,
+            // and the failure is silent.
             $role = Role::where('name', 'owner')
                 ->where('brand_id', $brand->id)
                 ->first();
 
             if ($role) {
-                $owner->roles()->attach($role->id, ['brand_id' => $brand->id]);
+                DB::table('model_has_roles')->updateOrInsert(
+                    [
+                        'role_id'    => $role->id,
+                        'model_id'   => $owner->id,
+                        'model_type' => get_class($owner),
+                    ],
+                    []
+                );
             }
+
+            // Also refresh the user's active brand so the UI can navigate immediately
+            if (!$owner->active_brand_id) {
+                $owner->active_brand_id = $brand->id;
+                $owner->save();
+            }
+
+            app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
             app(PermissionRegistrar::class)->forgetCachedPermissions();
 
@@ -391,7 +411,7 @@ class BrandManagementService
      * Create default roles and permissions for a brand.
      * Internal helper – called only by createBrand (already authorized).
      */
-    protected function createDefaultRolesAndPermissions(Brand $brand): void
+    protected function setupBrandRolesAndPermissions(Brand $brand): void
     {
         $permissions = config('brand.permissions', []);
         foreach ($permissions as $name => $description) {
