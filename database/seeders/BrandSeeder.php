@@ -47,10 +47,10 @@ class BrandSeeder extends Seeder
 
         // Find or create admin user
         $admin = User::firstOrCreate(
-            ['email' => 'admin@vumbiventures.com'],
+            ['email' => 'vumbiventures@gmail.com'],
             [
                 'name' => 'Admin',
-                'password' => bcrypt('password'),
+                'password' => bcrypt('change_this_password'), // Change this password after seeding
             ]
         );
 
