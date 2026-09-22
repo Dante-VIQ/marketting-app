@@ -98,4 +98,31 @@ class Brand extends Model
     {
         return $query->where('domain_type', $domainType);
     }
+
+    /**
+ * The normalized base URL for this brand.
+ * Returns null if website_url isn't set — callers must handle that case.
+ * NEVER falls back to slug; slugs are not domains.
+ */
+public function getBaseUrlAttribute(): ?string
+{
+    if (empty($this->website_url)) {
+        return null;
+    }
+
+    $url = trim($this->website_url);
+
+    // Add scheme if missing
+    if (!preg_match('#^https?://#i', $url)) {
+        $url = 'https://' . $url;
+    }
+
+    // Strip trailing slash
+    $url = rtrim($url, '/');
+
+    // Force https
+    $url = preg_replace('#^http://#i', 'https://', $url);
+
+    return $url;
+}
 }

@@ -270,8 +270,14 @@ class BriefGeneratorService
         }
 
         // Get the base URL for the brand
-        $baseUrl = $brand->website_url ?? 'https://' . $brand->slug . '.com';
-        $baseUrl = rtrim($baseUrl, '/');
+        $baseUrl = $brand->base_url;
+
+        if (!$baseUrl) {
+            Log::warning('BriefGenerator: brand has no website_url, top pages will lack full URLs', [
+                'brand_id' => $brand->id,
+            ]);
+            $baseUrl = null; // callers must handle null — they already fall back to path-only
+        }
 
         // Top pages with FULL URLs
         $topPages = AnalyticsSnapshot::where('brand_id', $brand->id)
@@ -287,12 +293,14 @@ class BriefGeneratorService
             ->limit(5)
             ->get()
             ->map(function ($item) use ($baseUrl) {
-                // Ensure full URL
                 $url = $item->dimension;
-                if (!str_starts_with($url, 'http://') && !str_starts_with($url, 'https://')) {
+
+                // Only prepend base URL if we have one, and only for relative paths
+                if ($baseUrl && !str_starts_with($url, 'http://') && !str_starts_with($url, 'https://')) {
                     $url = $baseUrl . '/' . ltrim($url, '/');
                     $url = preg_replace('/(?<!:)\/+/', '/', $url);
                 }
+
                 return [
                     'dimension' => $url,
                     'total_visitors' => $item->total_visitors,

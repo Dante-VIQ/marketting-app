@@ -35,47 +35,47 @@ class PageScannerController extends Controller
 
         // Get all snapshots for this brand
         $snapshots = PageSnapshot::where('brand_id', $brand->id)
-        ->orderBy('created_at', 'desc')
-        ->get();
+            ->orderBy('created_at', 'desc')
+            ->get();
 
         // Statistics
         $totalPages = $snapshots->count();
         $completedScans = PageSnapshot::where('brand_id', $brand->id)
-        ->where('status', 'completed')
-        ->count();
+            ->where('status', 'completed')
+            ->count();
         $failedScans = PageSnapshot::where('brand_id', $brand->id)
-        ->where('status', 'failed')
-        ->count();
+            ->where('status', 'failed')
+            ->count();
         $pendingScans = PageSnapshot::where('brand_id', $brand->id)
-        ->where('status', 'pending')
-        ->count();
+            ->where('status', 'pending')
+            ->count();
 
         // Pages with issues
         $pagesWithIssues = PageSnapshot::where('brand_id', $brand->id)
-        ->where('status', 'completed')
-        ->where(function ($query) {
-            $query->where('word_count', '<', 300)
-            ->orWhereNull('meta_description')
-            ->orWhereNull('meta_title');
-        })
-        ->count();
+            ->where('status', 'completed')
+            ->where(function ($query) {
+                $query->where('word_count', '<', 300)
+                    ->orWhereNull('meta_description')
+                    ->orWhereNull('meta_title');
+            })
+            ->count();
 
         // Get actions needing scan
         $actionsNeedingScan = AiAction::where('brand_id', $brand->id)
-        ->where('status', 'approved')
-        ->whereNotNull('target_url')
-        ->whereDoesntHave('pageSnapshot')
-        ->count();
+            ->where('status', 'approved')
+            ->whereNotNull('target_url')
+            ->whereDoesntHave('pageSnapshot')
+            ->count();
 
         // Group by page type
         $pageTypes = PageSnapshot::where('brand_id', $brand->id)
-        ->where('status', 'completed')
-        ->select('page_type')
-        ->selectRaw('COUNT(*) as count')
-        ->groupBy('page_type')
-        ->get()
-        ->pluck('count', 'page_type')
-        ->toArray();
+            ->where('status', 'completed')
+            ->select('page_type')
+            ->selectRaw('COUNT(*) as count')
+            ->groupBy('page_type')
+            ->get()
+            ->pluck('count', 'page_type')
+            ->toArray();
 
         return view('scanner.index', compact(
             'brand',
@@ -103,8 +103,8 @@ class PageScannerController extends Controller
         }
 
         $snapshot = PageSnapshot::where('brand_id', $brand->id)
-        ->with('action')
-        ->findOrFail($id);
+            ->with('action')
+            ->findOrFail($id);
 
         return view('scanner.show', compact('snapshot'));
     }
@@ -177,14 +177,16 @@ class PageScannerController extends Controller
             return redirect()->route('brands.index')->with('warning', 'Please select a brand first.');
         }
 
-        $startUrl = $request->input('start_url', $brand->website_url ?? 'https://' . $brand->slug . '.com');
+        $startUrl = $request->input('start_url') ?: $brand->base_url;
         $depth = (int) $request->input('depth', 2);
 
         if (!$startUrl) {
+            $message = 'This brand has no website URL. Add one in Brand Settings before scanning.';
+
             if ($request->ajax() || $request->wantsJson()) {
-                return response()->json(['error' => 'Start URL is required'], 400);
+                return response()->json(['error' => $message], 400);
             }
-            return redirect()->back()->with('error', 'Start URL is required. Please set a website URL in brand settings.');
+            return redirect()->route('brands.index')->with('error', $message);
         }
 
         try {
@@ -213,7 +215,7 @@ class PageScannerController extends Controller
             Log::error('Failed to dispatch ScanAllPagesJob', [
                 'brand_id' => $brand->id,
                 'error' => $e->getMessage(),
-                       'trace' => $e->getTraceAsString(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             if ($request->ajax() || $request->wantsJson()) {
@@ -274,13 +276,13 @@ class PageScannerController extends Controller
 
         // Check if the new URL already exists for this brand
         $existing = PageSnapshot::where('brand_id', $brand->id)
-        ->where('url', $newUrl)
-        ->where('id', '!=', $snapshot->id)
-        ->first();
+            ->where('url', $newUrl)
+            ->where('id', '!=', $snapshot->id)
+            ->first();
 
         if ($existing) {
             return redirect()->route('scanner.show', $snapshot->id)
-            ->with('error', 'A snapshot with this URL already exists. Please use a different URL.');
+                ->with('error', 'A snapshot with this URL already exists. Please use a different URL.');
         }
 
         try {
@@ -296,7 +298,7 @@ class PageScannerController extends Controller
             ]);
 
             return redirect()->route('scanner.show', $snapshot->id)
-            ->with('message', 'URL updated successfully.');
+                ->with('message', 'URL updated successfully.');
         } catch (\Exception $e) {
             Log::error('Failed to update snapshot URL', [
                 'snapshot_id' => $snapshot->id,
@@ -304,7 +306,7 @@ class PageScannerController extends Controller
             ]);
 
             return redirect()->route('scanner.show', $snapshot->id)
-            ->with('error', 'Failed to update URL: ' . $e->getMessage());
+                ->with('error', 'Failed to update URL: ' . $e->getMessage());
         }
     }
 }

@@ -35,7 +35,7 @@ new class extends Component {
     {
         return [
             'name' => 'required|string|max:255|unique:brands,name,' . ($this->editingBrand ? $this->editingBrand->id : ''),
-            'websiteUrl' => 'nullable|url|max:255',
+            'websiteUrl' => 'required|url|max:255',
             'domainType' => 'required|in:' . implode(',', array_keys($this->domainTypes)),
             'config' => 'nullable|json',
             'brandVoice' => 'required|string',
@@ -319,7 +319,9 @@ new class extends Component {
 
                         <!-- Website URL -->
                         <div>
-                            <label class="block text-sm font-medium text-slate-300 mb-1.5">Website URL</label>
+                            <label class="block text-sm font-medium text-slate-300 mb-1.5">
+                                Website URL <span class="text-rose-400">*</span>
+                            </label>
                             <input type="url" wire:model="websiteUrl"
                                 class="block w-full rounded-xl bg-slate-800/60 border border-slate-700 text-slate-100 placeholder-slate-500 px-4 py-2.5 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none transition-all"
                                 placeholder="https://vumbiventures.com">

@@ -43,7 +43,7 @@ class AnalyticsCollectorService
         try {
             // Collect from GA4 (REAL DATA ONLY)
             $this->collectFromGA4($brand, $date);
-            
+
             Log::info('Analytics collection completed', [
                 'brand_id' => $brand->id,
                 'date' => $date->toDateString(),
@@ -57,100 +57,114 @@ class AnalyticsCollectorService
         }
     }
 
-/**
- * Collect data from Google Analytics 4.
- * 
- * @throws \Exception
- */
-protected function collectFromGA4(Brand $brand, Carbon $date): void
-{
-    // Get real data from GA4 (30-day window)
-    $data = $this->ga4Service->getDataApiData($brand);
+    /**
+     * Collect data from Google Analytics 4.
+     * 
+     * @throws \Exception
+     */
+    protected function collectFromGA4(Brand $brand, Carbon $date): void
+    {
+        // Get real data from GA4 (30-day window)
+        $data = $this->ga4Service->getDataApiData($brand);
 
-    // Get the brand's website URL for building full URLs
-    $baseUrl = $brand->website_url ?? 'https://' . $brand->slug . '.com';
-    $baseUrl = rtrim($baseUrl, '/');
+        // Get the brand's website URL for building full URLs
+        $baseUrl = $brand->base_url;
 
-    // Log the data for debugging
-    \Illuminate\Support\Facades\Log::info('GA4 data received for storage', [
-        'brand_id' => $brand->id,
-        'date' => $date->toDateString(),
-        'visitors' => $data['visitors'] ?? 0,
-        'visitors_avg' => $data['visitors_avg'] ?? 0,
-        'sessions' => $data['sessions'] ?? 0,
-        'revenue' => $data['revenue'] ?? 0,
-    ]);
-
-    // Store daily average visitors
-    $visitors = $data['visitors_avg'] ?? 0;
-    $this->storeSnapshot($brand, $date, 'ga4', 'visitors', null, $visitors);
-    
-    // Store page views (daily average)
-    $pageViews = round($data['page_views'] / 30, 0);
-    $this->storeSnapshot($brand, $date, 'ga4', 'page_views', null, $pageViews);
-    
-    // Store sessions (daily average)
-    $sessions = $data['sessions'] > 0 ? round($data['sessions'] / 30, 0) : 0;
-    $this->storeSnapshot($brand, $date, 'ga4', 'sessions', null, $sessions);
-    
-    // Store conversions (daily average)
-    $conversions = $data['conversions'] > 0 ? round($data['conversions'] / 30, 2) : 0;
-    $this->storeSnapshot($brand, $date, 'ga4', 'conversions', null, $conversions);
-    
-    // Store revenue (daily average)
-    $revenue = $data['revenue'] > 0 ? round($data['revenue'] / 30, 2) : 0;
-    $this->storeSnapshot($brand, $date, 'ga4', 'revenue', null, $revenue);
-
-    // Store top pages with FULL URLs
-    if (!empty($data['top_pages'])) {
-        foreach ($data['top_pages'] as $page) {
-            // Build full URL
-            $path = $page['path'] ?? '/';
-            $fullUrl = $this->buildFullUrl($baseUrl, $path);
-
-            $this->storeSnapshot(
-                $brand,
-                $date,
-                'ga4',
-                'visitors',
-                $fullUrl,
-                $page['visitors'] ?? 0
-            );
+        if (!$baseUrl) {
+            Log::warning('AnalyticsCollector: brand has no website_url, top pages will lack full URLs', [
+                'brand_id' => $brand->id,
+            ]);
         }
+
+        // Log the data for debugging
+        \Illuminate\Support\Facades\Log::info('GA4 data received for storage', [
+            'brand_id' => $brand->id,
+            'date' => $date->toDateString(),
+            'visitors' => $data['visitors'] ?? 0,
+            'visitors_avg' => $data['visitors_avg'] ?? 0,
+            'sessions' => $data['sessions'] ?? 0,
+            'revenue' => $data['revenue'] ?? 0,
+        ]);
+
+        // Store daily average visitors
+        $visitors = $data['visitors_avg'] ?? 0;
+        $this->storeSnapshot($brand, $date, 'ga4', 'visitors', null, $visitors);
+
+        // Store page views (daily average)
+        $pageViews = round($data['page_views'] / 30, 0);
+        $this->storeSnapshot($brand, $date, 'ga4', 'page_views', null, $pageViews);
+
+        // Store sessions (daily average)
+        $sessions = $data['sessions'] > 0 ? round($data['sessions'] / 30, 0) : 0;
+        $this->storeSnapshot($brand, $date, 'ga4', 'sessions', null, $sessions);
+
+        // Store conversions (daily average)
+        $conversions = $data['conversions'] > 0 ? round($data['conversions'] / 30, 2) : 0;
+        $this->storeSnapshot($brand, $date, 'ga4', 'conversions', null, $conversions);
+
+        // Store revenue (daily average)
+        $revenue = $data['revenue'] > 0 ? round($data['revenue'] / 30, 2) : 0;
+        $this->storeSnapshot($brand, $date, 'ga4', 'revenue', null, $revenue);
+
+        // Store top pages with FULL URLs
+        if (!empty($data['top_pages'])) {
+            foreach ($data['top_pages'] as $page) {
+                $path = $page['path'] ?? '/';
+                $fullUrl = $this->buildFullUrl($baseUrl, $path);
+
+                $this->storeSnapshot(
+                    $brand,
+                    $date,
+                    'ga4',
+                    'visitors',
+                    $fullUrl,
+                    $page['visitors'] ?? 0
+                );
+            }
+        }
+
+        Log::info('GA4 data stored', [
+            'brand_id' => $brand->id,
+            'date' => $date->toDateString(),
+            'visitors_daily_avg' => $visitors,
+            'total_visitors_30day' => $data['visitors'] ?? 0,
+        ]);
     }
 
-    Log::info('GA4 data stored', [
-        'brand_id' => $brand->id,
-        'date' => $date->toDateString(),
-        'visitors_daily_avg' => $visitors,
-        'total_visitors_30day' => $data['visitors'] ?? 0,
-    ]);
-}
+    /**
+     * Build a full URL from a base URL and path.
+     *
+     * If $baseUrl is null, returns the path unchanged. Callers should
+     * treat the result as "path-only" in that case — never construct
+     * a fake host from the brand slug.
+     */
+    protected function buildFullUrl(?string $baseUrl, string $path): string
+    {
+        // If the path is already absolute, nothing to do
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
 
-/**
- * Build a full URL from a base URL and path.
- */
-protected function buildFullUrl(string $baseUrl, string $path): string
-{
-    // If already a full URL, return as is
-    if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
-        return $path;
+        // No base URL available — return the raw path.
+        // Downstream code must handle paths without hosts.
+        if (empty($baseUrl)) {
+            return $path;
+        }
+
+        // Remove leading slash from path for proper joining
+        $path = ltrim($path, '/');
+
+        // Build the full URL
+        $fullUrl = $baseUrl . '/' . $path;
+
+        // Normalize: collapse double slashes but not in the protocol
+        $fullUrl = preg_replace('/(?<!:)\/+/', '/', $fullUrl);
+
+        // Force HTTPS on the host portion only
+        $fullUrl = preg_replace('#^http://#i', 'https://', $fullUrl);
+
+        return $fullUrl;
     }
-
-    // Remove leading slash from path for proper joining
-    $path = ltrim($path, '/');
-
-    // Build the full URL
-    $fullUrl = $baseUrl . '/' . $path;
-
-    // Normalize: remove double slashes (but not in protocol)
-    $fullUrl = preg_replace('/(?<!:)\/+/', '/', $fullUrl);
-
-    // Ensure HTTPS
-    $fullUrl = str_replace('http://', 'https://', $fullUrl);
-
-    return $fullUrl;
-}
 
     /**
      * Store a snapshot in the database.
