@@ -11,18 +11,22 @@ use App\Models\KnowledgeBase;
 use App\Models\PageSnapshot;
 use App\Models\RevenueLeak;
 use App\Services\AI\AiGatewayService;
+use App\Services\Scanner\SiteProfileService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Psy\Exception\Exception;
 
 class BriefGeneratorService
 {
     protected AiGatewayService $aiGateway;
+    protected SiteProfileService $siteProfileService;
 
-    public function __construct(AiGatewayService $aiGateway)
-    {
+    public function __construct(
+        AiGatewayService $aiGateway,
+        SiteProfileService $siteProfileService
+    ) {
         $this->aiGateway = $aiGateway;
+        $this->siteProfileService = $siteProfileService;
     }
 
     public function generateForBrand(Brand $brand): ?AiBrief
@@ -103,7 +107,6 @@ class BriefGeneratorService
                 [
                     'fingerprint' => $fingerprint,
                 ],
-
                 [
                     'brand_id'                 => $brand->id,
                     'brief_date'               => Carbon::today(),
@@ -130,6 +133,18 @@ class BriefGeneratorService
                         continue;
                     }
 
+                    // ✅ Validate target_url against real page inventory
+                    $rawUrl       = $actionData['target_url'] ?? null;
+                    $validatedUrl = $this->validateTargetUrl($rawUrl, $brand);
+
+                    if ($rawUrl && !$validatedUrl) {
+                        Log::warning('BriefGenerator: Discarded hallucinated target_url', [
+                            'brand_id'      => $brand->id,
+                            'requested_url' => $rawUrl,
+                            'title'         => $actionData['title'] ?? '(no title)',
+                        ]);
+                    }
+
                     AiAction::create([
                         'brand_id'          => $brand->id,
                         'brief_id'          => $brief->id,
@@ -139,7 +154,7 @@ class BriefGeneratorService
                         'suggested_content' => $actionData['suggested_content'] ?? null,
                         'content_draft'     => $actionData['content_draft'] ?? null,
                         'target_platform'   => $actionData['target_platform'] ?? null,
-                        'target_url'        => $actionData['target_url'] ?? null,
+                        'target_url'        => $validatedUrl,
                         'estimated_impact'  => $actionData['estimated_impact'] ?? null,
                         'priority'          => $actionData['priority'] ?? 1,
                         'status'            => 'pending',
@@ -163,9 +178,9 @@ class BriefGeneratorService
      */
     protected function buildPromptData(Brand $brand): array
     {
-        $today = Carbon::today();
+        $today      = Carbon::today();
         $last30Days = $today->copy()->subDays(30);
-        $last7Days = $today->copy()->subDays(7);
+        $last7Days  = $today->copy()->subDays(7);
 
         $analytics = $this->getAnalyticsSummary($brand, $last30Days, $last7Days);
 
@@ -186,10 +201,10 @@ class BriefGeneratorService
             ->get()
             ->toArray();
 
-        // ================================================================
-        // FIX: Get page snapshots for pages mentioned in analytics
-        // ================================================================
         $pageSnapshots = $this->getPageSnapshotsForAnalytics($brand, $analytics);
+
+        // Site-wide profile — dominant topics + full page inventory
+        $siteProfile = $this->siteProfileService->build($brand->id);
 
         return [
             'brand' => [
@@ -203,8 +218,16 @@ class BriefGeneratorService
             'revenue_leaks'  => $revenueLeaks,
             'knowledge_base' => $knowledge,
             'business_goals' => $goals,
-            'page_snapshots' => $pageSnapshots, // ← NEW: Add page snapshots
-            'date'           => $today->toDateString(),
+            'page_snapshots' => $pageSnapshots,
+            'site_inventory' => [
+                'dominant_topics' => $siteProfile['dominant_topics'] ?? [],
+                'pages'           => array_map(fn ($p) => [
+                    'url'   => $p['url'],
+                    'title' => $p['title'],
+                    'type'  => $p['page_type'],
+                ], $siteProfile['pages'] ?? []),
+            ],
+            'date' => $today->toDateString(),
         ];
     }
 
@@ -215,7 +238,6 @@ class BriefGeneratorService
     {
         $snapshots = [];
 
-        // Get top pages from analytics
         $topPages = $analytics['top_pages'] ?? [];
 
         foreach ($topPages as $page) {
@@ -224,7 +246,6 @@ class BriefGeneratorService
                 continue;
             }
 
-            // Find the page snapshot
             $snapshot = PageSnapshot::where('brand_id', $brand->id)
                 ->where('url', 'like', '%' . $url . '%')
                 ->orderBy('created_at', 'desc')
@@ -232,15 +253,15 @@ class BriefGeneratorService
 
             if ($snapshot) {
                 $snapshots[] = [
-                    'url' => $snapshot->url,
-                    'title' => $snapshot->title,
-                    'page_type' => $snapshot->page_type,
-                    'word_count' => $snapshot->word_count,
-                    'headings' => $snapshot->headings,
-                    'topics_covered' => $snapshot->topics_covered,
-                    'meta_title' => $snapshot->meta_title,
+                    'url'              => $snapshot->url,
+                    'title'            => $snapshot->title,
+                    'page_type'        => $snapshot->page_type,
+                    'word_count'       => $snapshot->word_count,
+                    'headings'         => $snapshot->headings,
+                    'topics_covered'   => $snapshot->topics_covered,
+                    'meta_title'       => $snapshot->meta_title,
                     'meta_description' => $snapshot->meta_description,
-                    'recommendations' => $snapshot->recommendations,
+                    'recommendations'  => $snapshot->recommendations,
                 ];
             }
         }
@@ -262,24 +283,23 @@ class BriefGeneratorService
                 ->get();
 
             $metrics[$metricName] = [
-                'total' => (float) $data->sum('value'),
+                'total'   => (float) $data->sum('value'),
                 'average' => round((float) $data->avg('value'), 2),
-                'max' => round((float) $data->max('value'), 2),
-                'min' => round((float) $data->min('value'), 2),
+                'max'     => round((float) $data->max('value'), 2),
+                'min'     => round((float) $data->min('value'), 2),
             ];
         }
 
-        // Get the base URL for the brand
+        // Base URL comes from the brand model — never falls back to slug.
         $baseUrl = $brand->base_url;
 
         if (!$baseUrl) {
             Log::warning('BriefGenerator: brand has no website_url, top pages will lack full URLs', [
                 'brand_id' => $brand->id,
             ]);
-            $baseUrl = null; // callers must handle null — they already fall back to path-only
         }
 
-        // Top pages with FULL URLs
+        // Top pages with full URLs when a base URL is available
         $topPages = AnalyticsSnapshot::where('brand_id', $brand->id)
             ->where('source', 'ga4')
             ->where('metric', 'visitors')
@@ -295,20 +315,18 @@ class BriefGeneratorService
             ->map(function ($item) use ($baseUrl) {
                 $url = $item->dimension;
 
-                // Only prepend base URL if we have one, and only for relative paths
                 if ($baseUrl && !str_starts_with($url, 'http://') && !str_starts_with($url, 'https://')) {
                     $url = $baseUrl . '/' . ltrim($url, '/');
                     $url = preg_replace('/(?<!:)\/+/', '/', $url);
                 }
 
                 return [
-                    'dimension' => $url,
+                    'dimension'      => $url,
                     'total_visitors' => $item->total_visitors,
                 ];
             })
             ->toArray();
 
-        // Channels (these are usually source_* so keep as is)
         $channels = AnalyticsSnapshot::where('brand_id', $brand->id)
             ->where('source', 'ga4')
             ->where('metric', 'visitors')
@@ -324,12 +342,12 @@ class BriefGeneratorService
         return [
             'period' => [
                 'last_30_days' => $last30Days->toDateString(),
-                'last_7_days' => $last7Days->toDateString(),
-                'today' => Carbon::today()->toDateString(),
+                'last_7_days'  => $last7Days->toDateString(),
+                'today'        => Carbon::today()->toDateString(),
             ],
-            'metrics' => $metrics,
+            'metrics'   => $metrics,
             'top_pages' => $topPages,
-            'channels' => $channels,
+            'channels'  => $channels,
         ];
     }
 
@@ -337,6 +355,7 @@ class BriefGeneratorService
     {
         $brandVoice = $brand->brand_voice ?? 'Professional and Data-Driven';
         $domainType = $brand->domain_type ?? 'digital business';
+        $website    = $brand->website_url ?? '';
 
         return <<<PROMPT
 You are the Chief Marketing Officer for {$brand->name}, a {$domainType} business.
@@ -348,6 +367,13 @@ Guiding Principles:
 2. Quantify potential revenue loss or gain directly.
 3. Formulate 3-5 distinct, prioritized action items.
 4. Voice guidelines: "{$brandVoice}"
+
+CRITICAL RULES FOR target_url:
+- The user prompt contains a `site_inventory.pages` array listing every page that actually exists on {$website}.
+- `target_url` MUST be one of those pages exactly as listed, or null.
+- NEVER invent a URL. NEVER guess a slug. NEVER write `/services/web-development` or `/blog/some-slug` unless that exact URL appears in `site_inventory.pages`.
+- If no existing page is the right target for an action, set `target_url` to null and describe the target in the description instead.
+- Actions without a target_url are still valid — they become "new page" or "strategy" work.
 
 CRITICAL: Return ONLY a valid, raw JSON object matching the exact format below. Do not wrap output in markdown codeblocks (e.g. ```json).
 
@@ -364,7 +390,7 @@ Output Schema:
             "suggested_content": "Short text for emails or social posts.",
             "content_draft": "Complete copy draft for blogs, web pages, or newsletters.",
             "target_platform": "facebook|linkedin|twitter|blog|email",
-            "target_url": "/page-path-to-update",
+            "target_url": "/page-path-from-site_inventory-or-null",
             "estimated_impact": 500.00,
             "priority": 1
         }
@@ -422,11 +448,10 @@ PROMPT;
      */
     protected function isDuplicateAction(int $brandId, array $actionData): bool
     {
-        $category = $actionData['category'] ?? 'strategy';
-        $title    = $actionData['title'] ?? '';
+        $category  = $actionData['category'] ?? 'strategy';
+        $title     = $actionData['title'] ?? '';
         $targetUrl = $actionData['target_url'] ?? null;
 
-        // Look back 7 days
         $cutoff = now()->subDays(7);
 
         $candidates = AiAction::where('brand_id', $brandId)
@@ -438,12 +463,10 @@ PROMPT;
         $newSignature = $this->titleSignature($title);
 
         foreach ($candidates as $existing) {
-            // Same target URL + same category is an immediate duplicate
             if ($targetUrl && $existing->target_url === $targetUrl) {
                 return true;
             }
 
-            // Otherwise compare normalized titles
             $existingSig = $this->titleSignature($existing->title);
             if ($newSignature === $existingSig) {
                 return true;
@@ -460,34 +483,76 @@ PROMPT;
     protected function titleSignature(string $title): string
     {
         $stop = [
-            'the',
-            'a',
-            'an',
-            'and',
-            'or',
-            'for',
-            'to',
-            'of',
-            'in',
-            'on',
-            'with',
-            'our',
-            'your',
-            'launch',
-            'optimize',
-            'create',
-            'publish',
-            'implement',
-            'revise',
-            'improve',
+            'the', 'a', 'an', 'and', 'or', 'for', 'to', 'of', 'in', 'on',
+            'with', 'our', 'your', 'launch', 'optimize', 'create', 'publish',
+            'implement', 'revise', 'improve',
         ];
 
-        $clean = strtolower($title);
-        $clean = preg_replace('/[^a-z0-9 ]+/', ' ', $clean);
+        $clean  = strtolower($title);
+        $clean  = preg_replace('/[^a-z0-9 ]+/', ' ', $clean);
         $tokens = preg_split('/\s+/', trim($clean));
-        $tokens = array_filter($tokens, fn($t) => $t !== '' && !in_array($t, $stop, true));
+        $tokens = array_filter($tokens, fn ($t) => $t !== '' && !in_array($t, $stop, true));
         sort($tokens);
 
         return implode(' ', $tokens);
+    }
+
+    /**
+     * Validate a target_url against the brand's real page inventory.
+     *
+     * Returns the canonical full URL if it matches a real page,
+     * or null if the URL doesn't exist / can't be resolved.
+     *
+     * The LLM frequently invents plausible-looking slugs. This catches them.
+     */
+    protected function validateTargetUrl(?string $url, Brand $brand): ?string
+    {
+        if (empty($url)) {
+            return null;
+        }
+
+        $url = trim($url);
+
+        $realUrls = PageSnapshot::where('brand_id', $brand->id)
+            ->where('status', 'completed')
+            ->pluck('url')
+            ->toArray();
+
+        if (empty($realUrls)) {
+            // No scans yet — we can't validate anything. Reject to be safe.
+            return null;
+        }
+
+        $normalize = function (string $candidate): string {
+            // Full URL → strip to path
+            if (preg_match('#^https?://#i', $candidate)) {
+                $parsed    = parse_url($candidate);
+                $candidate = $parsed['path'] ?? '/';
+            }
+
+            // Drop query string and fragment
+            $candidate = strtok($candidate, '?#');
+
+            // Strip trailing slash
+            $candidate = rtrim($candidate, '/');
+
+            // Ensure leading slash
+            if ($candidate === '' || $candidate[0] !== '/') {
+                $candidate = '/' . $candidate;
+            }
+
+            return strtolower($candidate);
+        };
+
+        $needle = $normalize($url);
+
+        foreach ($realUrls as $real) {
+            if ($normalize($real) === $needle) {
+                // Return the canonical full URL from the snapshot
+                return $real;
+            }
+        }
+
+        return null;
     }
 }
