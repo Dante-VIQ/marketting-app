@@ -13,6 +13,7 @@ use App\Services\AI\AiGatewayService;
 use App\Services\AI\ContentServicePolicy;
 use App\Services\ContentTourMatcher;
 use App\Services\Scanner\PageScannerService;
+use App\Services\Scanner\SiteProfileService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -24,28 +25,26 @@ class ContentGeneratorService
     protected PageScannerService $scanner;
     protected AiGatewayService $aiGateway;
     protected ContentServicePolicy $contentPolicy;
+    protected SiteProfileService $siteProfileService;
 
     public function __construct(
         AiGatewayService $aiGateway,
         PageScannerService $scanner,
-        ContentServicePolicy $contentPolicy
+        ContentServicePolicy $contentPolicy,
+        SiteProfileService $siteProfileService
     ) {
         $this->aiGateway = $aiGateway;
         $this->scanner = $scanner;
         $this->contentPolicy = $contentPolicy;
+        $this->siteProfileService = $siteProfileService;
     }
 
     /**
      * Generate content for an approved action.
-     *
-     * @param AiAction $action
-     * @param User|null $user  If provided, authorization is enforced for the user.
-     *                         If null, this is a system/agent call (already authenticated via API key).
-     * @throws AuthorizationException
      */
     public function generateForAction(AiAction $action, ?User $user = null): ?ContentDraft
     {
-        // 🔒 If a user is provided (human-triggered), authorize them
+        // 🔒 Authorization
         if ($user !== null) {
             if (!Gate::forUser($user)->allows('create', ContentDraft::class)) {
                 Log::warning('Unauthorized content generation attempt', [
@@ -61,7 +60,6 @@ class ContentGeneratorService
             }
         }
 
-        // Action must be approved
         if ($action->status !== 'approved') {
             Log::warning('ContentGenerator: Action is not approved', [
                 'action_id' => $action->id,
@@ -71,21 +69,17 @@ class ContentGeneratorService
         }
 
         $brand = $action->brand;
-
         if (!$brand) {
-            Log::error('ContentGenerator: Associated brand not found', [
-                'action_id' => $action->id,
-            ]);
+            Log::error('ContentGenerator: Associated brand not found', ['action_id' => $action->id]);
             return null;
         }
 
-        // 🔒 Content Service Policy – rate limits + blocked topics + output validation
+        // 🔒 Content policy: rate limits + blocked topics + output validation
         $policyCheck = $this->contentPolicy->canGenerate(
             $brand,
             $action->title ?? '',
             $action->category ?? 'blog'
         );
-
         if (!$policyCheck['allowed']) {
             Log::warning('Content generation denied by service policy', [
                 'action_id' => $action->id,
@@ -94,17 +88,33 @@ class ContentGeneratorService
             return null;
         }
 
-        // Check if draft already exists
-        $existing = ContentDraft::where('action_id', $action->id)->first();
-        if ($existing) {
-            Log::info('ContentGenerator: Draft already exists', [
-                'action_id' => $action->id,
-                'draft_id'  => $existing->id,
-            ]);
-            return $existing;
+        if (ContentDraft::where('action_id', $action->id)->exists()) {
+            return ContentDraft::where('action_id', $action->id)->first();
         }
 
-        // Fetch the latest page snapshot for the target URL (if any)
+        // ── Site profile: dominant topics + page inventory ──
+        $siteProfile = $this->siteProfileService->build($brand->id);
+
+        // ── KnowledgeBase: business description, audience, pillars, forbidden topics ──
+        $knowledge = KnowledgeBase::where('brand_id', $brand->id)
+            ->where('is_active', true)
+            ->pluck('content', 'key')
+            ->toArray();
+
+        // ── On-brand pre-check ──
+        $topic = $action->target_keyword ?: $action->title ?: '';
+        $onBrand = $this->isOnBrand($topic, $knowledge, $siteProfile);
+
+        if (!$onBrand['ok']) {
+            Log::warning('ContentGenerator: Off-brand topic rejected before generation', [
+                'action_id' => $action->id,
+                'topic'     => $topic,
+                'reason'    => $onBrand['reason'],
+            ]);
+            return null;
+        }
+
+        // ── Page snapshot (if a target URL exists) ──
         $pageSnapshot = null;
         if ($action->target_url) {
             $pageSnapshot = PageSnapshot::where('brand_id', $brand->id)
@@ -112,26 +122,18 @@ class ContentGeneratorService
                 ->orderBy('created_at', 'desc')
                 ->first();
 
-            if ($pageSnapshot) {
-                Log::info('ContentGenerator: Found page snapshot', [
-                    'action_id'   => $action->id,
-                    'snapshot_id' => $pageSnapshot->id,
-                    'url'         => $pageSnapshot->url,
-                    'word_count'  => $pageSnapshot->word_count,
-                ]);
-            } else {
-                Log::info('ContentGenerator: No page snapshot found for target URL', [
-                    'action_id'  => $action->id,
-                    'target_url' => $action->target_url,
-                ]);
-            }
+            Log::info('ContentGenerator: Page snapshot lookup', [
+                'action_id'   => $action->id,
+                'found'       => $pageSnapshot !== null,
+                'snapshot_id' => $pageSnapshot?->id,
+            ]);
         }
 
-        $promptData = $this->buildPrompt($action, $brand, $pageSnapshot);
+        // ── Build prompts (now with site profile + knowledge) ──
+        $promptData = $this->buildPrompt($action, $brand, $pageSnapshot, $siteProfile, $knowledge);
 
-        // Call AI Gateway
         $response = $this->aiGateway->generate([
-            'system_prompt'   => $this->getSystemPrompt($brand, $action->category, $pageSnapshot),
+            'system_prompt'   => $this->getSystemPrompt($brand, $action->category, $pageSnapshot, $siteProfile, $knowledge),
             'user_prompt'     => json_encode($promptData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES),
             'temperature'     => 0.7,
             'max_tokens'      => 4096,
@@ -146,15 +148,12 @@ class ContentGeneratorService
             return null;
         }
 
-        // Clean & parse response payload with validation
         $contentData = $this->parseContentResponse($response['content'], $action->category);
 
-        // ✅ Validate output before saving
         $validation = $this->contentPolicy->validateOutput(
             $contentData['content'] ?? '',
             $action->category
         );
-
         if (!$validation['valid']) {
             Log::error('Content validation failed', [
                 'action_id' => $action->id,
@@ -163,15 +162,10 @@ class ContentGeneratorService
             return null;
         }
 
-        // Persist draft and update action status atomically
+        // ── Persist atomically ──
         try {
             return DB::transaction(function () use (
-                $action,
-                $brand,
-                $contentData,
-                $promptData,
-                $response,
-                $pageSnapshot
+                $action, $brand, $contentData, $promptData, $response, $pageSnapshot, $siteProfile
             ) {
                 $draft = ContentDraft::create([
                     'brand_id'         => $brand->id,
@@ -186,10 +180,11 @@ class ContentGeneratorService
                     'seo_data'         => $contentData['seo_data'] ?? null,
                     'status'           => 'draft',
                     'metadata'         => [
-                        'provider'         => $this->aiGateway->getProvider(),
-                        'model'            => $response['model_used'] ?? null,
-                        'tokens_used'      => $response['tokens_used'] ?? 0,
-                        'page_snapshot_id' => $pageSnapshot?->id,
+                        'provider'          => $this->aiGateway->getProvider(),
+                        'model'             => $response['model_used'] ?? null,
+                        'tokens_used'       => $response['tokens_used'] ?? 0,
+                        'page_snapshot_id'  => $pageSnapshot?->id,
+                        'site_profile_pages'=> $siteProfile['page_count'] ?? 0,
                     ],
                 ]);
 
@@ -203,14 +198,13 @@ class ContentGeneratorService
                     'type'      => $draft->type,
                 ]);
 
-                    // 🎯 TOUR ENFORCEMENT
+                // Tour matching (enforced CTA)
                 try {
-                    $matcher = app(\App\Services\ContentTourMatcher::class);
+                    $matcher = app(ContentTourMatcher::class);
                     $matches = $matcher->findMatches($draft);
 
                     if ($matches->isNotEmpty()) {
                         $matcher->applyMatch($draft, $matches);
-
                         Log::info('Tour match enforced', [
                             'draft_id' => $draft->id,
                             'tour_id'  => $draft->tour_package_id,
@@ -218,12 +212,9 @@ class ContentGeneratorService
                             'enforced' => $draft->tour_enforced,
                         ]);
                     } else {
-                        Log::info('No tour match found for draft', [
-                            'draft_id' => $draft->id,
-                        ]);
+                        Log::info('No tour match found for draft', ['draft_id' => $draft->id]);
                     }
                 } catch (\Throwable $e) {
-                    // Never fail the draft because of tour matching
                     Log::warning('Tour matching failed', [
                         'draft_id' => $draft->id,
                         'error'    => $e->getMessage(),
@@ -242,9 +233,7 @@ class ContentGeneratorService
     }
 
     /**
-     * Generate content for a brand directly (for agent API or human trigger).
-     *
-     * @throws \Exception
+     * Generate content for a brand directly (agent API or human trigger).
      */
     public function generateContent(
         int $brandId,
@@ -262,7 +251,6 @@ class ContentGeneratorService
         ];
         $category = $categoryMap[$template] ?? 'content';
 
-        // Create the action with status 'approved'
         $action = AiAction::create([
             'brand_id'        => $brandId,
             'title'           => 'Generate content: ' . substr($topic, 0, 100),
@@ -271,35 +259,103 @@ class ContentGeneratorService
             'target_platform' => $template,
             'target_keyword'  => $topic,
             'status'          => 'approved',
+            'origin'          => 'agent',
         ]);
 
-        // Pass the user through so authorization is enforced
         $draft = $this->generateForAction($action, $user);
 
         if (!$draft) {
-            throw new \Exception('Content generation failed.');
+            throw new \Exception('Content generation failed. See logs for the specific reason (may be off-brand, rate-limited, or AI failure).');
         }
 
         return $draft;
     }
 
     // ============================================================
-    // Existing helper methods (unchanged)
+    // On-brand guard
     // ============================================================
 
-    protected function buildPrompt(AiAction $action, Brand $brand, ?PageSnapshot $snapshot = null): array
+    /**
+     * Refuse topics that clearly don't belong on this brand's site.
+     * Deterministic — no LLM call. Reads forbidden_topics from
+     * KnowledgeBase and cross-checks against the site profile's
+     * dominant topics.
+     */
+    protected function isOnBrand(string $topic, array $knowledge, array $siteProfile): array
     {
-        $knowledge = KnowledgeBase::where('brand_id', $brand->id)
-            ->where('is_active', true)
-            ->pluck('content', 'key')
-            ->toArray();
+        $topic = strtolower(trim($topic));
 
+        if ($topic === '') {
+            return ['ok' => true, 'reason' => null];
+        }
+
+        // 1. Forbidden topics from KnowledgeBase
+        $forbidden = strtolower($knowledge['forbidden_topics'] ?? '');
+        if ($forbidden !== '') {
+            // Split on common separators
+            $tokens = preg_split('/[,;]+/', $forbidden);
+            foreach ($tokens as $token) {
+                $token = trim($token);
+                $token = preg_replace('/^never write about:?\s*/i', '', $token);
+                $token = preg_replace('/^(and|or)\s+/i', '', $token);
+                if (strlen($token) < 4) {
+                    continue;
+                }
+                if (str_contains($topic, $token)) {
+                    return [
+                        'ok'     => false,
+                        'reason' => "Topic matches forbidden keyword: '{$token}'",
+                    ];
+                }
+            }
+        }
+
+        // 2. Hard-coded off-brand patterns (a safety net independent of KB)
+        $hardBlock = [
+            'google business profile',
+            'local seo for shops',
+            'small business marketing',
+            'web development tutorial',
+            'saas',
+            'tech startup',
+            'how to start a business',
+            'digital marketing agency',
+        ];
+        foreach ($hardBlock as $pattern) {
+            if (str_contains($topic, $pattern)) {
+                return [
+                    'ok'     => false,
+                    'reason' => "Topic matches off-brand pattern: '{$pattern}'",
+                ];
+            }
+        }
+
+        // Everything else passes — we'd rather generate a slightly-off
+        // draft that a human reviews than silently refuse on-brand content
+        // that just happens to use unusual words.
+        return ['ok' => true, 'reason' => null];
+    }
+
+    // ============================================================
+    // Prompt builders
+    // ============================================================
+
+    protected function buildPrompt(
+        AiAction $action,
+        Brand $brand,
+        ?PageSnapshot $snapshot = null,
+        array $siteProfile = [],
+        array $knowledge = []
+    ): array {
         $prompt = [
             'brand' => [
-                'name'    => $brand->name,
-                'voice'   => $brand->brand_voice ?? 'Professional and engaging',
-                'domain'  => $brand->domain_type ?? 'digital business',
-                'website' => $brand->website_url ?? '',
+                'name'              => $brand->name,
+                'voice'             => $brand->brand_voice ?? 'Professional and engaging',
+                'domain'            => $brand->domain_type ?? 'digital business',
+                'website'           => $brand->website_url ?? '',
+                'business_description' => $knowledge['business_description'] ?? '',
+                'target_audience'   => $knowledge['target_audience'] ?? '',
+                'content_pillars'   => $knowledge['content_pillars'] ?? '',
             ],
             'action' => [
                 'title'           => $action->title,
@@ -309,6 +365,7 @@ class ContentGeneratorService
                 'target_url'      => $action->target_url,
             ],
             'knowledge_base' => $knowledge,
+            'site_inventory' => $this->formatSiteProfileForPrompt($siteProfile),
             'requirements' => [
                 'length' => $this->getLengthRequirement($action->category),
                 'tone'   => 'professional yet approachable',
@@ -330,50 +387,103 @@ class ContentGeneratorService
                 'has_content'      => !empty($snapshot->content),
                 'content_preview'  => substr(strip_tags($snapshot->content ?? ''), 0, 500),
             ];
-
-            if ($action->category === 'seo') {
-                $prompt['page_snapshot']['seo_guidance'] = [
-                    'current_meta_title'       => $snapshot->meta_title,
-                    'current_meta_description' => $snapshot->meta_description,
-                    'target_keyword'           => $action->target_keyword ?? $snapshot->target_keyword ?? null,
-                    'page_headings'            => $snapshot->headings,
-                ];
-            }
         }
 
         return $prompt;
     }
 
-    protected function getSystemPrompt(Brand $brand, string $category, ?PageSnapshot $snapshot = null): string
+    protected function formatSiteProfileForPrompt(array $siteProfile): array
     {
+        if (empty($siteProfile['pages'])) {
+            return [
+                'note'            => 'No page snapshots available. Do not invent internal URLs — use [INTERNAL: page-type] placeholders only.',
+                'dominant_topics' => [],
+                'pages'           => [],
+            ];
+        }
+
+        return [
+            'dominant_topics' => $siteProfile['dominant_topics'] ?? [],
+            'page_count'      => $siteProfile['page_count'] ?? 0,
+            'pages'           => array_map(function ($p) {
+                return [
+                    'url'       => $p['url'],
+                    'type'      => $p['page_type'],
+                    'title'     => $p['title'],
+                    'h1'        => $p['h1'] ?? null,
+                    'topics'    => array_slice($p['topics_covered'] ?? [], 0, 5),
+                ];
+            }, $siteProfile['pages']),
+        ];
+    }
+
+    protected function getSystemPrompt(
+        Brand $brand,
+        string $category,
+        ?PageSnapshot $snapshot = null,
+        array $siteProfile = [],
+        array $knowledge = []
+    ): string {
         $tone = $brand->brand_voice ?? 'Professional, clear, and compelling';
         $name = $brand->name;
 
+        // Brand context block (used by all content types)
+        $business      = $knowledge['business_description'] ?? '';
+        $audience      = $knowledge['target_audience'] ?? '';
+        $pillars       = $knowledge['content_pillars'] ?? '';
+        $forbidden     = $knowledge['forbidden_topics'] ?? '';
+        $dominantList  = implode(', ', $siteProfile['dominant_topics'] ?? []);
+        $siteSitemap   = $this->buildSitemapBlock($siteProfile);
+
+        $brandBlock = <<<BLOCK
+You write for {$name}.
+
+BUSINESS CONTEXT:
+{$business}
+
+TARGET AUDIENCE:
+{$audience}
+
+CONTENT PILLARS (every piece must fit one of these):
+{$pillars}
+
+FORBIDDEN TOPICS (never write about these):
+{$forbidden}
+
+DOMINANT SITE TOPICS (based on scans of the live site):
+{$dominantList}
+
+SITE INVENTORY — pages that actually exist on {$brand->website_url}:
+{$siteSitemap}
+
+RULES FOR INTERNAL LINKS:
+- Only link to pages listed in the SITE INVENTORY above.
+- If you need to reference a page that isn't listed, use the placeholder [INTERNAL: about] or [INTERNAL: services] — never invent a raw URL.
+- Never fabricate URLs like /services/web-development or /blog/some-slug.
+BLOCK;
+
+        // SEO meta description path
         if ($category === 'seo') {
             $pageContext = '';
             if ($snapshot) {
-                $pageContext = sprintf(
-                    "The page being optimized is: %s\n",
-                    $snapshot->title ?? $snapshot->url ?? 'Unknown page'
-                );
-                if ($snapshot->headings && isset($snapshot->headings['h1'])) {
+                $pageContext = sprintf("The page being optimized is: %s\n", $snapshot->title ?? $snapshot->url ?? 'Unknown page');
+                if (!empty($snapshot->headings['h1'])) {
                     $pageContext .= sprintf("Page H1: %s\n", $snapshot->headings['h1']);
                 }
-                if ($snapshot->topics_covered) {
-                    $pageContext .= sprintf(
-                        "Topics on this page: %s\n",
-                        implode(', ', array_slice($snapshot->topics_covered, 0, 10))
-                    );
+                if (!empty($snapshot->topics_covered)) {
+                    $pageContext .= sprintf("Topics on this page: %s\n", implode(', ', array_slice($snapshot->topics_covered, 0, 10)));
                 }
-                if ($snapshot->meta_title) {
+                if (!empty($snapshot->meta_title)) {
                     $pageContext .= sprintf("Current meta title: %s\n", $snapshot->meta_title);
                 }
-                if ($snapshot->meta_description) {
+                if (!empty($snapshot->meta_description)) {
                     $pageContext .= sprintf("Current meta description: %s\n", $snapshot->meta_description);
                 }
             }
 
             return <<<PROMPT
+{$brandBlock}
+
 You are an SEO expert for {$name}.
 
 {$pageContext}
@@ -381,24 +491,24 @@ You are an SEO expert for {$name}.
 CRITICAL: This is a META DESCRIPTION action. Generate ONLY a meta description based on the actual page content.
 
 REQUIREMENTS:
-- **EXACTLY 140-160 characters total**
+- EXACTLY 140-160 characters total
 - Include the target keyword naturally
 - Be compelling and click-worthy
 - Match the actual content of the page (use the page context above)
 - DO NOT write a blog post
 - DO NOT write headings or paragraphs
-- DO NOT write more than 160 characters
 
 Output ONLY valid JSON:
 {
     "title": "Page title (50-60 chars)",
     "meta_title": "SEO meta title (50-60 chars)",
-    "meta_description": "Your 140-160 character meta description based on page content",
+    "meta_description": "Your 140-160 character meta description",
     "target_keyword": "The target keyword"
 }
 PROMPT;
         }
 
+        // Body content paths
         $pageContext = '';
         if ($snapshot) {
             $pageContext = sprintf(
@@ -414,11 +524,11 @@ PROMPT;
 
         $categoryInstructions = match ($category) {
             'content' => sprintf(
-                "You are generating a full blog post.\n\nREQUIREMENTS:\n- 1200-2000 words\n- Clear structure with H2, H3 headings\n- Include a strong introduction and conclusion\n- Use bullet points and lists where appropriate\n- Include internal linking suggestions\n%s",
+                "You are generating a full blog post.\n\nREQUIREMENTS:\n- 1200-2000 words\n- Clear structure with H2, H3 headings\n- Strong introduction and conclusion\n- Use bullet points and lists where appropriate\n- Only reference pages listed in SITE INVENTORY\n%s",
                 $pageContext
             ),
             'social' => sprintf(
-                "You are generating a social media post.\n\nREQUIREMENTS:\n- 100-200 words\n- Engaging and conversational tone\n- Include relevant hashtags\n- Add a call-to-action\n%s",
+                "You are generating a social media post.\n\nREQUIREMENTS:\n- 100-200 words\n- Engaging and conversational\n- Relevant hashtags\n- Strong call-to-action\n%s",
                 $pageContext
             ),
             'email' => sprintf(
@@ -426,28 +536,29 @@ PROMPT;
                 $pageContext
             ),
             'web_copy' => sprintf(
-                "You are generating web copy (landing page or section).\n\nREQUIREMENTS:\n- 500-800 words\n- Clear headlines and subheadings\n- Persuasive and conversion-focused\n- Include a call-to-action\n%s",
+                "You are generating web copy (landing page or section).\n\nREQUIREMENTS:\n- 500-800 words\n- Clear headlines and subheadings\n- Persuasive and conversion-focused\n- Strong call-to-action\n%s",
                 $pageContext
             ),
             default => "You are generating general content.\n\nREQUIREMENTS:\n- 500-800 words\n- Clear structure\n- Engaging and informative",
         };
 
         return <<<PROMPT
-You are an expert content writer for {$name}.
+{$brandBlock}
 
 Writing Style: "{$tone}"
 
 {$categoryInstructions}
 
-You must:
-1. Follow the exact requirements for the content type
-2. Return ONLY valid JSON
-3. Do not add extra content beyond what's requested
+BEFORE YOU WRITE, verify the topic fits one of the content pillars listed above.
+If it does not fit any pillar, respond with:
+{"error": "off_brand", "reason": "brief explanation"}
+
+Otherwise, produce ONLY valid JSON matching the schema below. No preamble, no explanation, no markdown wrappers.
 
 Output Schema:
 {
     "title": "The article title",
-    "content": "The full content with proper formatting",
+    "content": "The full content with proper markdown formatting",
     "excerpt": "A short 150-200 word summary",
     "target_keyword": "Primary target keyword",
     "meta_title": "SEO meta title (50-60 characters)",
@@ -461,6 +572,26 @@ Output Schema:
 }
 PROMPT;
     }
+
+    protected function buildSitemapBlock(array $siteProfile): string
+    {
+        if (empty($siteProfile['pages'])) {
+            return '(no page snapshots available — do not invent URLs)';
+        }
+
+        $lines = [];
+        foreach ($siteProfile['pages'] as $page) {
+            $title = $page['title'] ?? 'Untitled';
+            $type  = $page['page_type'] ?? 'other';
+            $lines[] = sprintf('- %s — "%s" (%s)', $page['url'], $title, $type);
+        }
+
+        return implode("\n", $lines);
+    }
+
+    // ============================================================
+    // Existing helpers (unchanged)
+    // ============================================================
 
     protected function getContentType(string $category): string
     {
@@ -490,13 +621,13 @@ PROMPT;
     protected function getFormatRequirement(string $category): string
     {
         return match ($category) {
-            'seo'      => 'Meta description only. 140-160 characters. Do NOT write a blog post.',
-            'content'  => 'Blog post with clear markdown headings (H2, H3), bullet points, and a strong conclusion.',
-            'social'   => 'Engaging social media post with hashtags and appropriate emojis.',
-            'email'    => 'Email copy including Subject Line, Preview Text, Body, and Call To Action.',
-            'web_copy' => 'Structured landing page copy with headlines, feature benefits, and conversion CTAs.',
-            'campaign' => 'Promotional email with compelling offer hooks and actionable CTAs.',
-            default    => 'Well-structured markdown formatted content.',
+            'seo'      => 'Meta description only. 140-160 characters.',
+            'content'  => 'Blog post with markdown headings (H2, H3), bullet points, strong conclusion.',
+            'social'   => 'Social post with hashtags and emojis.',
+            'email'    => 'Subject line, preview text, body, call-to-action.',
+            'web_copy' => 'Landing page copy with headlines, benefits, conversion CTAs.',
+            'campaign' => 'Promotional email with offer hooks and CTAs.',
+            default    => 'Well-structured markdown content.',
         };
     }
 
@@ -507,28 +638,16 @@ PROMPT;
             $data = json_decode($cleaned, true);
 
             if (json_last_error() !== JSON_ERROR_NONE) {
-                Log::warning('ContentGenerator: JSON parse failed, attempting boundary extraction', [
-                    'error' => json_last_error_msg(),
-                ]);
-
                 $firstBrace = strpos($cleaned, '{');
                 $lastBrace  = strrpos($cleaned, '}');
-
                 if ($firstBrace !== false && $lastBrace !== false && $lastBrace > $firstBrace) {
                     $jsonCandidate = substr($cleaned, $firstBrace, ($lastBrace - $firstBrace) + 1);
                     $data = json_decode($jsonCandidate, true);
-
-                    if (json_last_error() === JSON_ERROR_NONE) {
-                        Log::info('ContentGenerator: JSON extracted successfully via boundaries');
-                    }
                 }
             }
 
             if (json_last_error() !== JSON_ERROR_NONE || !is_array($data)) {
-                Log::warning('ContentGenerator: Final JSON decode failed, defaulting to raw response', [
-                    'error' => json_last_error_msg(),
-                ]);
-
+                Log::warning('ContentGenerator: JSON decode failed, using raw response');
                 return [
                     'title'            => 'Generated Draft',
                     'content'          => $response,
@@ -540,17 +659,23 @@ PROMPT;
                 ];
             }
 
+            // LLM refused as off-brand
+            if (($data['error'] ?? null) === 'off_brand') {
+                Log::warning('ContentGenerator: LLM refused topic as off-brand', [
+                    'reason' => $data['reason'] ?? 'no reason given',
+                ]);
+                throw new \RuntimeException('LLM refused topic: ' . ($data['reason'] ?? 'off-brand'));
+            }
+
             if ($category === 'seo') {
                 $metaDesc  = $data['meta_description'] ?? '';
                 $metaTitle = $data['meta_title'] ?? '';
-
                 if (mb_strlen($metaDesc) > 160) {
                     $data['meta_description'] = mb_substr($metaDesc, 0, 157) . '...';
                 }
                 if (mb_strlen($metaTitle) > 60) {
                     $data['meta_title'] = mb_substr($metaTitle, 0, 57) . '...';
                 }
-
                 $data['content'] = $data['meta_description'] ?? $data['meta_title'] ?? 'SEO meta content';
             }
 
@@ -560,10 +685,9 @@ PROMPT;
 
             return $data;
         } catch (\Throwable $e) {
-            Log::error('ContentGenerator: Error parsing AI content response', [
+            Log::error('ContentGenerator: Error parsing AI response', [
                 'error' => $e->getMessage(),
             ]);
-
             return [
                 'title'            => 'Generated Draft',
                 'content'          => $response,
@@ -608,15 +732,13 @@ PROMPT;
             $opportunities[] = "Create a comprehensive guide about '{$topic}'";
         }
 
-        $aiPrompt = [
-            'topic'            => $topic,
-            'existing_content' => $existing ? 'Some content exists' : 'No content exists',
-            'brand_id'         => $brandId,
-        ];
-
         $aiResponse = $this->aiGateway->generate([
             'system_prompt'   => "You are a content strategist. Identify content gaps and opportunities for the topic '{$topic}'.",
-            'user_prompt'     => json_encode($aiPrompt),
+            'user_prompt'     => json_encode([
+                'topic'            => $topic,
+                'existing_content' => $existing ? 'Some content exists' : 'No content exists',
+                'brand_id'         => $brandId,
+            ]),
             'temperature'     => 0.5,
             'max_tokens'      => 1024,
             'response_format' => 'json',
@@ -638,16 +760,14 @@ PROMPT;
 
     public function generateOutline(string $topic, string $template = 'blog'): array
     {
-        $prompt = [
-            'topic'           => $topic,
-            'template'        => $template,
-            'style'           => 'professional, engaging, informative',
-            'target_audience' => 'solo founders and small business owners',
-        ];
-
         $response = $this->aiGateway->generate([
             'system_prompt'   => $this->getOutlineSystemPrompt($template),
-            'user_prompt'     => json_encode($prompt),
+            'user_prompt'     => json_encode([
+                'topic'           => $topic,
+                'template'        => $template,
+                'style'           => 'professional, engaging, informative',
+                'target_audience' => 'international travelers interested in African safaris and culture',
+            ]),
             'temperature'     => 0.6,
             'max_tokens'      => 2048,
             'response_format' => 'json',
@@ -658,25 +778,25 @@ PROMPT;
         }
 
         $data = json_decode($response['content'], true);
-
         if (json_last_error() !== JSON_ERROR_NONE || empty($data)) {
             return $this->getFallbackOutline($topic, $template);
         }
-
         return $data;
     }
 
     protected function getOutlineSystemPrompt(string $template): string
     {
         $format = match ($template) {
-            'blog'   => 'Blog post with H2/H3 headings, introduction, 3-5 main sections, and conclusion',
-            'social' => 'Social media post with hook, body, and call-to-action',
-            'email'  => 'Email with subject line, body paragraphs, and CTAs',
+            'blog'   => 'Blog post with H2/H3 headings, introduction, 3-5 main sections, conclusion',
+            'social' => 'Social media post with hook, body, call-to-action',
+            'email'  => 'Email with subject line, body paragraphs, CTAs',
             default  => 'Structured content with clear sections',
         };
 
         return <<<PROMPT
-You are a content strategist. Generate a detailed outline for a {$template} about the given topic.
+You are a content strategist for an African travel company.
+
+Generate a detailed outline for a {$template} about the given topic.
 
 Requirements:
 - Follow the {$format} structure
@@ -685,12 +805,10 @@ Requirements:
 - Suggest a target keyword
 - Provide a meta description suggestion
 
-Return ONLY valid JSON with this structure:
+Return ONLY valid JSON:
 {
     "title": "Suggested title",
-    "sections": [
-        {"heading": "Section 1", "subsections": ["point 1", "point 2"]}
-    ],
+    "sections": [{"heading": "Section 1", "subsections": ["point 1", "point 2"]}],
     "target_keyword": "primary keyword",
     "meta_description": "SEO meta description (140-160 chars)",
     "estimated_word_count": 1200
@@ -704,7 +822,7 @@ PROMPT;
             ["heading" => "Introduction", "subsections" => ["Hook the reader", "State the problem"]],
             ["heading" => "What is {$topic}?", "subsections" => ["Definition", "Key concepts"]],
             ["heading" => "Why {$topic} Matters", "subsections" => ["Benefits", "Examples"]],
-            ["heading" => "How to Implement {$topic}", "subsections" => ["Step 1", "Step 2", "Step 3"]],
+            ["heading" => "How to Experience {$topic}", "subsections" => ["Step 1", "Step 2", "Step 3"]],
             ["heading" => "Common Mistakes", "subsections" => ["Pitfalls to avoid"]],
             ["heading" => "Conclusion", "subsections" => ["Summary", "Call to action"]],
         ];
@@ -721,47 +839,8 @@ PROMPT;
             'title'                => "The Ultimate Guide to {$topic}",
             'sections'             => $sections,
             'target_keyword'       => strtolower($topic),
-            'meta_description'     => "Learn everything about {$topic} in this comprehensive guide.",
+            'meta_description'     => "Discover everything about {$topic} in this comprehensive guide.",
             'estimated_word_count' => $template === 'blog' ? 1500 : 300,
-        ];
-    }
-
-    // In app/Services/AI/ContentGeneratorService.php, inside generateForAction() method
-    // Add after the AI generates the content and before saving the draft:
-
-    protected function enforceTourMatch(ContentDraft $draft): array
-    {
-        $matcher = app(ContentTourMatcher::class);
-        $matches = $matcher->findMatches($draft);
-
-        if ($matches->isEmpty()) {
-            // No tour matched. Flag for human review.
-            Log::warning('Content has no matching tour package', ['draft_id' => $draft->id]);
-            return [
-                'has_tour_match' => false,
-                'message' => 'No matching tour package found. Flagged for review.'
-            ];
-        }
-
-        // Add the top match as a mandatory CTA
-        $bestMatch = $matches->first();
-        $tour = $bestMatch['tour'];
-
-        $draft->affiliate_url = $tour->affiliate_url;
-        $draft->tour_package_id = $tour->id; // Add this column to content_drafts
-        $draft->save();
-
-        Log::info('Content matched to tour package', [
-            'draft_id' => $draft->id,
-            'tour_id' => $tour->id,
-            'score' => $bestMatch['score']
-        ]);
-
-        return [
-            'has_tour_match' => true,
-            'tour' => $tour,
-            'score' => $bestMatch['score'],
-            'all_matches' => $matches->take(3)
         ];
     }
 }
