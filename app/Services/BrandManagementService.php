@@ -412,7 +412,7 @@ class BrandManagementService
      * Create default roles and permissions for a brand.
      * Internal helper – called only by createBrand (already authorized).
      */
-    protected function setupBrandRolesAndPermissions(Brand $brand): void
+    public function setupBrandRolesAndPermissions(Brand $brand): void
     {
         $permissions = config('brand.permissions', []);
         foreach ($permissions as $name => $description) {
