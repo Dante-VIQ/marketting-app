@@ -1,13 +1,14 @@
 <?php
 
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\BlogController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\BlogController;
+use App\Http\Controllers\PageController;
 use App\Models\Lead;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Request;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\PageController;
 
 Route::get('/', [PageController::class, 'landing'])->name('landing');
 Route::get('/about', [PageController::class, 'about'])->name('about');
@@ -137,15 +138,29 @@ Route::get('/recurring-issues', fn () => view('recurring-issues'))->name('recurr
         return view('leads.update', ['lead' => $lead]);
     })->name('leads.update');
 
-    Route::post('/leads/{lead}/update', function ($leadId, Request $request) {
-        $lead = App\Models\Lead::findOrFail($leadId);
+Route::post('/leads/{lead}/update', function ($leadId, Request $request) {
+    $lead = App\Models\Lead::findOrFail($leadId);
 
-        // Process the update
-        $qualifier = app(App\Services\Lead\LeadQualifierService::class);
-        $qualifier->processResponse($lead, $request->except('_token'));
+    // Verify the same HMAC token the GET route uses. Without this,
+    // anyone can iterate lead IDs and POST arbitrary data — which also
+    // triggers a real LLM call inside processResponse().
+    $token = $request->input('token');
+    $expected = hash_hmac('sha256', $lead->id . $lead->email, config('app.key'));
 
-        return redirect()->route('leads.thank-you');
-    })->name('leads.update.post');
+    if (!$token || !hash_equals($expected, $token)) {
+        Log::warning('Lead update rejected: bad token', [
+            'lead_id' => $lead->id,
+            'ip' => $request->ip(),
+        ]);
+        abort(403, 'Invalid or expired link.');
+    }
+
+    $qualifier = app(App\Services\Lead\LeadQualifierService::class);
+    $qualifier->processResponse($lead, $request->except(['_token', 'token']));
+
+    return redirect()->route('leads.thank-you');
+})->name('leads.update.post');
+
     // Marketing AI
     Route::prefix('marketing')->name('marketing.')->group(function () {
         Route::get('/', function () {

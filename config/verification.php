@@ -41,8 +41,8 @@ return [
         ],
         'pause_campaign' => [
             'immediate' => 60,
-            'hour_1'    => 3600,
-            'day_1'     => 86400,
+            'hour_1'    => 18000,
+            'day_1'     => 180000,
             'metrics'   => ['ctr', 'spend', 'roi'],
             'success_threshold' => 0.10,
         ],
