@@ -29,6 +29,14 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping();
 
         // ============================================================
+        // PHASE 1.5: Site Scan (page inventory for content generation)
+        // ============================================================
+        $schedule->job(new \App\Jobs\ProcessAllBrandsSiteScansJob())
+            ->name('site-scan')
+            ->weeklyOn(0, '04:00') // Sunday 04:00, ahead of daily brief/content jobs
+            ->withoutOverlapping();
+
+        // ============================================================
         // PHASE 2: AI Brief Generation
         // ============================================================
         $schedule->job(new \App\Jobs\ProcessAllBrandsBriefsJob())

@@ -350,7 +350,7 @@ class ContentGeneratorService
         $prompt = [
             'brand' => [
                 'name'              => $brand->name,
-                'voice'             => $brand->brand_voice ?? 'Professional and engaging',
+                'voice'             => $knowledge['brand_voice'] ?? $brand->brand_voice ?? 'Professional and engaging',
                 'domain'            => $brand->domain_type ?? 'digital business',
                 'website'           => $brand->website_url ?? '',
                 'business_description' => $knowledge['business_description'] ?? '',
@@ -424,7 +424,10 @@ class ContentGeneratorService
         array $siteProfile = [],
         array $knowledge = []
     ): string {
-        $tone = $brand->brand_voice ?? 'Professional, clear, and compelling';
+        // KnowledgeBase is the source of truth for brand_voice (that's what the
+        // seeder populates); the Brand column is a legacy fallback for brands
+        // that predate the KnowledgeBase table.
+        $tone = $knowledge['brand_voice'] ?? $brand->brand_voice ?? 'Professional, clear, and compelling';
         $name = $brand->name;
 
         // Brand context block (used by all content types)
