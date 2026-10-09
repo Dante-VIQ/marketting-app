@@ -1911,4 +1911,134 @@ class AgentController extends Controller
             'count'    => $count,
         ]);
     }
+
+        // ============================================================
+    // MCP CONTEXT ENDPOINTS
+    // Read-only. Serve structured business context to MCP clients
+    // (Claude Desktop, ChatGPT, etc).
+    // ============================================================
+
+    /**
+     * List all brands. Used by MCP clients to discover what exists.
+     */
+    public function listBrands()
+    {
+        $brands = Brand::query()
+            ->orderBy('name')
+            ->get(['id', 'name', 'slug', 'domain_type', 'website_url', 'is_active', 'brand_voice']);
+
+        return response()->json([
+            'count'  => $brands->count(),
+            'brands' => $brands->map(fn ($b) => [
+                'id'           => $b->id,
+                'name'         => $b->name,
+                'slug'         => $b->slug,
+                'domain_type'  => $b->domain_type,
+                'website_url'  => $b->website_url,
+                'is_active'    => $b->is_active,
+                'brand_voice'  => $b->brand_voice,
+            ]),
+        ]);
+    }
+
+    /**
+     * Full knowledge base for a brand.
+     * Keys like business_description, target_audience, content_pillars,
+     * forbidden_topics, site_structure, key_destinations.
+     */
+    public function getKnowledgeBase($brandId)
+    {
+        $entries = KnowledgeBase::where('brand_id', $brandId)
+            ->where('is_active', true)
+            ->orderBy('key')
+            ->get(['key', 'category', 'content']);
+
+        return response()->json([
+            'brand_id' => (int) $brandId,
+            'count'    => $entries->count(),
+            'entries'  => $entries->mapWithKeys(fn ($e) => [$e->key => $e->content]),
+            'detail'   => $entries,
+        ]);
+    }
+
+    /**
+     * Site inventory — every page the scanner has seen for a brand.
+     * Used by MCP clients to reason about what pages exist and what
+     * topics the site actually covers.
+     */
+    public function getSiteInventory($brandId)
+    {
+        $snapshots = PageSnapshot::where('brand_id', $brandId)
+            ->where('status', 'completed')
+            ->orderByDesc('scraped_at')
+            ->get([
+                'id', 'url', 'page_type', 'title', 'word_count',
+                'topics_covered', 'meta_title', 'meta_description',
+                'scraped_at',
+            ]);
+
+        // Aggregate the most frequent topics across the whole site
+        $topicCounts = [];
+        foreach ($snapshots as $s) {
+            foreach ($s->topics_covered ?? [] as $topic) {
+                $key = strtolower(trim($topic));
+                if ($key !== '') {
+                    $topicCounts[$key] = ($topicCounts[$key] ?? 0) + 1;
+                }
+            }
+        }
+        arsort($topicCounts);
+        $dominantTopics = array_slice(array_keys($topicCounts), 0, 20);
+
+        return response()->json([
+            'brand_id'        => (int) $brandId,
+            'page_count'      => $snapshots->count(),
+            'dominant_topics' => $dominantTopics,
+            'pages'           => $snapshots->map(fn ($s) => [
+                'url'              => $s->url,
+                'page_type'        => $s->page_type,
+                'title'            => $s->title,
+                'word_count'       => $s->word_count,
+                'topics_covered'   => array_slice($s->topics_covered ?? [], 0, 10),
+                'meta_title'       => $s->meta_title,
+                'meta_description' => $s->meta_description,
+                'scraped_at'       => optional($s->scraped_at)->toISOString(),
+            ]),
+        ]);
+    }
+
+    /**
+     * Recent action history — what the agent tried, what worked,
+     * what was rejected, over the last N days.
+     */
+    public function getActionHistory($brandId, Request $request)
+    {
+        $days  = max(1, min(365, (int) $request->query('days', 30)));
+        $since = now()->subDays($days);
+
+        $actions = AiAction::where('brand_id', $brandId)
+            ->where('created_at', '>=', $since)
+            ->orderByDesc('created_at')
+            ->limit(200)
+            ->get([
+                'id', 'title', 'category', 'status', 'origin',
+                'target_url', 'target_keyword',
+                'estimated_impact', 'actual_revenue_impact',
+                'rejection_reason', 'review_notes',
+                'created_at', 'executed_at',
+            ]);
+
+        // Simple outcome summary for LLM consumption
+        $byStatus = $actions->groupBy('status')->map->count();
+        $byCategory = $actions->groupBy('category')->map->count();
+
+        return response()->json([
+            'brand_id'    => (int) $brandId,
+            'days'        => $days,
+            'count'       => $actions->count(),
+            'by_status'   => $byStatus,
+            'by_category' => $byCategory,
+            'actions'     => $actions,
+        ]);
+    }
 }
