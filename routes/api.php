@@ -161,6 +161,7 @@ Route::prefix('agent')
         Route::get('/verification/due/{brandId}', [AgentController::class, 'getDueVerifications'])->name('verification.due');
         Route::post('/verification/register', [AgentController::class, 'registerVerification'])->name('verification.register');
         Route::post('/verification/record', [AgentController::class, 'recordVerification'])->name('verification.record');
+        Route::get('/verification/{brandId}/{verificationId}', [AgentController::class, 'getVerification'])->name('verification.show');
         Route::post('/verification/start/{brandId}', [AgentController::class, 'startVerification'])->name('verification.start');
         Route::post('/verification/complete/{brandId}/{verificationId}', [AgentController::class, 'completeVerification'])->name('verification.complete');
 
