@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\AiAction;
 use App\Models\Brand;
 use Closure;
 use Illuminate\Http\Request;
@@ -11,10 +12,22 @@ class AgentBrandAuthorized
 {
     public function handle(Request $request, Closure $next)
     {
-        // Extract brandId from route
+        // Resolve the brand from the route, then from the request body
+        // (camelCase or snake_case), then from the action the route targets.
         $brandId = $request->route('brandId')
             ?? $request->route('brand')
-            ?? $request->input('brandId');
+            ?? $request->input('brandId')
+            ?? $request->input('brand_id');
+
+        if (!$brandId && $request->route('actionId') !== null) {
+            $action = AiAction::find($request->route('actionId'));
+
+            if (!$action) {
+                return response()->json(['error' => 'Action not found'], 404);
+            }
+
+            $brandId = $action->brand_id;
+        }
 
         if (!$brandId) {
             // Some routes don't require brand context (e.g., /agent/ai/ping)
