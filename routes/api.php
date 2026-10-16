@@ -173,6 +173,9 @@ Route::prefix('agent')
         Route::post('/learn/{brandId}', [AgentController::class, 'recordLearning'])->name('learn');
         Route::get('/experiences/similar/{brandId}', [AgentController::class, 'getSimilarExperiences'])->name('experiences.similar');
 
+        Route::post('/cycles', [AgentController::class, 'recordCycleRun'])->name('cycles.record');
+        Route::get('/cycles/{brandId}', [AgentController::class, 'getCycleRuns'])->name('cycles.index');
+
         Route::get('/brands', [AgentController::class, 'listBrands'])->name('brands.list');
         Route::get('/knowledge/{brandId}', [AgentController::class, 'getKnowledgeBase'])->name('knowledge');
         Route::get('/site-inventory/{brandId}', [AgentController::class, 'getSiteInventory'])->name('site.inventory');

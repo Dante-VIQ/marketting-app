@@ -17,6 +17,7 @@ class AiAction extends Model
         'brief_id',      // ← Make sure this matches your table column
         'title',
         'category',
+        'action_name',
         'description',
         'suggested_content',
         'content_draft',
