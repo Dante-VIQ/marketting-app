@@ -9,8 +9,15 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         // MySQL doesn't support modifying ENUM directly in some versions
         // We'll use a safer approach: create a new column and migrate data
+        Schema::table('content_drafts', function (Blueprint $table) {
+            $table->dropIndex(['brand_id', 'status']);
+        });
 
         Schema::table('content_drafts', function (Blueprint $table) {
             // Temporarily add a new status column
@@ -39,6 +46,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         // Revert back to original status enum
         Schema::table('content_drafts', function (Blueprint $table) {
             $table->dropColumn('status');

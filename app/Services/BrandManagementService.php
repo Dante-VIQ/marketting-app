@@ -101,7 +101,7 @@ class BrandManagementService
                     []
                 );
             }
- 
+
             // Also refresh the user's active brand so the UI can navigate immediately
             if (!$owner->active_brand_id) {
                 $owner->active_brand_id = $brand->id;
@@ -306,7 +306,7 @@ class BrandManagementService
 
         DB::transaction(function () use ($brand, $targetUser, $role, $roleName, $actingUser) {
             // Attach user to brand if not already
-            if (!$brand->users()->where('user_id', $targetUser->id)->exists()) {
+            if (!$brand->users()->whereKey($targetUser->id)->exists()) {
                 $brand->users()->attach($targetUser->id);
             }
 

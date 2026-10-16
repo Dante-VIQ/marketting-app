@@ -98,7 +98,10 @@ class AnalyticsSummaryService
                 'title'       => 'Conversions Dropped',
                 'description' => sprintf(
                     'Conversions fell %.0f%% over the last %d days (%s vs %s the period before).',
-                    abs($change), $summary['window_days'], $this->fmt($conv), $this->fmt($prev)
+                    abs($change),
+                    $summary['window_days'],
+                    $this->fmt($conv),
+                    $this->fmt($prev)
                 ),
             ];
         }
@@ -109,7 +112,8 @@ class AnalyticsSummaryService
                 'title'       => 'No Conversions Despite Traffic',
                 'description' => sprintf(
                     '%s sessions in the last %d days but no conversions recorded.',
-                    $this->fmt((float) $summary['current']['sessions']), $summary['window_days']
+                    $this->fmt((float) $summary['current']['sessions']),
+                    $summary['window_days']
                 ),
             ];
         }
@@ -123,7 +127,8 @@ class AnalyticsSummaryService
             ->where('source', 'ga4')
             ->whereNull('dimension')
             ->whereIn('metric', self::METRICS)
-            ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
+            ->whereDate('date', '>=', $from->toDateString())
+            ->whereDate('date', '<=', $to->toDateString())
             ->get(['date', 'metric', 'value']);
 
         $totals = array_fill_keys(self::METRICS, 0.0);
@@ -132,8 +137,8 @@ class AnalyticsSummaryService
         }
 
         return [
-            'totals'         => array_map(fn ($v) => round($v, 2), $totals),
-            'days_with_data' => $rows->pluck('date')->map(fn ($d) => Carbon::parse($d)->toDateString())->unique()->count(),
+            'totals'         => array_map(fn($v) => round($v, 2), $totals),
+            'days_with_data' => $rows->pluck('date')->map(fn($d) => Carbon::parse($d)->toDateString())->unique()->count(),
         ];
     }
 
@@ -143,14 +148,15 @@ class AnalyticsSummaryService
             ->where('source', 'ga4')
             ->where('metric', 'visitors')
             ->whereNotNull('dimension')
-            ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
+            ->whereDate('date', '>=', $from->toDateString())
+            ->whereDate('date', '<=', $to->toDateString())
             ->select('dimension')
             ->selectRaw('SUM(value) as total_visitors')
             ->groupBy('dimension')
             ->orderByDesc('total_visitors')
             ->limit($limit)
             ->get()
-            ->map(fn ($r) => ['path' => $r->dimension, 'visitors' => (float) $r->total_visitors])
+            ->map(fn($r) => ['path' => $r->dimension, 'visitors' => (float) $r->total_visitors])
             ->all();
     }
 

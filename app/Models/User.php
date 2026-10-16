@@ -36,16 +36,16 @@ class User extends Authenticatable
 
 
 
-public function brands()
-{
-    return $this->belongsToMany(Brand::class, 'brand_user')
-        ->withTimestamps();
-}
+    public function brands()
+    {
+        return $this->belongsToMany(Brand::class, 'brand_user')
+            ->withTimestamps();
+    }
 
-public function belongsToBrand(int $brandId): bool
-{
-    return $this->brands()->where('brands.id', $brandId)->exists();
-}
+    public function belongsToBrand(int $brandId): bool
+    {
+        return $this->brands()->where('brands.id', $brandId)->exists();
+    }
 
     /**
      * Get the user's currently active brand.
@@ -93,7 +93,7 @@ public function belongsToBrand(int $brandId): bool
      */
     public function hasAccessTo(Brand $brand): bool
     {
-        return $this->brands()->where('brand_id', $brand->id)->exists();
+        return $this->brands()->whereKey($brand->id)->exists();
     }
 
     /**

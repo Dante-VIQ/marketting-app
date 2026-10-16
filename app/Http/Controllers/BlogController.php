@@ -20,6 +20,43 @@ class BlogController extends Controller
         $this->contentGenerator = $contentGenerator;
     }
 
+    protected function validateWordPressImportUrl(string $url): string
+    {
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            throw new \InvalidArgumentException('The WordPress URL is invalid.');
+        }
+
+        $parts = parse_url($url);
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host = strtolower((string) ($parts['host'] ?? ''));
+
+        if (!in_array($scheme, ['http', 'https'], true)) {
+            throw new \InvalidArgumentException('Only HTTP and HTTPS URLs are allowed.');
+        }
+
+        if (
+            $host === '' || in_array($host, ['localhost', '127.0.0.1', '::1'], true)
+            || preg_match('/(^|\.)localhost$/i', $host) === 1
+            || preg_match('/(^|\.)local$/i', $host) === 1
+        ) {
+            throw new \InvalidArgumentException('Local or private host URLs are blocked for security reasons.');
+        }
+
+        $resolvedIp = gethostbyname($host);
+        if ($resolvedIp === $host && !filter_var($host, FILTER_VALIDATE_IP)) {
+            throw new \InvalidArgumentException('The WordPress host could not be resolved safely.');
+        }
+
+        if (filter_var($resolvedIp, FILTER_VALIDATE_IP)) {
+            $isPublic = filter_var($resolvedIp, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+            if (!$isPublic) {
+                throw new \InvalidArgumentException('Private or reserved IP addresses are blocked for security reasons.');
+            }
+        }
+
+        return $url;
+    }
+
     /**
      * Display the blog dashboard.
      */
@@ -83,20 +120,20 @@ class BlogController extends Controller
         return view('blog.show', compact('post'));
     }
 
-/**
- * Show the import page.
- */
-public function import()
-{
-    $user = Auth::user();
-    $brand = $user->activeBrand;
+    /**
+     * Show the import page.
+     */
+    public function import()
+    {
+        $user = Auth::user();
+        $brand = $user->activeBrand;
 
-    if (!$brand) {
-        return redirect()->route('brands.index')->with('warning', 'Please select a brand first.');
+        if (!$brand) {
+            return redirect()->route('brands.index')->with('warning', 'Please select a brand first.');
+        }
+
+        return view('blog.import');
     }
-
-    return view('blog.import');
-}
     /**
      * Import from WordPress REST API.
      */
@@ -113,7 +150,12 @@ public function import()
             'url' => 'required|url',
         ]);
 
-        $wpUrl = rtrim($request->url, '/');
+        try {
+            $wpUrl = rtrim($this->validateWordPressImportUrl((string) $request->url), '/');
+        } catch (\InvalidArgumentException $e) {
+            return redirect()->route('blog.index')->with('error', $e->getMessage());
+        }
+
         $apiUrl = $wpUrl . '/wp-json/wp/v2/posts';
 
         try {
@@ -208,7 +250,7 @@ public function import()
         try {
             $file = $request->file('csv_file');
             $handle = fopen($file->getPathname(), 'r');
-            
+
             if (!$handle) {
                 return redirect()->route('blog.index')->with('error', 'Could not read CSV file.');
             }
@@ -222,7 +264,7 @@ public function import()
 
             // Normalize headers to lowercase for easier matching
             $normalizedHeaders = array_map('strtolower', $headers);
-            
+
             // Find required columns
             $titleIndex = array_search('title', $normalizedHeaders);
             $contentIndex = array_search('content', $normalizedHeaders);

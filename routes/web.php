@@ -6,8 +6,8 @@ use App\Http\Controllers\BrandController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\PageController;
 use App\Models\Lead;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', [PageController::class, 'landing'])->name('landing');
@@ -54,13 +54,13 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('/', [AnalyticsController::class, 'index'])->name('index');
         Route::post('/fetch', [AnalyticsController::class, 'fetch'])->name('fetch');
 
-Route::get('/revenue-leaks', function () {
-    $brand = auth()->user()->activeBrand;
-    $leaks = $brand
-        ? App\Models\RevenueLeak::where('brand_id', $brand->id)->orderByDesc('estimated_loss')->get()
-        : collect();
-    return view('analytics.revenue-leaks', compact('leaks'));
-})->name('revenue-leaks');
+        Route::get('/revenue-leaks', function () {
+            $brand = auth()->user()->activeBrand;
+            $leaks = $brand
+                ? App\Models\RevenueLeak::where('brand_id', $brand->id)->orderByDesc('estimated_loss')->get()
+                : collect();
+            return view('analytics.revenue-leaks', compact('leaks'));
+        })->name('revenue-leaks');
     });
 
     // AI Briefs
@@ -103,10 +103,10 @@ Route::get('/revenue-leaks', function () {
         Route::get('/', function () {
             return view('campaigns.index');
         })->name('index');
-Route::get('/{id}', function ($id) {
-    $campaign = App\Models\Campaign::findOrFail($id);
-    return view('campaigns.show', compact('campaign'));
-})->name('show');
+        Route::get('/{id}', function ($id) {
+            $campaign = App\Models\Campaign::findOrFail($id);
+            return view('campaigns.show', compact('campaign'));
+        })->name('show');
     });
 
     // Leads
@@ -114,14 +114,14 @@ Route::get('/{id}', function ($id) {
         Route::get('/', function () {
             return view('leads.index');
         })->name('index');
-Route::get('/{id}', function ($id) {
-    $lead = App\Models\Lead::with('interactions')->findOrFail($id);
-    return view('leads.show', compact('lead'));
-})->name('show');
+        Route::get('/{id}', function ($id) {
+            $lead = App\Models\Lead::with('interactions')->findOrFail($id);
+            return view('leads.show', compact('lead'));
+        })->name('show');
     });
 
     Route::view('/leads/thank-you', 'leads.thank-you')->name('leads.thank-you');
-Route::get('/recurring-issues', fn () => view('recurring-issues'))->name('recurring-issues');
+    Route::get('/recurring-issues', fn() => view('recurring-issues'))->name('recurring-issues');
 
     // Lead update endpoint (for responding to follow-up)
     Route::get('/leads/{lead}/update', function ($leadId, Request $request) {
@@ -138,28 +138,28 @@ Route::get('/recurring-issues', fn () => view('recurring-issues'))->name('recurr
         return view('leads.update', ['lead' => $lead]);
     })->name('leads.update');
 
-Route::post('/leads/{lead}/update', function ($leadId, Request $request) {
-    $lead = App\Models\Lead::findOrFail($leadId);
+    Route::post('/leads/{lead}/update', function ($leadId, Request $request) {
+        $lead = App\Models\Lead::findOrFail($leadId);
 
-    // Verify the same HMAC token the GET route uses. Without this,
-    // anyone can iterate lead IDs and POST arbitrary data — which also
-    // triggers a real LLM call inside processResponse().
-    $token = $request->input('token');
-    $expected = hash_hmac('sha256', $lead->id . $lead->email, config('app.key'));
+        // Verify the same HMAC token the GET route uses. Without this,
+        // anyone can iterate lead IDs and POST arbitrary data — which also
+        // triggers a real LLM call inside processResponse().
+        $token = $request->input('token');
+        $expected = hash_hmac('sha256', $lead->id . $lead->email, config('app.key'));
 
-    if (!$token || !hash_equals($expected, $token)) {
-        Log::warning('Lead update rejected: bad token', [
-            'lead_id' => $lead->id,
-            'ip' => $request->ip(),
-        ]);
-        abort(403, 'Invalid or expired link.');
-    }
+        if (!$token || !hash_equals($expected, $token)) {
+            Log::warning('Lead update rejected: bad token', [
+                'lead_id' => $lead->id,
+                'ip' => $request->ip(),
+            ]);
+            abort(403, 'Invalid or expired link.');
+        }
 
-    $qualifier = app(App\Services\Lead\LeadQualifierService::class);
-    $qualifier->processResponse($lead, $request->except(['_token', 'token']));
+        $qualifier = app(App\Services\Lead\LeadQualifierService::class);
+        $qualifier->processResponse($lead, $request->except(['_token', 'token']));
 
-    return redirect()->route('leads.thank-you');
-})->name('leads.update.post');
+        return redirect()->route('leads.thank-you');
+    })->name('leads.update.post');
 
     // Marketing AI
     Route::prefix('marketing')->name('marketing.')->group(function () {
@@ -248,22 +248,22 @@ Route::post('/leads/{lead}/update', function ($leadId, Request $request) {
     });
 
     // Travel Guides
-Route::prefix('guides')->name('guides.')->group(function () {
-    Route::get('/', function () {
-        $brand = auth()->user()->activeBrand;
-        $guides = $brand
-            ? App\Models\TravelGuide::where('brand_id', $brand->id)->orderByDesc('created_at')->get()
-            : collect();
-        return view('guides.index', compact('guides'));
-    })->name('index');
+    Route::prefix('guides')->name('guides.')->group(function () {
+        Route::get('/', function () {
+            $brand = auth()->user()->activeBrand;
+            $guides = $brand
+                ? App\Models\TravelGuide::where('brand_id', $brand->id)->orderByDesc('created_at')->get()
+                : collect();
+            return view('guides.index', compact('guides'));
+        })->name('index');
 
-    Route::get('/suggest', function () {
-        $service = app(App\Services\AI\TravelGuideSuggesterService::class);
-        $brand = auth()->user()->activeBrand;
-        $service->suggestGuides($brand);
-        return redirect()->route('guides.index')->with('message', 'Guide suggestions generated!');
-    })->name('suggest');
-});
+        Route::get('/suggest', function () {
+            $service = app(App\Services\AI\TravelGuideSuggesterService::class);
+            $brand = auth()->user()->activeBrand;
+            $service->suggestGuides($brand);
+            return redirect()->route('guides.index')->with('message', 'Guide suggestions generated!');
+        })->name('suggest');
+    });
 
     // // Affiliate Suggestions
     // Route::prefix('affiliate')->name('affiliate.')->group(function () {

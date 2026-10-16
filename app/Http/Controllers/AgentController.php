@@ -216,8 +216,6 @@ class AgentController extends Controller
 
     public function getAnalytics($brandId)
     {
-        $this->dataCollection->ensureFreshData($brandId);
-
         $summary = app(\App\Services\Analytics\AnalyticsSummaryService::class)
             ->summary((int) $brandId);
 
@@ -708,7 +706,7 @@ class AgentController extends Controller
             return response()->json([
                 'success' => false,
                 'error'   => "Hourly cap reached for category '{$action->category}' "
-                           . "({$recentCount}/{$cap}).",
+                    . "({$recentCount}/{$cap}).",
                 'action_id' => $action->id,
                 'cap'       => $cap,
                 'recent'    => $recentCount,
@@ -1895,7 +1893,7 @@ class AgentController extends Controller
         ]);
     }
 
-        /**
+    /**
      * How many actions of a given category have been executed or created
      * in the last N seconds? Used by the agent to enforce max_frequency_per_hour.
      */
@@ -1915,11 +1913,11 @@ class AgentController extends Controller
         $since = now()->subSeconds($window);
 
         $count = AiAction::where('brand_id', $brandId)
-            ->when($actionName, fn ($q) => $q->where('action_name', $actionName))
-            ->when(!$actionName && $category, fn ($q) => $q->where('category', $category))
+            ->when($actionName, fn($q) => $q->where('action_name', $actionName))
+            ->when(!$actionName && $category, fn($q) => $q->where('category', $category))
             ->where(function ($q) use ($since) {
                 $q->where('created_at', '>=', $since)
-                  ->orWhere('executed_at', '>=', $since);
+                    ->orWhere('executed_at', '>=', $since);
             })
             ->count();
 
@@ -1950,7 +1948,7 @@ class AgentController extends Controller
 
         return response()->json([
             'count'  => $brands->count(),
-            'brands' => $brands->map(fn ($b) => [
+            'brands' => $brands->map(fn($b) => [
                 'id'           => $b->id,
                 'name'         => $b->name,
                 'slug'         => $b->slug,
@@ -1977,7 +1975,7 @@ class AgentController extends Controller
         return response()->json([
             'brand_id' => (int) $brandId,
             'count'    => $entries->count(),
-            'entries'  => $entries->mapWithKeys(fn ($e) => [$e->key => $e->content]),
+            'entries'  => $entries->mapWithKeys(fn($e) => [$e->key => $e->content]),
             'detail'   => $entries,
         ]);
     }
@@ -1993,8 +1991,14 @@ class AgentController extends Controller
             ->where('status', 'completed')
             ->orderByDesc('scraped_at')
             ->get([
-                'id', 'url', 'page_type', 'title', 'word_count',
-                'topics_covered', 'meta_title', 'meta_description',
+                'id',
+                'url',
+                'page_type',
+                'title',
+                'word_count',
+                'topics_covered',
+                'meta_title',
+                'meta_description',
                 'scraped_at',
             ]);
 
@@ -2015,7 +2019,7 @@ class AgentController extends Controller
             'brand_id'        => (int) $brandId,
             'page_count'      => $snapshots->count(),
             'dominant_topics' => $dominantTopics,
-            'pages'           => $snapshots->map(fn ($s) => [
+            'pages'           => $snapshots->map(fn($s) => [
                 'url'              => $s->url,
                 'page_type'        => $s->page_type,
                 'title'            => $s->title,
@@ -2042,11 +2046,19 @@ class AgentController extends Controller
             ->orderByDesc('created_at')
             ->limit(200)
             ->get([
-                'id', 'title', 'category', 'status', 'origin',
-                'target_url', 'target_keyword',
-                'estimated_impact', 'actual_revenue_impact',
-                'rejection_reason', 'review_notes',
-                'created_at', 'executed_at',
+                'id',
+                'title',
+                'category',
+                'status',
+                'origin',
+                'target_url',
+                'target_keyword',
+                'estimated_impact',
+                'actual_revenue_impact',
+                'rejection_reason',
+                'review_notes',
+                'created_at',
+                'executed_at',
             ]);
 
         // Simple outcome summary for LLM consumption
