@@ -157,24 +157,27 @@ class AgentController extends Controller
             ];
         }
 
-        // Analytics alerts
-        $analytics = AnalyticsSnapshot::where('brand_id', $brandId)
-            ->latest()
-            ->first();
+        // Analytics alerts — from real window-over-window data, never from a null attribute
+        $analyticsService = app(\App\Services\Analytics\AnalyticsSummaryService::class);
+        $analyticsSummary = $analyticsService->summary((int) $brandId);
+        $analyticsAlert = $analyticsService->conversionAlert($analyticsSummary);
 
-        if ($analytics && $analytics->conversions < 5) {
+        if ($analyticsAlert) {
             $opportunities[] = [
-                'id' => 'analytics_' . time(),
+                'id' => 'analytics_' . $analyticsAlert['reason'],
                 'type' => 'analytics_alert',
                 'severity' => 'high',
-                'title' => 'Low Conversions Detected',
-                'description' => "Conversions dropped below 5. Current: {$analytics->conversions}",
+                'title' => $analyticsAlert['title'],
+                'description' => $analyticsAlert['description'],
                 'source' => 'analytics_monitor',
                 'detectedAt' => now()->toISOString(),
                 'target_url' => null,
                 'payload' => [
-                    'conversions' => $analytics->conversions,
-                    'visitors' => $analytics->visitors,
+                    'reason' => $analyticsAlert['reason'],
+                    'as_of' => $analyticsSummary['as_of'],
+                    'current' => $analyticsSummary['current'],
+                    'previous' => $analyticsSummary['previous'],
+                    'changes_pct' => $analyticsSummary['changes_pct'],
                 ],
                 'impact' => 1000,
                 'requires_approval' => true,
@@ -215,30 +218,39 @@ class AgentController extends Controller
     {
         $this->dataCollection->ensureFreshData($brandId);
 
-        $analytics = AnalyticsSnapshot::where('brand_id', $brandId)
-            ->latest()
-            ->first();
+        $summary = app(\App\Services\Analytics\AnalyticsSummaryService::class)
+            ->summary((int) $brandId);
 
-        if (!$analytics) {
+        if (empty($summary['has_data'])) {
             return response()->json([
+                'hasData' => false,
                 'visitors' => 0,
                 'pageViews' => 0,
                 'sessions' => 0,
                 'conversions' => 0,
                 'revenue' => 0,
-                'blogPostsThisMonth' => 0,
                 'topPages' => [],
             ]);
         }
 
+        $c = $summary['current'];
+
         return response()->json([
-            'visitors' => $analytics->visitors ?? 0,
-            'pageViews' => $analytics->page_views ?? 0,
-            'sessions' => $analytics->sessions ?? 0,
-            'conversions' => $analytics->conversions ?? 0,
-            'revenue' => $analytics->revenue ?? 0,
-            'blogPostsThisMonth' => $analytics->blog_posts_this_month ?? 0,
-            'topPages' => $analytics->top_pages ?? [],
+            'hasData' => true,
+            'asOf' => $summary['as_of'],
+            'staleDays' => $summary['stale_days'],
+            'windowDays' => $summary['window_days'],
+            // Totals over the window (not a single row's value)
+            'visitors' => $c['visitors'],
+            'pageViews' => $c['page_views'],
+            'sessions' => $c['sessions'],
+            'conversions' => $c['conversions'],
+            'revenue' => $c['revenue'],
+            'conversionRate' => $summary['conversion_rate'],
+            'previous' => $summary['previous'],
+            'changesPct' => $summary['changes_pct'],
+            'trend' => $summary['trend'],
+            'topPages' => $summary['top_pages'],
         ]);
     }
 
@@ -1005,65 +1017,65 @@ class AgentController extends Controller
     {
         $brand = Brand::findOrFail($brandId);
 
-        $analytics = AnalyticsSnapshot::where('brand_id', $brandId)
-            ->latest()
-            ->first();
+        $summary = app(\App\Services\Analytics\AnalyticsSummaryService::class)
+            ->summary((int) $brand->id);
 
-        if (!$analytics) {
+        if (empty($summary['has_data'])) {
             return response()->json([
                 'success' => false,
                 'message' => 'No analytics data found for this brand.',
             ], 404);
         }
 
-        $visitors = $analytics->visitors ?? 0;
-        $conversions = $analytics->conversions ?? 0;
-        $revenue = $analytics->revenue ?? 0;
-        $conversionRate = $visitors > 0 ? ($conversions / $visitors) * 100 : 0;
-
+        $c = $summary['current'];
+        $changes = $summary['changes_pct'];
+        $days = max($summary['days_with_data'], 1);
         $issues = [];
         $recommendations = [];
 
-        if ($conversionRate < 2) {
-            $issues[] = 'Conversion rate is below 2%.';
+        if ($summary['stale_days'] > 2) {
+            $issues[] = "Analytics data is {$summary['stale_days']} days old (as of {$summary['as_of']}); check the GA4 collection job.";
+        }
+
+        if ($summary['conversion_rate'] !== null && $summary['conversion_rate'] < 2) {
+            $issues[] = "Conversion rate is {$summary['conversion_rate']}% (below 2%).";
             $recommendations[] = 'Run an A/B test on the main landing page.';
             $recommendations[] = 'Improve call-to-action placement.';
         }
 
-        if ($visitors < 100) {
-            $issues[] = 'Traffic is low.';
+        if ($c['visitors'] / $days < 15) {
+            $issues[] = 'Traffic is low (under ~15 visitors/day).';
             $recommendations[] = 'Increase marketing efforts (SEO, PPC, social).';
         }
 
-        if ($revenue < 500) {
-            $issues[] = 'Revenue is below $500.';
-            $recommendations[] = 'Consider upselling or cross-selling strategies.';
+        if (($changes['conversions'] ?? null) !== null && $changes['conversions'] <= -30) {
+            $issues[] = "Conversions are down {$changes['conversions']}% vs the previous {$summary['window_days']} days.";
         }
 
-        $previous = AnalyticsSnapshot::where('brand_id', $brandId)
-            ->where('id', '<', $analytics->id)
-            ->latest()
-            ->first();
+        if (($changes['visitors'] ?? null) !== null && $changes['visitors'] <= -30) {
+            $issues[] = "Visitors are down {$changes['visitors']}% vs the previous {$summary['window_days']} days.";
+            $recommendations[] = 'Check recent ranking, indexing and campaign changes.';
+        }
 
-        $trend = 'stable';
-        if ($previous) {
-            $prevConversions = $previous->conversions ?? 0;
-            if ($conversions > $prevConversions) {
-                $trend = 'up';
-            } elseif ($conversions < $prevConversions) {
-                $trend = 'down';
-            }
+        if (($changes['revenue'] ?? null) !== null && $changes['revenue'] <= -30) {
+            $issues[] = "Revenue is down {$changes['revenue']}% vs the previous {$summary['window_days']} days.";
+            $recommendations[] = 'Consider upselling or cross-selling strategies.';
         }
 
         return response()->json([
             'success' => true,
             'brand_id' => $brandId,
+            'as_of' => $summary['as_of'],
             'analytics' => [
-                'visitors' => $visitors,
-                'conversions' => $conversions,
-                'revenue' => $revenue,
-                'conversion_rate' => round($conversionRate, 2),
-                'trend' => $trend,
+                'window_days' => $summary['window_days'],
+                'visitors' => $c['visitors'],
+                'conversions' => $c['conversions'],
+                'revenue' => $c['revenue'],
+                'conversion_rate' => $summary['conversion_rate'],
+                'previous_conversion_rate' => $summary['previous_conversion_rate'],
+                'changes_pct' => $changes,
+                'trend' => $summary['trend'],
+                'top_pages' => $summary['top_pages'],
             ],
             'issues' => $issues,
             'recommendations' => $recommendations,
