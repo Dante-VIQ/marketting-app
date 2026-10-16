@@ -474,6 +474,7 @@ class AgentController extends Controller
                 'title' => 'Generate content: ' . substr($topic, 0, 100),
                 'description' => "Queued by agent for topic: {$topic}",
                 'category' => $category,
+                'action_name' => $request->input('action_name', 'trigger_content_generation'),
                 'target_platform' => $template,
                 'target_keyword' => $topic,
                 'status' => 'approved',
@@ -504,7 +505,7 @@ class AgentController extends Controller
 
     // ============= EXECUTION =============
 
-    public function scan($brandId)
+    public function scan($brandId, Request $request)
     {
         $brand = Brand::findOrFail($brandId);
 
@@ -524,6 +525,7 @@ class AgentController extends Controller
                 'brand_id'         => $brandId,
                 'title'            => "Fix SEO: {$issue->type}",
                 'category'         => 'seo',
+                'action_name'      => $request->input('action_name', 'run_site_scan'),
                 'description'      => $issue->description,
                 'target_url'       => $issue->page_url,
                 'estimated_impact' => $issue->severity === 'critical' ? 1000 : 500,
@@ -613,6 +615,7 @@ class AgentController extends Controller
             'title'                  => $title,
             'description'            => $reason,
             'category'               => $meta['category'],
+            'action_name'            => $actionName,
             'suggested_content'      => json_encode($payload, JSON_PRETTY_PRINT),
             'target_url'             => $payload['target_url'] ?? null,
             'target_keyword'         => $payload['topic'] ?? null,
@@ -861,7 +864,7 @@ class AgentController extends Controller
             'outcome' => 'nullable|array',
             'confidence' => 'nullable|numeric|min:0|max:1',
             'was_autonomous' => 'boolean',
-            'was_successful' => 'boolean',
+            'was_successful' => 'nullable|boolean',
             'improvement_percentage' => 'nullable|numeric',
             'duration_seconds' => 'nullable|integer',
             'human_feedback' => 'nullable|string',
@@ -877,7 +880,8 @@ class AgentController extends Controller
             'outcome' => $validated['outcome'] ?? null,
             'confidence' => $validated['confidence'] ?? null,
             'was_autonomous' => $validated['was_autonomous'] ?? false,
-            'was_successful' => $validated['was_successful'] ?? true,
+            // Explicit null = outcome unknown; only default to true when the key is absent.
+            'was_successful' => array_key_exists('was_successful', $validated) ? $validated['was_successful'] : true,
             'improvement_percentage' => $validated['improvement_percentage'] ?? null,
             'duration_seconds' => $validated['duration_seconds'] ?? null,
             'human_feedback' => $validated['human_feedback'] ?? null,
@@ -980,8 +984,10 @@ class AgentController extends Controller
                 ->limit(20)
                 ->get();
 
-            $total = $experiences->count();
-            $successful = $experiences->where('was_successful', true)->count();
+            // Unknown outcomes (null) are excluded from the success-rate denominator.
+            $decided = $experiences->whereNotNull('was_successful');
+            $total = $decided->count();
+            $successful = $decided->where('was_successful', true)->count();
             $successRate = $total > 0 ? ($successful / $total) * 100 : 0;
             $avgImprovement = $experiences->where('was_successful', true)->avg('improvement_percentage') ?? 0;
 
@@ -1883,20 +1889,22 @@ class AgentController extends Controller
      */
     public function getActionCount(Request $request, $brandId)
     {
-        $category = $request->query('category');
-        $window   = (int) $request->query('window', 3600); // seconds
+        $category   = $request->query('category');
+        $actionName = $request->query('action');
+        $window     = (int) $request->query('window', 3600); // seconds
 
-        if (!$category) {
+        if (!$category && !$actionName) {
             return response()->json([
                 'success' => false,
-                'error'   => 'category query param required',
+                'error'   => 'category or action query param required',
             ], 400);
         }
 
         $since = now()->subSeconds($window);
 
         $count = AiAction::where('brand_id', $brandId)
-            ->where('category', $category)
+            ->when($actionName, fn ($q) => $q->where('action_name', $actionName))
+            ->when(!$actionName && $category, fn ($q) => $q->where('category', $category))
             ->where(function ($q) use ($since) {
                 $q->where('created_at', '>=', $since)
                   ->orWhere('executed_at', '>=', $since);
@@ -1907,6 +1915,7 @@ class AgentController extends Controller
             'success'  => true,
             'brand_id' => (int) $brandId,
             'category' => $category,
+            'action'   => $actionName,
             'window'   => $window,
             'count'    => $count,
         ]);
@@ -2040,5 +2049,34 @@ class AgentController extends Controller
             'by_category' => $byCategory,
             'actions'     => $actions,
         ]);
+    }
+
+    // ============= CYCLE RUN LOG =============
+
+    public function recordCycleRun(Request $request)
+    {
+        $validated = $request->validate([
+            'brand_id'    => 'required|integer|exists:brands,id',
+            'status'      => 'required|in:completed,idle,failed,skipped',
+            'summary'     => 'nullable|array',
+            'started_at'  => 'nullable|date',
+            'finished_at' => 'nullable|date',
+        ]);
+
+        $run = \App\Models\AgentCycleRun::create($validated);
+
+        return response()->json(['success' => true, 'id' => $run->id], 201);
+    }
+
+    public function getCycleRuns($brandId, Request $request)
+    {
+        $limit = min(max((int) $request->query('limit', 20), 1), 100);
+
+        $runs = \App\Models\AgentCycleRun::where('brand_id', $brandId)
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get();
+
+        return response()->json(['success' => true, 'runs' => $runs]);
     }
 }
