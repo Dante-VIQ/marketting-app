@@ -38,6 +38,13 @@ Route::prefix('agent')
 
         /*
         |-----------------------------------------
+        | Evidence (GA4 + Ahrefs + rank movement, one call)
+        |-----------------------------------------
+        */
+        Route::get('/evidence/{brandId}', [AgentController::class, 'getEvidence'])->name('evidence');
+
+        /*
+        |-----------------------------------------
         | Brief
         |-----------------------------------------
         */

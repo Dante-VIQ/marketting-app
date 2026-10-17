@@ -98,6 +98,18 @@ class AgentController extends Controller
 
     // ============= OPPORTUNITIES =============
 
+    /**
+     * One real-data picture of the brand (GA4 + Ahrefs + rank movement) for the specialists.
+     */
+    public function getEvidence($brandId)
+    {
+        Brand::findOrFail($brandId);
+
+        return response()->json(
+            app(\App\Services\Analytics\AgentEvidenceService::class)->build((int) $brandId)
+        );
+    }
+
     public function getOpportunities($brandId)
     {
         $brand = Brand::findOrFail($brandId);
@@ -128,6 +140,15 @@ class AgentController extends Controller
                 'impact' => $issue->severity === 'high' ? 500 : 100,
                 'requires_approval' => $issue->severity === 'high',
             ];
+        }
+
+        // Ranking drops and lost high-authority backlinks (real Ahrefs data)
+        try {
+            foreach (app(\App\Services\Analytics\AgentEvidenceService::class)->seoAlerts((int) $brandId) as $alert) {
+                $opportunities[] = $alert;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('SEO trend alerts failed', ['brand_id' => $brandId, 'error' => $e->getMessage()]);
         }
 
         // Pending leads
@@ -316,13 +337,33 @@ class AgentController extends Controller
     {
         $pageUrl = $request->input('url');
 
+        // Latest snapshot only — previously every historical day was returned, so the
+        // same keyword appeared once per day.
+        $latest = \App\Models\KeywordRanking::where('brand_id', $brandId)->max('tracked_date');
+
+        if (!$latest) {
+            return response()->json([]);
+        }
+
         $rankings = \App\Models\KeywordRanking::where('brand_id', $brandId)
-            ->when($pageUrl, function ($query) use ($pageUrl) {
-                return $query->where('page_url', $pageUrl);
-            })
+            ->whereDate('tracked_date', $latest)
+            ->when($pageUrl, fn ($q) => $q->where('page_url', $pageUrl))
             ->orderBy('position')
             ->limit(50)
-            ->get();
+            ->get()
+            ->map(fn ($r) => [
+                'keyword'           => $r->keyword,
+                'page_url'          => $r->page_url,
+                'position'          => $r->position,
+                'previous_position' => $r->previous_position,
+                'change'            => ($r->previous_position !== null && $r->position !== null)
+                    ? $r->previous_position - $r->position   // positive = moved up
+                    : null,
+                'search_volume'     => $r->search_volume,
+                'difficulty'        => $r->difficulty,
+                'traffic'           => $r->metadata['traffic'] ?? null,
+                'tracked_date'      => $r->tracked_date->toDateString(),
+            ]);
 
         return response()->json($rankings);
     }

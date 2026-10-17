@@ -205,46 +205,12 @@ class SeoAssistantService
     }
 
     /**
-     * Analyze keyword rankings.
+     * Analyze keyword rankings from real Ahrefs data (see KeywordRankingSync).
+     * With no fresh Ahrefs data this does nothing — it never invents rankings.
      */
     protected function analyzeKeywords(Brand $brand): void
     {
-        // Stubbed keywords - replace with Google Search Console / SerpAPI response
-        $trackedKeywords = [
-            ['keyword' => 'safari kenya', 'position' => rand(1, 20)],
-            ['keyword' => 'maasai mara', 'position' => rand(1, 15)],
-            ['keyword' => 'kenya travel', 'position' => rand(5, 25)],
-            ['keyword' => 'african safari', 'position' => rand(10, 30)],
-        ];
-
-        $today = Carbon::today()->toDateString();
-
-        foreach ($trackedKeywords as $data) {
-            $alreadyTracked = KeywordRanking::where('brand_id', $brand->id)
-                ->where('keyword', $data['keyword'])
-                ->whereDate('tracked_date', $today)
-                ->exists();
-
-            if ($alreadyTracked) {
-                continue;
-            }
-
-            $previousRecord = KeywordRanking::where('brand_id', $brand->id)
-                ->where('keyword', $data['keyword'])
-                ->orderByDesc('tracked_date')
-                ->first();
-
-            KeywordRanking::create([
-                'brand_id'          => $brand->id,
-                'keyword'           => $data['keyword'],
-                'page_url'          => '/',
-                'position'          => $data['position'],
-                'previous_position' => $previousRecord?->position,
-                'search_volume'     => rand(100, 1000),
-                'difficulty'        => ['easy', 'medium', 'hard'][rand(0, 2)],
-                'tracked_date'      => $today,
-            ]);
-        }
+        app(\App\Services\Seo\KeywordRankingSync::class)->sync($brand);
     }
 
     protected function generateRecommendations(Brand $brand): void
@@ -324,17 +290,20 @@ class SeoAssistantService
     public function generateSeoReport(Brand $brand): string
     {
         $issues = $this->getRecommendations($brand);
-        $keywords = KeywordRanking::where('brand_id', $brand->id)
-            ->whereDate('tracked_date', Carbon::today())
-            ->orderBy('position')
-            ->limit(10)
-            ->get();
+        $latestDate = KeywordRanking::where('brand_id', $brand->id)->max('tracked_date');
+        $keywords = $latestDate
+            ? KeywordRanking::where('brand_id', $brand->id)
+                ->whereDate('tracked_date', $latestDate)
+                ->orderBy('position')
+                ->limit(10)
+                ->get()
+            : collect();
 
         $report = "## SEO Report for {$brand->name}\n\n";
 
         $report .= "### Top Keywords\n";
         if ($keywords->isEmpty()) {
-            $report .= "No keyword rankings recorded for today.\n";
+            $report .= "No keyword rankings available yet (waiting for Ahrefs data).\n";
         } else {
             foreach ($keywords as $keyword) {
                 $change = '';
