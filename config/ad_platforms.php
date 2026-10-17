@@ -11,6 +11,11 @@ return [
         'meta' => \App\Services\AdPlatforms\MetaAdsPlatform::class,
     ],
 
+    // Shown on the Ad Platforms page. `env` lists the variables to put in .env (never the values).
+    'labels' => [
+        'meta' => ['label' => 'Meta (Facebook & Instagram) Ads', 'env' => ['META_ADS_ACCESS_TOKEN'], 'id_hint' => 'Numeric campaign id from Ads Manager'],
+    ],
+
     'meta' => [
         'access_token'    => env('META_ADS_ACCESS_TOKEN'),
         'api_version'     => env('META_ADS_API_VERSION', 'v21.0'),
