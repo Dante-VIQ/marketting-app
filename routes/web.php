@@ -109,6 +109,14 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         })->name('show');
     });
 
+    // Ad platforms (Meta, ...): connection status, link campaigns, live check
+    Route::prefix('ad-platforms')->name('ad-platforms.')->group(function () {
+        Route::get('/', [App\Http\Controllers\AdPlatformController::class, 'index'])->name('index');
+        Route::post('/campaigns/{campaign}/link', [App\Http\Controllers\AdPlatformController::class, 'link'])->name('link')->whereNumber('campaign');
+        Route::post('/campaigns/{campaign}/unlink', [App\Http\Controllers\AdPlatformController::class, 'unlink'])->name('unlink')->whereNumber('campaign');
+        Route::post('/campaigns/{campaign}/check', [App\Http\Controllers\AdPlatformController::class, 'check'])->name('check')->whereNumber('campaign');
+    });
+
     // Leads
     Route::prefix('leads')->name('leads.')->group(function () {
         Route::get('/', function () {
