@@ -57,78 +57,127 @@ class AnalyticsCollectorService
         }
     }
 
+    /** How far back the first collection (or a long gap) reaches. */
+    public const BACKFILL_DAYS = 30;
+    /** Re-pull this many days before the last stored day: GA4 revises recent days. */
+    public const REFRESH_DAYS = 3;
+
     /**
-     * Collect data from Google Analytics 4.
-     * 
+     * Date range to collect: from (last stored day - REFRESH_DAYS) up to yesterday,
+     * at most BACKFILL_DAYS back. Today is excluded (GA4 data for today is partial).
+     *
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    public static function collectionWindow(?Carbon $lastStored, ?Carbon $today = null): array
+    {
+        $today     = ($today ?? Carbon::today())->copy()->startOfDay();
+        $end       = $today->copy()->subDay();
+        $earliest  = $today->copy()->subDays(self::BACKFILL_DAYS);
+        $start     = $lastStored ? $lastStored->copy()->startOfDay()->subDays(self::REFRESH_DAYS) : $earliest;
+
+        if ($start->lt($earliest)) {
+            $start = $earliest;
+        }
+        if ($start->gt($end)) {
+            $start = $end->copy();
+        }
+
+        return [$start, $end];
+    }
+
+    /**
+     * Collect real per-day data from Google Analytics 4 (totals, pages, channels).
+     *
      * @throws \Exception
      */
     protected function collectFromGA4(Brand $brand, Carbon $date): void
     {
-        // Get real data from GA4 (30-day window)
-        $data = $this->ga4Service->getDataApiData($brand);
+        $last = AnalyticsSnapshot::where('brand_id', $brand->id)
+            ->where('source', 'ga4')
+            ->where('metric', 'visitors')
+            ->whereNull('dimension')
+            ->max('date');
 
-        // Get the brand's website URL for building full URLs
+        [$start, $end] = self::collectionWindow($last ? Carbon::parse($last) : null);
+
+        $data = $this->ga4Service->getDailyData($brand, $start->toDateString(), $end->toDateString());
+
+        if (empty($data['daily'])) {
+            Log::warning('GA4 returned no daily rows', [
+                'brand_id' => $brand->id, 'from' => $start->toDateString(), 'to' => $end->toDateString(),
+            ]);
+        }
+
         $baseUrl = $brand->base_url;
-
         if (!$baseUrl) {
             Log::warning('AnalyticsCollector: brand has no website_url, top pages will lack full URLs', [
                 'brand_id' => $brand->id,
             ]);
         }
 
-        // Log the data for debugging
-        \Illuminate\Support\Facades\Log::info('GA4 data received for storage', [
-            'brand_id' => $brand->id,
-            'date' => $date->toDateString(),
-            'visitors' => $data['visitors'] ?? 0,
-            'visitors_avg' => $data['visitors_avg'] ?? 0,
-            'sessions' => $data['sessions'] ?? 0,
-            'revenue' => $data['revenue'] ?? 0,
-        ]);
+        $meta = ['method' => 'ga4_daily'];
 
-        // Store daily average visitors
-        $visitors = $data['visitors_avg'] ?? 0;
-        $this->storeSnapshot($brand, $date, 'ga4', 'visitors', null, $visitors);
+        foreach ($data['daily'] as $day => $m) {
+            $d = Carbon::parse($day);
+            $this->storeSnapshot($brand, $d, 'ga4', 'visitors', null, $m['activeUsers'] ?? 0, $meta);
+            $this->storeSnapshot($brand, $d, 'ga4', 'new_users', null, $m['newUsers'] ?? 0, $meta);
+            $this->storeSnapshot($brand, $d, 'ga4', 'sessions', null, $m['sessions'] ?? 0, $meta);
+            $this->storeSnapshot($brand, $d, 'ga4', 'conversions', null, $m['keyEvents'] ?? 0, $meta);
+            $this->storeSnapshot($brand, $d, 'ga4', 'revenue', null, $m['totalRevenue'] ?? 0, $meta);
+            $this->storeSnapshot($brand, $d, 'ga4', 'page_views', null, $m['screenPageViews'] ?? 0, $meta);
+            $this->storeSnapshot($brand, $d, 'ga4', 'engagement_rate', null, round(($m['engagementRate'] ?? 0) * 100, 2), $meta);
+            $this->storeSnapshot($brand, $d, 'ga4', 'avg_session_duration', null, round($m['averageSessionDuration'] ?? 0, 1), $meta);
+        }
 
-        // Store page views (daily average)
-        $pageViews = round($data['page_views'] / 30, 0);
-        $this->storeSnapshot($brand, $date, 'ga4', 'page_views', null, $pageViews);
-
-        // Store sessions (daily average)
-        $sessions = $data['sessions'] > 0 ? round($data['sessions'] / 30, 0) : 0;
-        $this->storeSnapshot($brand, $date, 'ga4', 'sessions', null, $sessions);
-
-        // Store conversions (daily average)
-        $conversions = $data['conversions'] > 0 ? round($data['conversions'] / 30, 2) : 0;
-        $this->storeSnapshot($brand, $date, 'ga4', 'conversions', null, $conversions);
-
-        // Store revenue (daily average)
-        $revenue = $data['revenue'] > 0 ? round($data['revenue'] / 30, 2) : 0;
-        $this->storeSnapshot($brand, $date, 'ga4', 'revenue', null, $revenue);
-
-        // Store top pages with FULL URLs
-        if (!empty($data['top_pages'])) {
-            foreach ($data['top_pages'] as $page) {
-                $path = $page['path'] ?? '/';
-                $fullUrl = $this->buildFullUrl($baseUrl, $path);
-
-                $this->storeSnapshot(
-                    $brand,
-                    $date,
-                    'ga4',
-                    'visitors',
-                    $fullUrl,
-                    $page['visitors'] ?? 0
-                );
+        // Per-page / per-channel rows are derived from the same window. Clear that window's
+        // old rows first: earlier versions stored 30-day totals under a single date, which
+        // would otherwise linger and inflate sums.
+        if (!isset($data['errors']['pages'])) {
+            $this->replaceDimensionRows($brand, $start, $end, ['visitors', 'conversions']);
+            foreach ($data['pages'] as $day => $pages) {
+                $d = Carbon::parse($day);
+                foreach ($pages as $path => $m) {
+                    $url = $this->buildFullUrl($baseUrl, $path);
+                    $this->storeSnapshot($brand, $d, 'ga4', 'visitors', $url, $m['activeUsers'] ?? 0, $meta);
+                    $this->storeSnapshot($brand, $d, 'ga4', 'conversions', $url, $m['keyEvents'] ?? 0, $meta);
+                }
             }
         }
 
-        Log::info('GA4 data stored', [
+        if (!isset($data['errors']['channels'])) {
+            $this->replaceDimensionRows($brand, $start, $end, ['channel_visitors', 'channel_sessions', 'channel_conversions']);
+            foreach ($data['channels'] as $day => $channels) {
+                $d = Carbon::parse($day);
+                foreach ($channels as $channel => $m) {
+                    $this->storeSnapshot($brand, $d, 'ga4', 'channel_visitors', $channel, $m['activeUsers'] ?? 0, $meta);
+                    $this->storeSnapshot($brand, $d, 'ga4', 'channel_sessions', $channel, $m['sessions'] ?? 0, $meta);
+                    $this->storeSnapshot($brand, $d, 'ga4', 'channel_conversions', $channel, $m['keyEvents'] ?? 0, $meta);
+                }
+            }
+        }
+
+        if ($data['errors']) {
+            Log::warning('GA4 partial collection', ['brand_id' => $brand->id, 'errors' => $data['errors']]);
+        }
+
+        Log::info('GA4 daily data stored', [
             'brand_id' => $brand->id,
-            'date' => $date->toDateString(),
-            'visitors_daily_avg' => $visitors,
-            'total_visitors_30day' => $data['visitors'] ?? 0,
+            'from' => $start->toDateString(),
+            'to' => $end->toDateString(),
+            'days' => count($data['daily']),
         ]);
+    }
+
+    protected function replaceDimensionRows(Brand $brand, Carbon $from, Carbon $to, array $metrics): void
+    {
+        $q = AnalyticsSnapshot::where('brand_id', $brand->id)
+            ->where('source', 'ga4')
+            ->whereIn('metric', $metrics)
+            ->whereNotNull('dimension')
+            ->whereDate('date', '>=', $from->toDateString())
+            ->whereDate('date', '<=', $to->toDateString());
+
+        $q->delete();
     }
 
     /**
@@ -169,7 +218,7 @@ class AnalyticsCollectorService
     /**
      * Store a snapshot in the database.
      */
-    protected function storeSnapshot(Brand $brand, Carbon $date, string $source, string $metric, ?string $dimension, $value): void
+    protected function storeSnapshot(Brand $brand, Carbon $date, string $source, string $metric, ?string $dimension, $value, ?array $metadata = null): void
     {
         try {
             AnalyticsSnapshot::updateOrCreate(
@@ -180,9 +229,7 @@ class AnalyticsCollectorService
                     'metric' => $metric,
                     'dimension' => $dimension,
                 ],
-                [
-                    'value' => $value,
-                ]
+                array_filter(['value' => $value, 'metadata' => $metadata], fn ($v) => $v !== null)
             );
         } catch (\Exception $e) {
             Log::error('Failed to store snapshot', [

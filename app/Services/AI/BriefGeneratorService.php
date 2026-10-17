@@ -329,8 +329,7 @@ class BriefGeneratorService
 
         $channels = AnalyticsSnapshot::where('brand_id', $brand->id)
             ->where('source', 'ga4')
-            ->where('metric', 'visitors')
-            ->where('dimension', 'like', 'source_%')
+            ->where('metric', 'channel_visitors')
             ->where('date', '>=', $last30Days->toDateString())
             ->select('dimension')
             ->selectRaw('SUM(value) as total_visitors')
