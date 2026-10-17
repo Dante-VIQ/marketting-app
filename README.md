@@ -158,7 +158,7 @@ class node_ai_gateway,node_ahrefs_service,node_strands,node_gemini,node_ga4 tone
 
 ```mermaid
 graph TB
-    subgraph Agent["🤖 Strands Agent (TypeScript)"]
+    subgraph Agent["🤖 Strands Agent (Python)"]
         direction TB
         Supervisor["🧠 Supervisor\nOrchestrates workflow"]
         Specialists["🎯 Specialists\nSEO, Lead, Content"]
