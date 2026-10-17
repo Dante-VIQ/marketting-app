@@ -17,6 +17,9 @@ class AhrefsBacklink extends Model
         'source_page_title',
         'is_follow',
         'is_nofollow',
+        'is_lost',
+        'lost_reason',
+        'is_spam',
         'first_seen_at',
         'last_seen_at',
         'metadata',
@@ -25,6 +28,8 @@ class AhrefsBacklink extends Model
     protected $casts = [
         'is_follow' => 'boolean',
         'is_nofollow' => 'boolean',
+        'is_lost' => 'boolean',
+        'is_spam' => 'boolean',
         'first_seen_at' => 'date',
         'last_seen_at' => 'date',
         'metadata' => 'array',

@@ -13,6 +13,11 @@ class AhrefsKeyword extends Model
         'keyword',
         'target_url',
         'position',
+        'previous_position',
+        'position_change',
+        'traffic',
+        'intent',
+        'is_branded',
         'search_volume',
         'difficulty',
         'competition',
@@ -22,6 +27,10 @@ class AhrefsKeyword extends Model
 
     protected $casts = [
         'position' => 'integer',
+        'previous_position' => 'integer',
+        'position_change' => 'integer',
+        'traffic' => 'integer',
+        'is_branded' => 'boolean',
         'search_volume' => 'integer',
         'tracked_date' => 'date',
         'metadata' => 'array',

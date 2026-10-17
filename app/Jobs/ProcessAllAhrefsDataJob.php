@@ -23,8 +23,18 @@ class ProcessAllAhrefsDataJob implements ShouldQueue
 
         foreach ($brands as $brand) {
             try {
-                $ahrefs->collectForBrand($brand);
-                Log::info('Ahrefs data collected for brand', ['brand_id' => $brand->id]);
+                $result = $ahrefs->collectForBrand($brand);
+                if (!empty($result['error'])) {
+                    Log::warning('Ahrefs collection incomplete for brand', [
+                        'brand_id' => $brand->id,
+                        'error' => $result['error'],
+                    ]);
+                    continue;
+                }
+                Log::info('Ahrefs data collected for brand', [
+                    'brand_id' => $brand->id,
+                    'collected' => $result['collected'] ?? [],
+                ]);
             } catch (\Exception $e) {
                 Log::error('Ahrefs data collection failed for brand', [
                     'brand_id' => $brand->id,

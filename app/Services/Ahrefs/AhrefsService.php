@@ -7,7 +7,6 @@ use App\Models\AhrefsBacklink;
 use App\Models\AhrefsKeyword;
 use App\Models\AhrefsSiteStat;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class AhrefsService
@@ -15,10 +14,13 @@ class AhrefsService
     protected ?string $apiToken;
     protected string $apiEndpoint;
 
-    public function __construct()
+    protected AhrefsApi $api;
+
+    public function __construct(?AhrefsApi $api = null)
     {
         $this->apiToken = config('services.ahrefs.token', env('AHREFS_API_TOKEN'));
         $this->apiEndpoint = rtrim(config('services.ahrefs.endpoint', env('AHREFS_API_ENDPOINT', 'https://api.ahrefs.com/v3')), '/');
+        $this->api = $api ?? new AhrefsApi();
     }
 
     public function isConfigured(): bool
@@ -28,6 +30,10 @@ class AhrefsService
 
     /**
      * Collect Ahrefs data for a brand.
+     *
+     * Each section (site stats, keywords, backlinks) is fetched and stored
+     * independently. A failed section is reported in `errors` and stores NOTHING —
+     * never zeros — so history only contains values Ahrefs actually returned.
      */
     public function collectForBrand(Brand $brand): array
     {
@@ -35,47 +41,45 @@ class AhrefsService
             return ['error' => 'Ahrefs API token not configured'];
         }
 
-        // Get the website URL from the brand
-        $websiteUrl = $brand->website_url ?? $brand->config['website_url'] ?? null;
-
-        if (!$websiteUrl) {
+        $domain = $this->getTargetDomain($brand);
+        if (!$domain) {
             return ['error' => 'No website URL configured for this brand. Please add a website URL in Brand Settings.'];
         }
 
-        $domain = $this->extractDomain($websiteUrl);
+        $country = $brand->config['ahrefs_country'] ?? null;   // e.g. "KE"; null = all countries
+        $today   = Carbon::today();
+        $date    = $today->format('Y-m-d');
+        $compare = $today->copy()->subDays(30)->format('Y-m-d');
 
-        Log::info('Collecting Ahrefs data for brand', [
-            'brand_id' => $brand->id,
-            'brand_name' => $brand->name,
-            'domain' => $domain,
-        ]);
+        Log::info('Collecting Ahrefs data for brand', ['brand_id' => $brand->id, 'domain' => $domain]);
 
-        $results = [];
+        $results = ['collected' => [], 'errors' => []];
 
-        try {
-            // 1. Get site stats
-            $results['site_stats'] = $this->fetchSiteStats($domain);
-            $this->storeSiteStats($brand, $domain, $results['site_stats']);
+        $sections = [
+            'site_stats' => fn () => $this->storeSiteStats($brand, $domain, $this->api->siteStats($domain, $date, $country)),
+            'keywords'   => fn () => $this->storeKeywords($brand, $this->api->keywords(
+                $domain, $date, $compare, (int) config('services.ahrefs.keyword_limit', 100), $country
+            )),
+            'backlinks'  => fn () => $this->storeBacklinks($brand, $domain, $this->api->backlinks(
+                $domain, $compare, (int) config('services.ahrefs.backlink_limit', 100)
+            )),
+        ];
 
-            // 2. Get backlinks
-            $results['backlinks'] = $this->fetchBacklinks($domain);
-            $this->storeBacklinks($brand, $domain, $results['backlinks']);
+        foreach ($sections as $name => $run) {
+            try {
+                $results['collected'][$name] = $run();
+            } catch (\Throwable $e) {
+                $results['errors'][$name] = $e->getMessage();
+                Log::error("Ahrefs {$name} collection failed", [
+                    'brand_id' => $brand->id, 'domain' => $domain, 'error' => $e->getMessage(),
+                ]);
+            }
+        }
 
-            // 3. Get keyword rankings
-            $results['keywords'] = $this->fetchKeywords($domain);
-            $this->storeKeywords($brand, $domain, $results['keywords']);
-
-            Log::info('Ahrefs data collected successfully', [
-                'brand_id' => $brand->id,
-                'domain' => $domain,
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Ahrefs data collection failed', [
-                'brand_id' => $brand->id,
-                'error' => $e->getMessage(),
-            ]);
-            $results['error'] = $e->getMessage();
+        if ($results['errors']) {
+            $results['error'] = implode(' | ', array_map(
+                fn ($k, $v) => "{$k}: {$v}", array_keys($results['errors']), $results['errors']
+            ));
         }
 
         return $results;
@@ -88,204 +92,91 @@ class AhrefsService
     {
         $websiteUrl = $brand->website_url ?? $brand->config['website_url'] ?? null;
 
-        if (!$websiteUrl) {
-            return null;
-        }
-
-        return $this->extractDomain($websiteUrl);
+        return $websiteUrl ? $this->extractDomain($websiteUrl) : null;
     }
-    /**
-     * Fetch site stats from Ahrefs.
-     */
-    protected function fetchSiteStats(string $domain): array
-    {
-        try {
-            $response = Http::withToken($this->apiToken)
-            ->timeout(60)
-            ->get("{$this->apiEndpoint}/site-explorer/domain-rating", [
-                'target' => $domain,
-                'date' => Carbon::today()->format('Y-m-d'),
-            ]);
 
-            if ($response->failed()) {
-                $this->handleApiError($response);
+    protected function storeSiteStats(Brand $brand, string $domain, array $stats): int
+    {
+        AhrefsSiteStat::updateOrCreate(
+            ['brand_id' => $brand->id, 'domain' => $domain, 'tracked_date' => Carbon::today()],
+            [
+                'domain_rating'     => $stats['domain_rating'] !== null ? (int) round($stats['domain_rating']) : null,
+                'url_rating'        => null, // not provided by domain-rating; ahrefs_rank is kept in metadata
+                'backlinks'         => $stats['backlinks'],
+                'referring_domains' => $stats['referring_domains'],
+                'organic_keywords'  => $stats['organic_keywords'],
+                'keywords_top3'     => $stats['keywords_top3'],
+                'organic_traffic'   => $stats['organic_traffic'],
+                'traffic_value'     => $stats['traffic_value'],
+                'metadata'          => $stats,
+            ]
+        );
+
+        return 1;
+    }
+
+    protected function storeKeywords(Brand $brand, array $keywords): int
+    {
+        $stored = 0;
+        foreach ($keywords as $k) {
+            if ($k['keyword'] === '') {
+                continue;
             }
 
-            $data = $response->json();
-
-            // Log successful response
-            Log::info('Ahrefs Site Stats API success', [
-                'domain' => $domain,
-                'has_data' => isset($data['domain_rating']),
-            ]);
-
-            return $data;
-        } catch (\Exception $e) {
-            Log::warning('Ahrefs Site Stats API failed, using fallback', [
-                'domain' => $domain,
-                'error' => $e->getMessage(),
-            ]);
-
-            // Return default data structure
-            return [
-                'domain_rating' => [
-                    'domain_rating' => 0,
-                    'ahrefs_rank' => 0,
-                ],
-                'metrics' => [
-                    'backlinks' => 0,
-                    'refdomains' => 0,
-                    'keywords' => 0,
-                    'organic_traffic' => 0,
-                ],
-            ];
+            AhrefsKeyword::updateOrCreate(
+                ['brand_id' => $brand->id, 'keyword' => $k['keyword'], 'tracked_date' => Carbon::today()],
+                [
+                    'target_url'        => $k['url'],
+                    'position'          => $k['position'],
+                    'previous_position' => $k['previous_position'],
+                    'position_change'   => $k['position_change'],
+                    'search_volume'     => $k['volume'],
+                    'difficulty'        => $k['difficulty'] !== null ? (string) $k['difficulty'] : null,
+                    'traffic'           => $k['traffic'],
+                    'intent'            => $k['intent'],
+                    'is_branded'        => $k['is_branded'],
+                    'metadata'          => $k['raw'],
+                ]
+            );
+            $stored++;
         }
+
+        return $stored;
     }
 
-    /**
-     * Fetch backlinks from Ahrefs.
-     */
-    protected function fetchBacklinks(string $domain): array
+    protected function storeBacklinks(Brand $brand, string $domain, array $backlinks): int
     {
-        try {
-            $response = Http::withToken($this->apiToken)
-            ->timeout(60)
-            ->get("{$this->apiEndpoint}/site-explorer/all-backlinks", [
-                'target' => $domain,
-                'limit' => 50,
-                'select' => 'url_from,url_to,anchor,title,domain_rating_source,is_nofollow',
-            ]);
-
-            if ($response->failed()) {
-                $this->handleApiError($response);
+        $stored = 0;
+        foreach ($backlinks as $b) {
+            if ($b['source_url'] === '') {
+                continue;
             }
-
-            $data = $response->json();
-
-            Log::info('Ahrefs Backlinks API success', [
-                'domain' => $domain,
-                'count' => count($data['backlinks'] ?? []),
-            ]);
-
-            return $data['backlinks'] ?? [];
-        } catch (\Exception $e) {
-            Log::warning('Ahrefs Backlinks API failed', [
-                'domain' => $domain,
-                'error' => $e->getMessage(),
-            ]);
-            return [];
-        }
-    }
-
-    /**
-     * Fetch keyword rankings from Ahrefs.
-     */
-    protected function fetchKeywords(string $domain): array
-    {
-        try {
-            $response = Http::withToken($this->apiToken)
-            ->timeout(60)
-            ->get("{$this->apiEndpoint}/site-explorer/organic-keywords", [
-                'target' => $domain,
-                'limit' => 50,
-                'select' => 'keyword,position,volume,kd,best_url',
-            ]);
-
-            if ($response->failed()) {
-                $this->handleApiError($response);
-            }
-
-            $data = $response->json();
-
-            Log::info('Ahrefs Keywords API success', [
-                'domain' => $domain,
-                'count' => count($data['keywords'] ?? []),
-            ]);
-
-            return $data['keywords'] ?? [];
-        } catch (\Exception $e) {
-            Log::warning('Ahrefs Keywords API failed', [
-                'domain' => $domain,
-                'error' => $e->getMessage(),
-            ]);
-            return [];
-        }
-    }
-
-    /**
-     * Store site stats in database.
-     */
-    protected function storeSiteStats(Brand $brand, string $domain, array $data): void
-    {
-        $domainRatingData = $data['domain_rating'] ?? [];
-        $metrics = $data['metrics'] ?? [];
-
-        AhrefsSiteStat::create([
-            'brand_id' => $brand->id,
-            'domain' => $domain,
-            'domain_rating' => $domainRatingData['domain_rating'] ?? null,
-            'url_rating' => $domainRatingData['ahrefs_rank'] ?? null,
-            'backlinks' => $metrics['backlinks'] ?? 0,
-            'referring_domains' => $metrics['refdomains'] ?? 0,
-            'organic_keywords' => $metrics['keywords'] ?? 0,
-            'organic_traffic' => $metrics['organic_traffic'] ?? null,
-            'traffic_value' => $metrics['traffic_value'] ?? null,
-            'tracked_date' => Carbon::today(),
-                               'metadata' => $data,
-        ]);
-    }
-
-    /**
-     * Store backlinks in database.
-     */
-    protected function storeBacklinks(Brand $brand, string $domain, array $backlinks): void
-    {
-        foreach ($backlinks as $backlink) {
-            $sourceUrl = $backlink['url_from'] ?? '';
-            $targetUrl = $backlink['url_to'] ?? $domain;
 
             AhrefsBacklink::updateOrCreate(
                 [
-                    'brand_id' => $brand->id,
-                    'source_url' => $sourceUrl,
-                    'target_url' => $targetUrl,
+                    'brand_id'   => $brand->id,
+                    'source_url' => $b['source_url'],
+                    'target_url' => $b['target_url'] ?: $domain,
                 ],
                 [
-                    'anchor_text' => $backlink['anchor'] ?? null,
-                    'source_domain' => parse_url($sourceUrl, PHP_URL_HOST) ?? '',
-                                           'source_domain_rating' => $backlink['domain_rating_source'] ?? null,
-                                           'source_page_title' => $backlink['title'] ?? null,
-                                           'is_nofollow' => $backlink['is_nofollow'] ?? false,
-                                           'is_follow' => !($backlink['is_nofollow'] ?? false),
-                                           'first_seen_at' => $backlink['first_seen'] ?? null,
-                                           'last_seen_at' => $backlink['last_seen'] ?? null,
-                                           'metadata' => $backlink,
+                    'anchor_text'          => $b['anchor'],
+                    'source_domain'        => parse_url($b['source_url'], PHP_URL_HOST) ?: '',
+                    'source_domain_rating' => $b['source_dr'] !== null ? (string) $b['source_dr'] : null,
+                    'source_page_title'    => $b['title'],
+                    'is_nofollow'          => $b['is_nofollow'],
+                    'is_follow'            => $b['is_follow'],
+                    'first_seen_at'        => $b['first_seen'],
+                    'last_seen_at'         => $b['last_seen'],
+                    'is_lost'              => $b['is_lost'],
+                    'lost_reason'          => $b['lost_reason'],
+                    'is_spam'              => $b['is_spam'],
+                    'metadata'             => $b['raw'],
                 ]
             );
+            $stored++;
         }
-    }
 
-    /**
-     * Store keywords in database.
-     */
-    protected function storeKeywords(Brand $brand, string $domain, array $keywords): void
-    {
-        foreach ($keywords as $keyword) {
-            AhrefsKeyword::updateOrCreate(
-                [
-                    'brand_id' => $brand->id,
-                    'keyword' => $keyword['keyword'] ?? '',
-                    'tracked_date' => Carbon::today(),
-                ],
-                [
-                    'target_url' => $keyword['best_url'] ?? null,
-                    'position' => $keyword['position'] ?? null,
-                    'search_volume' => $keyword['volume'] ?? null,
-                    'difficulty' => $keyword['kd'] ?? null,
-                    'metadata' => $keyword,
-                ]
-            );
-        }
+        return $stored;
     }
 
     /**
@@ -300,25 +191,6 @@ class AhrefsService
 
         $host = parse_url($url, PHP_URL_HOST) ?? $url;
         return preg_replace('/^www\./i', '', $host);
-    }
-
-    /**
-     * Handle API errors with informative messages.
-     */
-    protected function handleApiError($response): void
-    {
-        $status = $response->status();
-        $body = $response->body();
-
-        if ($status === 401 || $status === 403) {
-            throw new \Exception("Ahrefs API Authorization Failed (Status {$status}). Please check your API token.");
-        }
-
-        if ($status === 429) {
-            throw new \Exception("Ahrefs API rate limit exceeded. Please wait and try again.");
-        }
-
-        throw new \Exception("Ahrefs API Error [{$status}]: {$body}");
     }
 
     /**
