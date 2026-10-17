@@ -372,6 +372,78 @@ public function getDataApiData(Brand $brand): array
     }
 
     /**
+     * Real per-day data for [$startDate, $endDate] (YYYY-MM-DD): brand totals, per-page
+     * and per-channel numbers for every day, in three runReport calls.
+     * Totals failing is fatal (throws); pages/channels failing is reported in `errors`
+     * so the collector can still store the totals.
+     */
+    public function getDailyData(Brand $brand, string $startDate, string $endDate): array
+    {
+        $propertyId = $brand->config['ga4_property_id'] ?? $this->propertyId;
+        if (!$propertyId) {
+            throw new \Exception('GA4 Property ID is not configured. Please add it in Brand Settings.');
+        }
+
+        $token = $this->getAccessToken();
+        if (!$token) {
+            throw new \Exception('Could not get GA4 access token. Check your service account configuration.');
+        }
+
+        $range = [['startDate' => $startDate, 'endDate' => $endDate]];
+        $names = fn (array $list) => array_map(fn ($n) => ['name' => $n], $list);
+
+        $daily = $this->runReport($propertyId, $token, [
+            'dateRanges' => $range,
+            'dimensions' => $names(['date']),
+            'metrics'    => $names(['activeUsers', 'newUsers', 'sessions', 'keyEvents', 'totalRevenue',
+                                     'screenPageViews', 'engagementRate', 'averageSessionDuration']),
+            'limit'      => 400,
+        ]);
+
+        $result = ['daily' => GA4ReportParser::daily($daily), 'pages' => [], 'channels' => [], 'errors' => []];
+
+        try {
+            $result['pages'] = GA4ReportParser::pages($this->runReport($propertyId, $token, [
+                'dateRanges' => $range,
+                'dimensions' => $names(['date', 'pagePath']),
+                'metrics'    => $names(['activeUsers', 'keyEvents']),
+                'orderBys'   => [['metric' => ['metricName' => 'activeUsers'], 'desc' => true]],
+                'limit'      => 10000,
+            ]));
+        } catch (\Throwable $e) {
+            $result['errors']['pages'] = $e->getMessage();
+        }
+
+        try {
+            $result['channels'] = GA4ReportParser::channels($this->runReport($propertyId, $token, [
+                'dateRanges' => $range,
+                'dimensions' => $names(['date', 'sessionDefaultChannelGroup']),
+                'metrics'    => $names(['activeUsers', 'sessions', 'keyEvents']),
+                'limit'      => 2000,
+            ]));
+        } catch (\Throwable $e) {
+            $result['errors']['channels'] = $e->getMessage();
+        }
+
+        return $result;
+    }
+
+    protected function runReport(string $propertyId, string $accessToken, array $payload): array
+    {
+        $response = Http::withToken($accessToken)
+            ->timeout(60)
+            ->post("https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport", $payload);
+
+        if (!$response->successful()) {
+            $message = $response->json()['error']['message'] ?? $response->body();
+            Log::error('GA4 runReport failed', ['status' => $response->status(), 'body' => $response->body()]);
+            throw new \Exception('GA4 API error: ' . $message);
+        }
+
+        return $response->json() ?? [];
+    }
+
+    /**
      * Fetch OAuth2 access token via Service Account Credentials.
      */
     protected function getAccessToken(): ?string
