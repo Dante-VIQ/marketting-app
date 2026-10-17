@@ -167,7 +167,7 @@ class BrandManagementService
 
             $brand->update($data);
 
-            $changes = array_diff_assoc($data, $original);
+            $changes = $this->diffBrandChanges($data, $original);
 
             $this->logAction($brand->id, $user, 'brand_updated', [
                 'brand_name' => $brand->name,
@@ -182,6 +182,34 @@ class BrandManagementService
 
             return $brand;
         });
+    }
+
+    protected function diffBrandChanges(array $updated, array $original): array
+    {
+        $changes = [];
+
+        foreach ($updated as $key => $value) {
+            if (!array_key_exists($key, $original)) {
+                $changes[$key] = ['from' => null, 'to' => $value];
+                continue;
+            }
+
+            $previous = $original[$key];
+
+            if (is_array($value) || is_array($previous)) {
+                if (!is_array($value) || !is_array($previous) || $value !== $previous) {
+                    $changes[$key] = ['from' => $previous, 'to' => $value];
+                }
+
+                continue;
+            }
+
+            if ($value !== $previous) {
+                $changes[$key] = ['from' => $previous, 'to' => $value];
+            }
+        }
+
+        return $changes;
     }
 
     // ============================================================
