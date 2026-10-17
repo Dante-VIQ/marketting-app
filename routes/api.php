@@ -98,6 +98,7 @@ Route::prefix('agent')
         */
         Route::get('/campaigns/{brandId}', [AgentController::class, 'getCampaigns'])->name('campaigns.index');
         Route::post('/campaigns/pause', [AgentController::class, 'pauseCampaign'])->name('campaigns.pause');
+        Route::post('/campaigns/adjust', [AgentController::class, 'adjustCampaign'])->name('campaigns.adjust');
 
         /*
         |-----------------------------------------

@@ -26,6 +26,8 @@ class Campaign extends Model
         'status',
         'settings',
         'performance_data',
+        'platform',
+        'external_id',
     ];
 
     protected $casts = [

@@ -48,6 +48,11 @@ class AiAction extends Model
         'metrics_at_execution',
         'verify_at_hour_1',
         'verify_at_day_1',
+        'campaign_id',
+        'ad_operation',
+        'ad_params',
+        'reversal_data',
+        'reversed_at',
     ];
 
     protected $casts = [
@@ -56,6 +61,9 @@ class AiAction extends Model
         'priority' => 'integer',
         'approved_at' => 'datetime',
         'executed_at' => 'datetime',
+        'ad_params' => 'array',
+        'reversal_data' => 'array',
+        'reversed_at' => 'datetime',
         'agent_notified_at' => 'datetime',
         'human_response_at' => 'datetime',
         'snooze_until'  => 'date',

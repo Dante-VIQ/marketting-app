@@ -410,9 +410,11 @@ class AgentController extends Controller
             ->where('id', $campaignId)
             ->firstOrFail();
 
-        // No real ad-platform integration exists yet — queue for human review.
+        // Queued for human approval; on approval it runs on the real platform (see executeApprovedAction).
         $action = AiAction::create([
             'brand_id'          => $brandId,
+            'campaign_id'       => $campaign->id,
+            'ad_operation'      => 'pause',
             'title'             => "Pause campaign: {$campaign->name}",
             'category'          => 'campaign',
             'description'       => $reason,
@@ -434,6 +436,39 @@ class AgentController extends Controller
             'action_id' => $action->id,
             'queued'    => true,
             'message'   => 'Campaign pause queued for human approval',
+        ]);
+    }
+
+    public function adjustCampaign(Request $request)
+    {
+        $data = $request->validate([
+            'brandId'     => 'required|integer',
+            'campaignId'  => 'required|integer',
+            'dailyBudget' => 'required|numeric|gt:0',
+            'reason'      => 'nullable|string|max:1000',
+        ]);
+
+        $campaign = Campaign::where('brand_id', $data['brandId'])->where('id', $data['campaignId'])->firstOrFail();
+
+        $action = AiAction::create([
+            'brand_id'         => $data['brandId'],
+            'campaign_id'      => $campaign->id,
+            'ad_operation'     => 'set_budget',
+            'ad_params'        => ['daily_budget' => (float) $data['dailyBudget']],
+            'title'            => "Set daily budget to {$data['dailyBudget']}: {$campaign->name}",
+            'category'         => 'campaign',
+            'description'      => $data['reason'] ?? 'Agent recommendation',
+            'estimated_impact' => 300,
+            'priority'         => 3,
+            'status'           => 'pending',
+            'origin'           => 'agent',
+        ]);
+
+        return response()->json([
+            'success'   => true,
+            'action_id' => $action->id,
+            'queued'    => true,
+            'message'   => 'Budget change queued for human approval',
         ]);
     }
 
@@ -733,7 +768,12 @@ class AgentController extends Controller
                     break;
 
                 case 'campaign':
-                    $result = ['noted' => 'campaign action requires manual execution'];
+                    $executor = app(\App\Services\AdPlatforms\AdActionExecutor::class);
+                    if ($executor->canExecute($action)) {
+                        $result = $executor->execute($action);   // throws on platform failure -> not marked executed
+                    } else {
+                        $result = ['noted' => 'campaign action requires manual execution (platform not configured or campaign not linked)'];
+                    }
                     break;
 
                 case 'strategy':
@@ -1701,6 +1741,18 @@ class AgentController extends Controller
 
         $action = AiAction::findOrFail($actionId);
 
+        // Reverse on the real platform FIRST; only mark rolled back if that worked.
+        $reversal = null;
+        if ($action->reversal_data) {
+            try {
+                $reversal = app(\App\Services\AdPlatforms\AdActionExecutor::class)->reverse($action);
+            } catch (\App\Services\AdPlatforms\AdPlatformException $e) {
+                Log::error('Rollback failed on ad platform', ['action_id' => $action->id, 'error' => $e->getMessage()]);
+
+                return response()->json(['success' => false, 'error' => $e->getMessage()], 502);
+            }
+        }
+
         $action->update([
             'verification_status' => 'rolled_back',
         ]);
@@ -1718,16 +1770,19 @@ class AgentController extends Controller
             'verified_at'      => now(),
         ]);
 
-        Log::warning('Rollback REQUESTED — no reversal performed', [
+        Log::warning($reversal ? 'Rollback performed' : 'Rollback recorded — nothing automatic to reverse', [
             'action_id' => $action->id,
             'reason'    => $validated['reason'],
+            'reversal'  => $reversal,
         ]);
 
         return response()->json([
             'success'   => true,
             'action_id' => $action->id,
             'status'    => 'rolled_back',
-            'note'      => 'Rollback requested. Automatic reversal not yet implemented.',
+            'reversed'  => $reversal !== null,
+            'reversal'  => $reversal,
+            'note'      => $reversal ? 'Action reversed on the ad platform.' : 'Recorded. This action type has no automatic reversal.',
         ]);
     }
 
