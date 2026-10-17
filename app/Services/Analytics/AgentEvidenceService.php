@@ -85,6 +85,12 @@ class AgentEvidenceService
 
     // ---------------------------------------------------------------- seo
 
+    /** Public read of the SEO section (authority, keyword movement, backlinks) for pages and the agent. */
+    public function seoSummary(int $brandId): array
+    {
+        return $this->seo($brandId);
+    }
+
     private function seo(int $brandId): array
     {
         $latestStat = AhrefsSiteStat::where('brand_id', $brandId)->orderByDesc('tracked_date')->first();

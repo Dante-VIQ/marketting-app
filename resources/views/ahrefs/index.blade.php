@@ -68,17 +68,17 @@ class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition 
             </div>
             <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <p class="text-sm text-gray-500">Backlinks</p>
-                <p class="text-2xl font-bold text-blue-600">{{ number_format($latestStats->backlinks ?? 0) }}</p>
+                <p class="text-2xl font-bold text-blue-600">{{ $latestStats->backlinks !== null ? number_format($latestStats->backlinks) : '—' }}</p>
                 <p class="text-xs text-gray-400">Total backlinks</p>
             </div>
             <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <p class="text-sm text-gray-500">Referring Domains</p>
-                <p class="text-2xl font-bold text-indigo-600">{{ number_format($latestStats->referring_domains ?? 0) }}</p>
+                <p class="text-2xl font-bold text-indigo-600">{{ $latestStats->referring_domains !== null ? number_format($latestStats->referring_domains) : '—' }}</p>
                 <p class="text-xs text-gray-400">Unique domains</p>
             </div>
             <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <p class="text-sm text-gray-500">Organic Keywords</p>
-                <p class="text-2xl font-bold text-green-600">{{ number_format($latestStats->organic_keywords ?? 0) }}</p>
+                <p class="text-2xl font-bold text-green-600">{{ $latestStats->organic_keywords !== null ? number_format($latestStats->organic_keywords) : '—' }}</p>
                 <p class="text-xs text-gray-400">Ranking keywords</p>
             </div>
             <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
@@ -110,6 +110,7 @@ class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition 
                                     <tr class="text-left text-xs text-gray-500 uppercase">
                                         <th class="pb-2 font-semibold">Keyword</th>
                                         <th class="pb-2 text-right font-semibold">Position</th>
+                                        <th class="pb-2 text-right font-semibold">Change</th>
                                         <th class="pb-2 text-right font-semibold">Volume</th>
                                         <th class="pb-2 text-right font-semibold">Difficulty</th>
                                     </tr>
@@ -126,6 +127,17 @@ class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition 
                                                 ">
                                                     #{{ $keyword->position }}
                                                 </span>
+                                            </td>
+                                            <td class="py-2 text-sm text-right">
+                                                @if($keyword->position_change === null)
+                                                    <span class="text-gray-400">—</span>
+                                                @elseif($keyword->position_change > 0)
+                                                    <span class="text-green-600 font-medium">▲ {{ $keyword->position_change }}</span>
+                                                @elseif($keyword->position_change < 0)
+                                                    <span class="text-red-600 font-medium">▼ {{ abs($keyword->position_change) }}</span>
+                                                @else
+                                                    <span class="text-gray-400">0</span>
+                                                @endif
                                             </td>
                                             <td class="py-2 text-sm text-gray-700 text-right">{{ number_format($keyword->search_volume ?? 0) }}</td>
                                             <td class="py-2 text-sm text-gray-700 text-right">
@@ -151,6 +163,70 @@ class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition 
                         @endif
                     </div>
                 </div>
+
+                <!-- Ranking Movement -->
+                @if(!empty($movement) && ($movement['keywords']['tracked'] ?? 0) > 0)
+                    @php
+                        $mv = $movement['keywords']['movers'];
+                        $striking = $movement['keywords']['striking_distance'];
+                    @endphp
+                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                            <h2 class="text-lg font-semibold text-gray-900">🚦 Ranking Movement</h2>
+                            <span class="text-xs text-gray-400">As of {{ $movement['keywords']['as_of'] }} · {{ $movement['keywords']['tracked'] }} keywords tracked</span>
+                        </div>
+                        <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div>
+                                <h3 class="text-sm font-semibold text-green-700 mb-2">Moved up</h3>
+                                @forelse($mv['up'] as $k)
+                                    <p class="text-sm text-gray-800 truncate" title="{{ $k['keyword'] }}">{{ $k['keyword'] }}</p>
+                                    <p class="text-xs text-gray-500 mb-2">#{{ $k['previous_position'] }} → #{{ $k['position'] }} <span class="text-green-600">▲ {{ $k['change'] }}</span></p>
+                                @empty
+                                    <p class="text-sm text-gray-400">No gains.</p>
+                                @endforelse
+                            </div>
+                            <div>
+                                <h3 class="text-sm font-semibold text-red-700 mb-2">Dropped</h3>
+                                @forelse($mv['down'] as $k)
+                                    <p class="text-sm text-gray-800 truncate" title="{{ $k['keyword'] }}">{{ $k['keyword'] }}</p>
+                                    <p class="text-xs text-gray-500 mb-2">#{{ $k['previous_position'] }} → #{{ $k['position'] }} <span class="text-red-600">▼ {{ abs($k['change']) }}</span></p>
+                                @empty
+                                    <p class="text-sm text-gray-400">No drops.</p>
+                                @endforelse
+                            </div>
+                            <div>
+                                <h3 class="text-sm font-semibold text-blue-700 mb-2">Striking distance <span class="font-normal text-gray-400">(#4–20)</span></h3>
+                                @forelse($striking as $k)
+                                    <p class="text-sm text-gray-800 truncate" title="{{ $k['keyword'] }}">{{ $k['keyword'] }}</p>
+                                    <p class="text-xs text-gray-500 mb-2">#{{ $k['position'] }} · {{ number_format($k['volume']) }}/mo</p>
+                                @empty
+                                    <p class="text-sm text-gray-400">None with search volume.</p>
+                                @endforelse
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                <!-- Lost Backlinks -->
+                @if(!empty($movement) && ($movement['backlinks']['lost_last_30d'] ?? 0) > 0)
+                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                            <h2 class="text-lg font-semibold text-gray-900">⚠️ Lost Backlinks (30 days)</h2>
+                            <span class="text-xs px-2 py-1 bg-red-100 text-red-800 rounded-full">{{ $movement['backlinks']['lost_last_30d'] }} lost · {{ $movement['backlinks']['new_last_30d'] }} new</span>
+                        </div>
+                        <div class="p-6 divide-y divide-gray-100">
+                            @foreach($movement['backlinks']['lost_top'] as $l)
+                                <div class="py-2 flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-900">{{ $l['source'] }}</p>
+                                        <p class="text-xs text-gray-500 truncate">→ {{ $l['target'] ?? 'site' }}@if($l['reason']) · {{ $l['reason'] }}@endif</p>
+                                    </div>
+                                    @if($l['dr'] !== null)<span class="text-xs text-gray-500">DR {{ $l['dr'] }}</span>@endif
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
 
                 <!-- Top Referring Domains -->
                 <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
