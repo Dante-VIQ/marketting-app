@@ -316,13 +316,33 @@ class AgentController extends Controller
     {
         $pageUrl = $request->input('url');
 
+        // Latest snapshot only — previously every historical day was returned, so the
+        // same keyword appeared once per day.
+        $latest = \App\Models\KeywordRanking::where('brand_id', $brandId)->max('tracked_date');
+
+        if (!$latest) {
+            return response()->json([]);
+        }
+
         $rankings = \App\Models\KeywordRanking::where('brand_id', $brandId)
-            ->when($pageUrl, function ($query) use ($pageUrl) {
-                return $query->where('page_url', $pageUrl);
-            })
+            ->whereDate('tracked_date', $latest)
+            ->when($pageUrl, fn ($q) => $q->where('page_url', $pageUrl))
             ->orderBy('position')
             ->limit(50)
-            ->get();
+            ->get()
+            ->map(fn ($r) => [
+                'keyword'           => $r->keyword,
+                'page_url'          => $r->page_url,
+                'position'          => $r->position,
+                'previous_position' => $r->previous_position,
+                'change'            => ($r->previous_position !== null && $r->position !== null)
+                    ? $r->previous_position - $r->position   // positive = moved up
+                    : null,
+                'search_volume'     => $r->search_volume,
+                'difficulty'        => $r->difficulty,
+                'traffic'           => $r->metadata['traffic'] ?? null,
+                'tracked_date'      => $r->tracked_date->toDateString(),
+            ]);
 
         return response()->json($rankings);
     }
