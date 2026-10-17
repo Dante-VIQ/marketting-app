@@ -90,7 +90,16 @@ class AhrefsController extends Controller
             ->orderBy('created_at', 'desc')
             ->first();
 
+        // Ranking movement, striking-distance keywords and lost links (real Ahrefs data)
+        try {
+            $movement = app(\App\Services\Analytics\AgentEvidenceService::class)->seoSummary($brand->id);
+        } catch (\Throwable $e) {
+            report($e);
+            $movement = null;
+        }
+
         return view('ahrefs.index', compact(
+            'movement',
             'brand',
             'latestStats',
             'statsHistory',
