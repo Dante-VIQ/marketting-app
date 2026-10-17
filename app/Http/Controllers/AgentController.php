@@ -98,6 +98,18 @@ class AgentController extends Controller
 
     // ============= OPPORTUNITIES =============
 
+    /**
+     * One real-data picture of the brand (GA4 + Ahrefs + rank movement) for the specialists.
+     */
+    public function getEvidence($brandId)
+    {
+        Brand::findOrFail($brandId);
+
+        return response()->json(
+            app(\App\Services\Analytics\AgentEvidenceService::class)->build((int) $brandId)
+        );
+    }
+
     public function getOpportunities($brandId)
     {
         $brand = Brand::findOrFail($brandId);
@@ -128,6 +140,15 @@ class AgentController extends Controller
                 'impact' => $issue->severity === 'high' ? 500 : 100,
                 'requires_approval' => $issue->severity === 'high',
             ];
+        }
+
+        // Ranking drops and lost high-authority backlinks (real Ahrefs data)
+        try {
+            foreach (app(\App\Services\Analytics\AgentEvidenceService::class)->seoAlerts((int) $brandId) as $alert) {
+                $opportunities[] = $alert;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('SEO trend alerts failed', ['brand_id' => $brandId, 'error' => $e->getMessage()]);
         }
 
         // Pending leads
