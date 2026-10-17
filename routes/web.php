@@ -117,7 +117,7 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('/{id}', function ($id) {
             $lead = App\Models\Lead::with('interactions')->findOrFail($id);
             return view('leads.show', compact('lead'));
-        })->name('show');
+        })->name('show')->whereNumber('id');
     });
 
     Route::view('/leads/thank-you', 'leads.thank-you')->name('leads.thank-you');
@@ -237,7 +237,7 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
 
     Route::prefix('blog')->name('blog.')->group(function () {
         Route::get('/', [BlogController::class, 'index'])->name('index');
-        Route::get('/{id}', [BlogController::class, 'show'])->name('show');
+        Route::get('/{id}', [BlogController::class, 'show'])->name('show')->whereNumber('id'); // numeric only, so /blog/import is reachable
         Route::get('/import', [BlogController::class, 'import'])->name('import'); // Make sure this exists
         Route::post('/generate-all', [BlogController::class, 'generateAll'])->name('generate-all');
 
