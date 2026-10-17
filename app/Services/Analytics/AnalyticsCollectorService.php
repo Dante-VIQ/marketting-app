@@ -22,7 +22,7 @@ class AnalyticsCollectorService
      * 
      * @throws \Exception
      */
-    public function collectForBrand(Brand $brand): void
+    public function collectForBrand(Brand $brand, ?int $backfillDays = null): void
     {
         $date = Carbon::yesterday();
 
@@ -42,7 +42,7 @@ class AnalyticsCollectorService
 
         try {
             // Collect from GA4 (REAL DATA ONLY)
-            $this->collectFromGA4($brand, $date);
+            $this->collectFromGA4($brand, $date, $backfillDays);
 
             Log::info('Analytics collection completed', [
                 'brand_id' => $brand->id,
@@ -68,12 +68,13 @@ class AnalyticsCollectorService
      *
      * @return array{0: Carbon, 1: Carbon}
      */
-    public static function collectionWindow(?Carbon $lastStored, ?Carbon $today = null): array
+    public static function collectionWindow(?Carbon $lastStored, ?Carbon $today = null, ?int $forceDays = null): array
     {
         $today     = ($today ?? Carbon::today())->copy()->startOfDay();
         $end       = $today->copy()->subDay();
-        $earliest  = $today->copy()->subDays(self::BACKFILL_DAYS);
-        $start     = $lastStored ? $lastStored->copy()->startOfDay()->subDays(self::REFRESH_DAYS) : $earliest;
+        $earliest  = $today->copy()->subDays($forceDays ?? self::BACKFILL_DAYS);
+        // An explicit backfill ignores what is stored: re-pull the whole range.
+        $start     = ($lastStored && $forceDays === null) ? $lastStored->copy()->startOfDay()->subDays(self::REFRESH_DAYS) : $earliest;
 
         if ($start->lt($earliest)) {
             $start = $earliest;
@@ -90,7 +91,7 @@ class AnalyticsCollectorService
      *
      * @throws \Exception
      */
-    protected function collectFromGA4(Brand $brand, Carbon $date): void
+    protected function collectFromGA4(Brand $brand, Carbon $date, ?int $backfillDays = null): void
     {
         $last = AnalyticsSnapshot::where('brand_id', $brand->id)
             ->where('source', 'ga4')
@@ -98,7 +99,7 @@ class AnalyticsCollectorService
             ->whereNull('dimension')
             ->max('date');
 
-        [$start, $end] = self::collectionWindow($last ? Carbon::parse($last) : null);
+        [$start, $end] = self::collectionWindow($last ? Carbon::parse($last) : null, null, $backfillDays);
 
         $data = $this->ga4Service->getDailyData($brand, $start->toDateString(), $end->toDateString());
 

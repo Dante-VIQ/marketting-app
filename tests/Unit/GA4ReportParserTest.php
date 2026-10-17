@@ -97,4 +97,11 @@ class GA4ReportParserTest extends TestCase
         [$start, $end] = AnalyticsCollectorService::collectionWindow(Carbon::parse('2026-10-17'), Carbon::parse('2026-10-17'));
         $this->assertTrue($start->lte($end));
     }
+
+    public function test_forced_backfill_ignores_stored_data_and_uses_given_days(): void
+    {
+        [$start, $end] = AnalyticsCollectorService::collectionWindow(Carbon::parse('2026-10-15'), Carbon::parse('2026-10-17'), 90);
+        $this->assertSame('2026-07-19', $start->toDateString());
+        $this->assertSame('2026-10-16', $end->toDateString());
+    }
 }
