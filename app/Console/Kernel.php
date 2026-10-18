@@ -169,6 +169,11 @@ $schedule->job(new \App\Jobs\ProcessAllAhrefsDataJob())
     $schedule->job(new \App\Jobs\ProcessAllCompetitorsJob())
         ->weeklyOn(1, '06:00')
         ->withoutOverlapping();
+
+    // 8:00 AM - Social listening (Google News, Reddit, Hacker News; free)
+    $schedule->job(new \App\Jobs\ProcessAllListeningJob())
+        ->dailyAt('08:00')
+        ->withoutOverlapping();
     
     }
 

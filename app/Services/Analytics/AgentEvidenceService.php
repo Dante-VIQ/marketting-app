@@ -36,6 +36,7 @@ class AgentEvidenceService
             'analytics'    => $summary + ['channels' => $this->channels($brandId, $summary)],
             'seo'          => $this->seo($brandId),
             'competitors'  => $this->competitors($brandId),
+            'listening'    => $this->listening($brandId),
         ];
         $evidence['data_quality'] = $this->dataQuality($summary, $evidence['seo']);
 
@@ -95,7 +96,7 @@ class AgentEvidenceService
 
         $latestDate = KeywordRanking::where('brand_id', $brandId)->max('tracked_date');
         $keywords   = $latestDate
-            ? KeywordRanking::where('brand_id', $brandId)->whereDate('tracked_date', $latestDate)->get()
+            ? KeywordRanking::where('brand_id', $brandId)->whereDate('tracked_date', Carbon::parse($latestDate)->toDateString())->get()
             : collect();
 
         $rows = $keywords->map(fn ($k) => [
