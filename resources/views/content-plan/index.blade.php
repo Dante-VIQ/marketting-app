@@ -7,6 +7,9 @@
     $formats = \App\Models\ContentIdea::FORMATS;
     $srcLabel = ['manual' => 'Your idea', 'competitor_gap' => 'Competitor gap', 'listening' => 'Social listening', 'keyword' => 'SEO keyword', 'persona' => 'Persona pain'];
     $todo = collect($ideas->get('ready', []))->concat($ideas->get('idea', []));
+    $todo = $todo->concat($ideas->get('failed', []));
+    $scheduled = collect($ideas->get('scheduled', []))->concat($ideas->get('publishing', []));
+    $autoOn = \App\Services\Meta\ContentPublisher::enabled();
     $posted = collect($ideas->get('posted', []));
     $pct = fn ($n) => $n === null ? '—' : $n . '%';
 @endphp
@@ -60,6 +63,22 @@
         @endforelse
     </div>
 
+    {{-- Scheduled auto-posts --}}
+    @if($scheduled->isNotEmpty())
+        <div class="space-y-3">
+            <h2 class="font-semibold text-gray-900">Approved, will post automatically ({{ $scheduled->count() }})</h2>
+            @foreach($scheduled as $i)
+                <div class="bg-white border border-sky-200 rounded-lg p-4 text-sm flex flex-wrap justify-between gap-2">
+                    <div><p class="font-medium text-gray-900">{{ $i->title }} <span class="text-gray-400 font-normal">· {{ $platforms[$i->platform] ?? '' }}</span></p>
+                        <p class="text-xs text-gray-500">{{ $i->status === 'publishing' ? 'Posting now…' : 'Goes out ' . $i->scheduled_at?->format('D j M, H:i') }}</p></div>
+                    @if($i->status === 'scheduled')
+                        <form method="POST" action="{{ route('content-plan.cancel-schedule', $i->id) }}">@csrf<button class="text-xs text-red-600">Cancel auto-post</button></form>
+                    @endif
+                </div>
+            @endforeach
+        </div>
+    @endif
+
     {{-- To post --}}
     <div class="space-y-3">
         <h2 class="font-semibold text-gray-900">To post ({{ $todo->count() }})</h2>
@@ -81,6 +100,19 @@
                     <textarea name="copy" rows="3" placeholder="Post text, ready to copy and paste" class="border rounded px-2 py-1 md:col-span-4">{{ $i->copy }}</textarea>
                     <button class="px-3 py-1 bg-gray-800 text-white rounded md:col-span-1">Save</button>
                 </form>
+                @if($i->status === 'failed' && $i->publish_error)
+                    <p class="p-2 rounded bg-red-50 border border-red-200 text-xs text-red-800">Auto-post failed: {{ $i->publish_error }}</p>
+                @endif
+                @if(in_array($i->platform, ['facebook', 'instagram'], true))
+                    <form method="POST" action="{{ route('content-plan.schedule', $i->id) }}" class="flex flex-wrap gap-2 items-center p-2 rounded bg-sky-50 border border-sky-100">
+                        @csrf
+                        <span class="text-xs text-sky-900">Post it for me:</span>
+                        <input type="datetime-local" name="scheduled_at" required class="border rounded px-2 py-1">
+                        <input type="url" name="media_url" placeholder="{{ $i->platform === 'instagram' ? 'Public image URL (required)' : 'Image URL (optional)' }}" class="border rounded px-2 py-1 min-w-[12rem] flex-1">
+                        @if($i->platform === 'facebook')<input type="url" name="link_url" placeholder="Link (optional)" class="border rounded px-2 py-1 min-w-[10rem]">@endif
+                        <button class="px-3 py-1 bg-sky-700 text-white rounded disabled:opacity-40" @disabled(!$autoOn) title="{{ $autoOn ? 'You are approving this exact text to be posted' : 'Auto-posting is off (META_PUBLISHING_ENABLED)' }}">Approve and schedule</button>
+                    </form>
+                @endif
                 <form method="POST" action="{{ route('content-plan.posted', $i->id) }}" class="flex flex-wrap gap-2 items-center">
                     @csrf
                     <input type="url" name="post_url" placeholder="Link to your post (optional)" class="border rounded px-2 py-1 flex-1 min-w-[14rem]">
