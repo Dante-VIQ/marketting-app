@@ -197,6 +197,32 @@ class AhrefsApi
         return $value ? substr($value, 0, 10) : null;
     }
 
+    /**
+     * Calls one endpoint and reports what happened WITHOUT throwing. Used by ahrefs:diagnose.
+     *
+     * @return array{path:string,status:?int,ok:bool,body:string}
+     */
+    public function probe(string $path, array $query): array
+    {
+        try {
+            $r = $this->http->withToken($this->token)->timeout(30)->get("{$this->endpoint}/{$path}", $query);
+
+            return ['path' => $path, 'status' => $r->status(), 'ok' => $r->successful(), 'body' => substr(trim($r->body()), 0, 300)];
+        } catch (\Throwable $e) {
+            return ['path' => $path, 'status' => null, 'ok' => false, 'body' => 'No response: ' . $e->getMessage()];
+        }
+    }
+
+    public function tokenHint(): string
+    {
+        return $this->token === '' ? 'NOT SET' : 'set (' . strlen($this->token) . ' chars, ends …' . substr($this->token, -4) . ')';
+    }
+
+    public function endpoint(): string
+    {
+        return $this->endpoint;
+    }
+
     private function get(string $path, array $query): array
     {
         $response = $this->http->withToken($this->token)
@@ -221,7 +247,10 @@ class AhrefsApi
 
         $status = $response->status();
         if (in_array($status, [401, 403], true)) {
-            throw new RuntimeException("Ahrefs API authorization failed (HTTP {$status}) on {$path}. Check the value of AHREFS_API_TOKEN or AHREFS_API_KEY and clear config cache after updating .env.");
+            // Ahrefs uses 401/403 for a bad token but also for plan limits and exhausted API units,
+            // so show what Ahrefs actually said instead of blaming the token.
+            throw new RuntimeException("Ahrefs API authorization failed (HTTP {$status}) on {$path}: " . substr(trim($response->body()), 0, 300)
+                . ' (Causes: wrong token, token not for API v3, plan without API access, or API units used up. After editing .env run php artisan config:clear.)');
         }
         if ($status === 429) {
             throw new RuntimeException("Ahrefs API rate limit exceeded on {$path}.");
