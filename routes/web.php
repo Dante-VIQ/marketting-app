@@ -118,6 +118,27 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::post('/mentions/{mention}/dismiss', [App\Http\Controllers\ListeningController::class, 'dismiss'])->name('dismiss')->whereNumber('mention');
     });
 
+    // Buyer personas (hand-built, evidence-graded)
+    Route::prefix('personas')->name('personas.')->group(function () {
+        Route::get('/', [App\Http\Controllers\PersonaController::class, 'index'])->name('index');
+        Route::post('/', [App\Http\Controllers\PersonaController::class, 'store'])->name('store');
+        Route::put('/{persona}', [App\Http\Controllers\PersonaController::class, 'update'])->name('update')->whereNumber('persona');
+        Route::delete('/{persona}', [App\Http\Controllers\PersonaController::class, 'destroy'])->name('destroy')->whereNumber('persona');
+        Route::post('/{persona}/evidence', [App\Http\Controllers\PersonaController::class, 'addEvidence'])->name('evidence.store')->whereNumber('persona');
+        Route::delete('/{persona}/evidence/{evidence}', [App\Http\Controllers\PersonaController::class, 'removeEvidence'])->name('evidence.destroy')->whereNumber(['persona', 'evidence']);
+    });
+
+    // Content plan (humans post; the system plans and learns)
+    Route::prefix('content-plan')->name('content-plan.')->group(function () {
+        $c = App\Http\Controllers\ContentPlanController::class;
+        Route::get('/', [$c, 'index'])->name('index');
+        Route::post('/', [$c, 'store'])->name('store');
+        Route::put('/{idea}', [$c, 'update'])->name('update')->whereNumber('idea');
+        Route::post('/{idea}/posted', [$c, 'posted'])->name('posted')->whereNumber('idea');
+        Route::post('/{idea}/results', [$c, 'results'])->name('results')->whereNumber('idea');
+        Route::delete('/{idea}', [$c, 'destroy'])->name('destroy')->whereNumber('idea');
+    });
+
     // Competitors (free scan of public pages)
     Route::prefix('competitors')->name('competitors.')->group(function () {
         Route::get('/', [App\Http\Controllers\CompetitorController::class, 'index'])->name('index');
