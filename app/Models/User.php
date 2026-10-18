@@ -36,6 +36,26 @@ class User extends Authenticatable
 
 
 
+    /**
+     * True when the user holds the global "super-admin" role.
+     *
+     * Roles are scoped per brand (Spatie teams), so hasRole() only sees the role while the
+     * matching brand is the current team. This checks the assignment directly, in any team.
+     */
+    public function isSuperAdmin(): bool
+    {
+        if (!$this->exists) {
+            return false;
+        }
+
+        return \Illuminate\Support\Facades\DB::table('model_has_roles')
+            ->join('roles', 'roles.id', '=', 'model_has_roles.role_id')
+            ->where('model_has_roles.model_id', $this->getKey())
+            ->where('model_has_roles.model_type', $this->getMorphClass())
+            ->where('roles.name', 'super-admin')
+            ->exists();
+    }
+
     public function brands()
     {
         return $this->belongsToMany(Brand::class, 'brand_user')
