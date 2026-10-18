@@ -43,4 +43,16 @@ return [
     'backlink_limit' => (int) env('AHREFS_BACKLINK_LIMIT', 100),
 ],
 
+'competitors' => [
+    'max_tracked'     => (int) env('COMPETITORS_MAX_TRACKED', 8),      // competitors kept per brand
+    'gap_competitors' => (int) env('COMPETITORS_GAP_COMPETITORS', 3),  // how many get a keyword pull (Ahrefs units!)
+    'gap_keywords'    => (int) env('COMPETITORS_GAP_KEYWORDS', 50),    // rows pulled per competitor
+    'default_country' => env('COMPETITORS_DEFAULT_COUNTRY', 'US'),     // used when a brand has no ahrefs_country
+    // Generic giants that "compete" for everything but are not real rivals.
+    'ignore_domains'  => array_filter(array_map('trim', explode(',', env(
+        'COMPETITORS_IGNORE_DOMAINS',
+        'wikipedia.org,youtube.com,facebook.com,instagram.com,twitter.com,x.com,linkedin.com,pinterest.com,reddit.com,quora.com,amazon.com,google.com,tripadvisor.com,medium.com'
+    )))),
+],
+
 ];

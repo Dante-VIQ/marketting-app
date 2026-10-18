@@ -109,6 +109,14 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         })->name('show');
     });
 
+    // Competitors (free scan of public pages)
+    Route::prefix('competitors')->name('competitors.')->group(function () {
+        Route::get('/', [App\Http\Controllers\CompetitorController::class, 'index'])->name('index');
+        Route::post('/', [App\Http\Controllers\CompetitorController::class, 'store'])->name('store');
+        Route::post('/{competitor}/scan', [App\Http\Controllers\CompetitorController::class, 'scan'])->name('scan')->whereNumber('competitor');
+        Route::delete('/{competitor}', [App\Http\Controllers\CompetitorController::class, 'destroy'])->name('destroy')->whereNumber('competitor');
+    });
+
     // Ad platforms (Meta, ...): connection status, link campaigns, live check
     Route::prefix('ad-platforms')->name('ad-platforms.')->group(function () {
         Route::get('/', [App\Http\Controllers\AdPlatformController::class, 'index'])->name('index');

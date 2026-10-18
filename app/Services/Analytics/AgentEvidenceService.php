@@ -35,6 +35,7 @@ class AgentEvidenceService
             'generated_at' => now()->toIso8601String(),
             'analytics'    => $summary + ['channels' => $this->channels($brandId, $summary)],
             'seo'          => $this->seo($brandId),
+            'competitors'  => $this->competitors($brandId),
         ];
         $evidence['data_quality'] = $this->dataQuality($summary, $evidence['seo']);
 
