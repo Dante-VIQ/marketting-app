@@ -37,6 +37,7 @@ class AgentEvidenceService
             'seo'          => $this->seo($brandId),
             'competitors'  => $this->competitors($brandId),
             'listening'    => $this->listening($brandId),
+            'personas'     => $this->personas($brandId),
         ];
         $evidence['data_quality'] = $this->dataQuality($summary, $evidence['seo']);
 
@@ -98,6 +99,16 @@ class AgentEvidenceService
     }
 
     /** Listening is optional too; a brand with no mentions yields state=no_mentions_yet, not an error. */
+    private function personas(int $brandId): ?array
+    {
+        try {
+            return app(\App\Services\Personas\PersonaInsights::class)->summary($brandId);
+        } catch (\Throwable $e) {
+            report($e);
+            return null;
+        }
+    }
+
     private function listening(int $brandId): ?array
     {
         try {
