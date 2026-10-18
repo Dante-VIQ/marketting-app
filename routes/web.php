@@ -334,6 +334,9 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::post('/{id}/rescan', [App\Http\Controllers\PageScannerController::class, 'rescan'])->name('rescan');
     });
 
+    // System documentation: super-admins only (404 for everyone else, so the page's existence is not disclosed)
+    Route::get('/admin/docs', fn () => view('admin.docs'))->middleware('superadmin')->name('admin.docs');
+
     // routes/web.php
     Route::get('/admin/contacts', function () {
         $contacts = \App\Models\Contact::latest()->paginate(20);

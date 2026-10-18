@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'verify.api.key' => \App\Http\Middleware\VerifyApiKey::class,
             'agent.brand' => \App\Http\Middleware\AgentBrandAuthorized::class,
             'agent.monitor' => \App\Http\Middleware\MonitorAgentIP::class,
+            'superadmin' => \App\Http\Middleware\RequireSuperAdmin::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
