@@ -166,4 +166,25 @@ class AhrefsApiTest extends TestCase
         $this->assertSame([], $this->api($http)->keywords('example.com', '2026-10-17', '2026-09-17'));
         $http->assertSentCount(2);
     }
+
+    public function test_probe_reports_ahrefs_own_message_without_throwing(): void
+    {
+        $http = new Factory();
+        $http->fake(['*' => $http->response(['error' => 'Insufficient plan'], 403)]);
+
+        $r = $this->api($http)->probe('site-explorer/metrics', ['target' => 'example.com']);
+
+        $this->assertFalse($r['ok']);
+        $this->assertSame(403, $r['status']);
+        $this->assertStringContainsString('Insufficient plan', $r['body']);
+    }
+
+    public function test_403_message_includes_what_ahrefs_said(): void
+    {
+        $http = new Factory();
+        $http->fake(['*' => $http->response(['error' => 'API units limit reached'], 403)]);
+
+        $this->expectExceptionMessage('API units limit reached');
+        $this->api($http)->keywords('example.com', '2026-10-17', '2026-09-17');
+    }
 }
