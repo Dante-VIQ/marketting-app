@@ -60,7 +60,7 @@ class CompetitorInsights
     {
         $titles = BlogPost::where('brand_id', $brandId)->pluck('title')->all();
         $latest = KeywordRanking::where('brand_id', $brandId)->max('tracked_date');
-        $keywords = $latest ? KeywordRanking::where('brand_id', $brandId)->whereDate('tracked_date', $latest)->pluck('keyword')->all() : [];
+        $keywords = $latest ? KeywordRanking::where('brand_id', $brandId)->whereDate('tracked_date', \Carbon\Carbon::parse($latest)->toDateString())->pluck('keyword')->all() : [];
 
         return array_merge($titles, $keywords);
     }
