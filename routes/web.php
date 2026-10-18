@@ -109,6 +109,15 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         })->name('show');
     });
 
+    // Social listening (free sources)
+    Route::prefix('listening')->name('listening.')->group(function () {
+        Route::get('/', [App\Http\Controllers\ListeningController::class, 'index'])->name('index');
+        Route::post('/check', [App\Http\Controllers\ListeningController::class, 'check'])->name('check');
+        Route::post('/', [App\Http\Controllers\ListeningController::class, 'store'])->name('store');
+        Route::delete('/{query}', [App\Http\Controllers\ListeningController::class, 'destroy'])->name('destroy')->whereNumber('query');
+        Route::post('/mentions/{mention}/dismiss', [App\Http\Controllers\ListeningController::class, 'dismiss'])->name('dismiss')->whereNumber('mention');
+    });
+
     // Competitors (free scan of public pages)
     Route::prefix('competitors')->name('competitors.')->group(function () {
         Route::get('/', [App\Http\Controllers\CompetitorController::class, 'index'])->name('index');
