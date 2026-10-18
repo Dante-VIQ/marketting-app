@@ -35,12 +35,12 @@ return [
         ],
     ],
 
-'ahrefs' => [
-    'token' => env('AHREFS_API_TOKEN'),
-    'endpoint' => env('AHREFS_API_ENDPOINT', 'https://api.ahrefs.com/v3'),
-    // Rows requested per brand per daily run (Ahrefs bills API units per row).
-    'keyword_limit' => (int) env('AHREFS_KEYWORD_LIMIT', 100),
-    'backlink_limit' => (int) env('AHREFS_BACKLINK_LIMIT', 100),
-],
+    'ahrefs' => [
+        'token' => env('AHREFS_API_TOKEN') ?: env('AHREFS_API_KEY'),
+        'endpoint' => env('AHREFS_API_ENDPOINT', 'https://api.ahrefs.com/v3'),
+        // Rows requested per brand per daily run (Ahrefs bills API units per row).
+        'keyword_limit' => (int) env('AHREFS_KEYWORD_LIMIT', 100),
+        'backlink_limit' => (int) env('AHREFS_BACKLINK_LIMIT', 100),
+    ],
 
 ];

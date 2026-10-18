@@ -282,9 +282,12 @@ AGENT_API_KEY=your_agent_api_key_here
 # AI Services
 GEMINI_API_KEY=your_gemini_key_here
 
-# Ahrefs (optional)
-AHREFS_API_KEY=your_ahrefs_key
+# Ahrefs (optional; accepts either name)
+AHREFS_API_TOKEN=your_ahrefs_key
+# AHREFS_API_KEY=your_ahrefs_key
 ```
+
+After updating your credentials, run `php artisan config:clear` if you are using cached config.
 
 ### 4. Run Migrations & Seeders
 
@@ -376,21 +379,21 @@ resources/
 
 All `/api/agent/*` endpoints require the `X-API-Key` header unless configured otherwise.
 
-| Area          | Method | Endpoint                                   | Purpose                       |
-| ------------- | -----: | ------------------------------------------ | ----------------------------- |
-| Opportunities |    GET | `/api/agent/opportunities/{brandId}`       | Fetch opportunities for brand |
-| Analytics     |    GET | `/api/agent/analytics/{brandId}`           | Fetch analytics snapshot      |
-| SEO           |    GET | `/api/agent/seo/issues/{brandId}`          | List SEO issues               |
-| SEO           |    GET | `/api/agent/seo/issue/{brandId}/{issueId}` | Get specific SEO issue        |
-| SEO           |   POST | `/api/agent/seo/analyze/{brandId}/{issueId}` | Run analysis on issue       |
-| Leads         |    GET | `/api/agent/leads/pending/{brandId}`       | Pending leads for brand       |
-| Leads         |   POST | `/api/agent/lead/follow-up/{brandId}`      | Generate follow-up content    |
-| Content       |   POST | `/api/agent/content/generate`              | Generate content draft        |
-| Actions       |   POST | `/api/agent/actions/pending`               | Create pending action         |
-| Scan          |   POST | `/api/agent/scan/{brandId}`                | Trigger page scan             |
-| Verification  |   POST | `/api/agent/verification/start/{brandId}`  | Start verification flow       |
-| Learning      |   POST | `/api/agent/learn/{brandId}`               | Record learning/example       |
-| Health        |    GET | `/api/agent/ai/ping`                       | AI service health check       |
+| Area          | Method | Endpoint                                     | Purpose                       |
+| ------------- | -----: | -------------------------------------------- | ----------------------------- |
+| Opportunities |    GET | `/api/agent/opportunities/{brandId}`         | Fetch opportunities for brand |
+| Analytics     |    GET | `/api/agent/analytics/{brandId}`             | Fetch analytics snapshot      |
+| SEO           |    GET | `/api/agent/seo/issues/{brandId}`            | List SEO issues               |
+| SEO           |    GET | `/api/agent/seo/issue/{brandId}/{issueId}`   | Get specific SEO issue        |
+| SEO           |   POST | `/api/agent/seo/analyze/{brandId}/{issueId}` | Run analysis on issue         |
+| Leads         |    GET | `/api/agent/leads/pending/{brandId}`         | Pending leads for brand       |
+| Leads         |   POST | `/api/agent/lead/follow-up/{brandId}`        | Generate follow-up content    |
+| Content       |   POST | `/api/agent/content/generate`                | Generate content draft        |
+| Actions       |   POST | `/api/agent/actions/pending`                 | Create pending action         |
+| Scan          |   POST | `/api/agent/scan/{brandId}`                  | Trigger page scan             |
+| Verification  |   POST | `/api/agent/verification/start/{brandId}`    | Start verification flow       |
+| Learning      |   POST | `/api/agent/learn/{brandId}`                 | Record learning/example       |
+| Health        |    GET | `/api/agent/ai/ping`                         | AI service health check       |
 
 For the full list, see `routes/api.php`.
 

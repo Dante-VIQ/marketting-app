@@ -90,89 +90,89 @@ class GA4Service
         ];
     }
 
-/**
- * Get analytics data from Google Analytics Data API.
- * 
- * @throws \Exception
- */
-public function getDataApiData(Brand $brand): array
-{
-    $config = $brand->config;
-    $propertyId = $config['ga4_property_id'] ?? $this->propertyId;
+    /**
+     * Get analytics data from Google Analytics Data API.
+     * 
+     * @throws \Exception
+     */
+    public function getDataApiData(Brand $brand): array
+    {
+        $config = $brand->config;
+        $propertyId = $config['ga4_property_id'] ?? $this->propertyId;
 
-    if (!$propertyId) {
-        throw new \Exception('GA4 Property ID is not configured. Please add it in Brand Settings.');
+        if (!$propertyId) {
+            throw new \Exception('GA4 Property ID is not configured. Please add it in Brand Settings.');
+        }
+
+        $accessToken = $this->getAccessToken();
+        if (!$accessToken) {
+            throw new \Exception('Could not get GA4 access token. Check your service account configuration.');
+        }
+
+        // 1. Fetch Overall Property Totals
+        $totalsPayload = [
+            'dateRanges' => [['startDate' => '30daysAgo', 'endDate' => 'today']],
+            'metrics' => [
+                ['name' => 'activeUsers'],
+                ['name' => 'sessions'],
+                ['name' => 'keyEvents'],
+                ['name' => 'totalRevenue'],
+                ['name' => 'screenPageViews'],
+            ],
+        ];
+
+        $totalsResponse = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $accessToken,
+            'Content-Type'  => 'application/json',
+        ])->post(
+            "https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport",
+            $totalsPayload
+        );
+
+        if (!$totalsResponse->successful()) {
+            $errorBody = $totalsResponse->json();
+            $errorMessage = $errorBody['error']['message'] ?? $totalsResponse->body();
+
+            Log::error('GA4 totals API request failed', [
+                'brand_id' => $brand->id,
+                'status' => $totalsResponse->status(),
+                'body' => $totalsResponse->body(),
+            ]);
+
+            throw new \Exception('GA4 API error: ' . $errorMessage);
+        }
+
+        $totalsData = $totalsResponse->json();
+
+        // 2. Fetch Top Pages Breakdown
+        $pagesPayload = [
+            'dateRanges' => [['startDate' => '30daysAgo', 'endDate' => 'today']],
+            'dimensions' => [['name' => 'pagePath']],
+            'metrics'    => [['name' => 'activeUsers']],
+            'orderBys'   => [['metric' => ['metricName' => 'activeUsers'], 'desc' => true]],
+            'limit'      => 10,
+        ];
+
+        $pagesResponse = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $accessToken,
+            'Content-Type'  => 'application/json',
+        ])->post(
+            "https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport",
+            $pagesPayload
+        );
+
+        if (!$pagesResponse->successful()) {
+            Log::error('GA4 pages API request failed', [
+                'status' => $pagesResponse->status(),
+                'body' => $pagesResponse->body(),
+            ]);
+            // Don't throw here - we still have totals data
+        }
+
+        $pagesData = $pagesResponse->successful() ? $pagesResponse->json() : [];
+
+        return $this->parseCombinedResponse($totalsData, $pagesData);
     }
-
-    $accessToken = $this->getAccessToken();
-    if (!$accessToken) {
-        throw new \Exception('Could not get GA4 access token. Check your service account configuration.');
-    }
-
-    // 1. Fetch Overall Property Totals
-    $totalsPayload = [
-        'dateRanges' => [['startDate' => '30daysAgo', 'endDate' => 'today']],
-        'metrics' => [
-            ['name' => 'activeUsers'],
-            ['name' => 'sessions'],
-            ['name' => 'keyEvents'],
-            ['name' => 'totalRevenue'],
-            ['name' => 'screenPageViews'],
-        ],
-    ];
-
-    $totalsResponse = Http::withHeaders([
-        'Authorization' => 'Bearer ' . $accessToken,
-        'Content-Type'  => 'application/json',
-    ])->post(
-        "https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport",
-        $totalsPayload
-    );
-
-    if (!$totalsResponse->successful()) {
-        $errorBody = $totalsResponse->json();
-        $errorMessage = $errorBody['error']['message'] ?? $totalsResponse->body();
-        
-        Log::error('GA4 totals API request failed', [
-            'brand_id' => $brand->id,
-            'status' => $totalsResponse->status(),
-            'body' => $totalsResponse->body(),
-        ]);
-        
-        throw new \Exception('GA4 API error: ' . $errorMessage);
-    }
-
-    $totalsData = $totalsResponse->json();
-
-    // 2. Fetch Top Pages Breakdown
-    $pagesPayload = [
-        'dateRanges' => [['startDate' => '30daysAgo', 'endDate' => 'today']],
-        'dimensions' => [['name' => 'pagePath']],
-        'metrics'    => [['name' => 'activeUsers']],
-        'orderBys'   => [['metric' => ['metricName' => 'activeUsers'], 'desc' => true]],
-        'limit'      => 10,
-    ];
-
-    $pagesResponse = Http::withHeaders([
-        'Authorization' => 'Bearer ' . $accessToken,
-        'Content-Type'  => 'application/json',
-    ])->post(
-        "https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport",
-        $pagesPayload
-    );
-
-    if (!$pagesResponse->successful()) {
-        Log::error('GA4 pages API request failed', [
-            'status' => $pagesResponse->status(),
-            'body' => $pagesResponse->body(),
-        ]);
-        // Don't throw here - we still have totals data
-    }
-
-    $pagesData = $pagesResponse->successful() ? $pagesResponse->json() : [];
-
-    return $this->parseCombinedResponse($totalsData, $pagesData);
-}
 
     /**
      * Parse combined totals and pages response.
@@ -390,15 +390,23 @@ public function getDataApiData(Brand $brand): array
         }
 
         $range = [['startDate' => $startDate, 'endDate' => $endDate]];
-        $names = fn (array $list) => array_map(fn ($n) => ['name' => $n], $list);
+        $names = fn(array $list) => array_map(fn($n) => ['name' => $n], $list);
 
         $daily = $this->runReport($propertyId, $token, [
             'dateRanges' => $range,
             'dimensions' => $names(['date']),
-            'metrics'    => $names(['activeUsers', 'newUsers', 'sessions', 'keyEvents', 'totalRevenue',
-                                     'screenPageViews', 'engagementRate', 'averageSessionDuration']),
+            'metrics'    => $names([
+                'activeUsers',
+                'newUsers',
+                'sessions',
+                'keyEvents',
+                'totalRevenue',
+                'screenPageViews',
+                'engagementRate',
+                'averageSessionDuration'
+            ]),
             'limit'      => 400,
-        ]);
+        ], true);
 
         $result = ['daily' => GA4ReportParser::daily($daily), 'pages' => [], 'channels' => [], 'errors' => []];
 
@@ -409,7 +417,7 @@ public function getDataApiData(Brand $brand): array
                 'metrics'    => $names(['activeUsers', 'keyEvents']),
                 'orderBys'   => [['metric' => ['metricName' => 'activeUsers'], 'desc' => true]],
                 'limit'      => 10000,
-            ]));
+            ], false));
         } catch (\Throwable $e) {
             $result['errors']['pages'] = $e->getMessage();
         }
@@ -420,28 +428,61 @@ public function getDataApiData(Brand $brand): array
                 'dimensions' => $names(['date', 'sessionDefaultChannelGroup']),
                 'metrics'    => $names(['activeUsers', 'sessions', 'keyEvents']),
                 'limit'      => 2000,
-            ]));
+            ], false));
         } catch (\Throwable $e) {
             $result['errors']['channels'] = $e->getMessage();
         }
 
         return $result;
     }
-
-    protected function runReport(string $propertyId, string $accessToken, array $payload): array
+    /**
+     * Run a GA4 runReport, following pagination up to a sane cap.
+     *
+     * @throws \Exception on API failure when $mandatory, otherwise rethrows too (callers decide).
+     */
+    protected function runReport(string $propertyId, string $accessToken, array $payload, bool $mandatory): array
     {
-        $response = Http::withToken($accessToken)
-            ->timeout(60)
-            ->post("https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport", $payload);
+        $rows = [];
+        $offset = 0;
+        $pageSize = min((int) ($payload['limit'] ?? 10000), 10000);
+        $cap = (int) ($payload['limit'] ?? 10000);
 
-        if (!$response->successful()) {
-            $message = $response->json()['error']['message'] ?? $response->body();
-            Log::error('GA4 runReport failed', ['status' => $response->status(), 'body' => $response->body()]);
-            throw new \Exception('GA4 API error: ' . $message);
-        }
+        do {
+            $response = Http::withHeaders(['Authorization' => 'Bearer ' . $accessToken])
+                ->timeout(60)
+                ->post(
+                    "https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport",
+                    array_merge($payload, ['limit' => $pageSize, 'offset' => $offset])
+                );
 
-        return $response->json() ?? [];
+            if (!$response->successful()) {
+                $message = $response->json('error.message') ?? $response->body();
+                throw new \Exception('GA4 API error: ' . $message);
+            }
+
+            $batch = $response->json('rows') ?? [];
+            $rows = array_merge($rows, $batch);
+            $total = (int) ($response->json('rowCount') ?? count($rows));
+            $offset += $pageSize;
+        } while (count($batch) === $pageSize && count($rows) < min($total, $cap));
+
+        return $rows;
     }
+
+    // protected function runReport(string $propertyId, string $accessToken, array $payload): array
+    // {
+    //     $response = Http::withToken($accessToken)
+    //         ->timeout(60)
+    //         ->post("https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport", $payload);
+
+    //     if (!$response->successful()) {
+    //         $message = $response->json()['error']['message'] ?? $response->body();
+    //         Log::error('GA4 runReport failed', ['status' => $response->status(), 'body' => $response->body()]);
+    //         throw new \Exception('GA4 API error: ' . $message);
+    //     }
+
+    //     return $response->json() ?? [];
+    // }
 
     /**
      * Fetch OAuth2 access token via Service Account Credentials.
@@ -504,17 +545,28 @@ public function getDataApiData(Brand $brand): array
             'dateRanges' => $range,
             'dimensions' => [['name' => 'date']],
             'metrics' => [
-                ['name' => 'activeUsers'], ['name' => 'newUsers'], ['name' => 'sessions'],
-                ['name' => 'screenPageViews'], ['name' => 'keyEvents'], ['name' => 'totalRevenue'],
-                ['name' => 'engagementRate'], ['name' => 'averageSessionDuration'],
+                ['name' => 'activeUsers'],
+                ['name' => 'newUsers'],
+                ['name' => 'sessions'],
+                ['name' => 'screenPageViews'],
+                ['name' => 'keyEvents'],
+                ['name' => 'totalRevenue'],
+                ['name' => 'engagementRate'],
+                ['name' => 'averageSessionDuration'],
             ],
         ], true);
 
         $daily = [];
         for ($i = $days; $i >= 1; $i--) {
             $daily[Carbon::today()->subDays($i)->toDateString()] = [
-                'visitors' => 0, 'new_users' => 0, 'sessions' => 0, 'page_views' => 0,
-                'conversions' => 0, 'revenue' => 0, 'engagement_rate' => 0, 'avg_session_duration' => 0,
+                'visitors' => 0,
+                'new_users' => 0,
+                'sessions' => 0,
+                'page_views' => 0,
+                'conversions' => 0,
+                'revenue' => 0,
+                'engagement_rate' => 0,
+                'avg_session_duration' => 0,
             ];
         }
         foreach ($dailyRows as $row) {
@@ -540,8 +592,8 @@ public function getDataApiData(Brand $brand): array
             try {
                 return $this->runReport($propertyId, $accessToken, array_merge([
                     'dateRanges' => $range,
-                    'dimensions' => array_map(fn ($d) => ['name' => $d], $dimensions),
-                    'metrics'    => array_map(fn ($m) => ['name' => $m], $metrics),
+                    'dimensions' => array_map(fn($d) => ['name' => $d], $dimensions),
+                    'metrics'    => array_map(fn($m) => ['name' => $m], $metrics),
                 ], $extra), false);
             } catch (\Exception $e) {
                 Log::warning("GA4 {$name} report failed; continuing without it", ['error' => $e->getMessage()]);
@@ -572,10 +624,12 @@ public function getDataApiData(Brand $brand): array
         }
 
         $countries = [];
-        foreach ($breakdown('countries', ['date', 'country'], ['sessions'], [
-            'orderBys' => [['metric' => ['metricName' => 'sessions'], 'desc' => true]],
-            'limit' => 1000,
-        ]) as $r) {
+        foreach (
+            $breakdown('countries', ['date', 'country'], ['sessions'], [
+                'orderBys' => [['metric' => ['metricName' => 'sessions'], 'desc' => true]],
+                'limit' => 1000,
+            ]) as $r
+        ) {
             $countries[] = [
                 'date' => $this->gaDate($r['dimensionValues'][0]['value'] ?? ''),
                 'country' => $r['dimensionValues'][1]['value'] ?? 'unknown',
@@ -584,12 +638,14 @@ public function getDataApiData(Brand $brand): array
         }
 
         $keyEvents = [];
-        foreach ($breakdown('key_events', ['date', 'eventName'], ['keyEvents'], [
-            'metricFilter' => ['filter' => [
-                'fieldName' => 'keyEvents',
-                'numericFilter' => ['operation' => 'GREATER_THAN', 'value' => ['int64Value' => '0']],
-            ]],
-        ]) as $r) {
+        foreach (
+            $breakdown('key_events', ['date', 'eventName'], ['keyEvents'], [
+                'metricFilter' => ['filter' => [
+                    'fieldName' => 'keyEvents',
+                    'numericFilter' => ['operation' => 'GREATER_THAN', 'value' => ['int64Value' => '0']],
+                ]],
+            ]) as $r
+        ) {
             $keyEvents[] = [
                 'date' => $this->gaDate($r['dimensionValues'][0]['value'] ?? ''),
                 'event' => $r['dimensionValues'][1]['value'] ?? 'unknown',
@@ -598,10 +654,12 @@ public function getDataApiData(Brand $brand): array
         }
 
         $pages = [];
-        foreach ($breakdown('pages', ['date', 'pagePath'], ['activeUsers'], [
-            'orderBys' => [['metric' => ['metricName' => 'activeUsers'], 'desc' => true]],
-            'limit' => 2000,
-        ]) as $r) {
+        foreach (
+            $breakdown('pages', ['date', 'pagePath'], ['activeUsers'], [
+                'orderBys' => [['metric' => ['metricName' => 'activeUsers'], 'desc' => true]],
+                'limit' => 2000,
+            ]) as $r
+        ) {
             $pages[] = [
                 'date' => $this->gaDate($r['dimensionValues'][0]['value'] ?? ''),
                 'path' => $r['dimensionValues'][1]['value'] ?? '/',
@@ -612,39 +670,7 @@ public function getDataApiData(Brand $brand): array
         return compact('daily', 'channels', 'devices', 'countries', 'pages', 'failed') + ['key_events' => $keyEvents];
     }
 
-    /**
-     * Run a GA4 runReport, following pagination up to a sane cap.
-     *
-     * @throws \Exception on API failure when $mandatory, otherwise rethrows too (callers decide).
-     */
-    protected function runReport(string $propertyId, string $accessToken, array $payload, bool $mandatory): array
-    {
-        $rows = [];
-        $offset = 0;
-        $pageSize = min((int) ($payload['limit'] ?? 10000), 10000);
-        $cap = (int) ($payload['limit'] ?? 10000);
 
-        do {
-            $response = Http::withHeaders(['Authorization' => 'Bearer ' . $accessToken])
-                ->timeout(60)
-                ->post(
-                    "https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport",
-                    array_merge($payload, ['limit' => $pageSize, 'offset' => $offset])
-                );
-
-            if (!$response->successful()) {
-                $message = $response->json('error.message') ?? $response->body();
-                throw new \Exception('GA4 API error: ' . $message);
-            }
-
-            $batch = $response->json('rows') ?? [];
-            $rows = array_merge($rows, $batch);
-            $total = (int) ($response->json('rowCount') ?? count($rows));
-            $offset += $pageSize;
-        } while (count($batch) === $pageSize && count($rows) < min($total, $cap));
-
-        return $rows;
-    }
 
     /** GA4 returns dates as YYYYMMDD. */
     protected function gaDate(string $value): ?string

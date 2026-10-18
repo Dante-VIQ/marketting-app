@@ -37,16 +37,22 @@ class AhrefsApiTest extends TestCase
         $this->assertSame(340, $stats['referring_domains']);
 
         $http->assertSentCount(3);
-        $http->assertSent(fn ($req) => str_contains($req->url(), 'domain-rating') && $req['date'] === '2026-10-17' && $req['target'] === 'example.com');
+        $http->assertSent(fn($req) => str_contains($req->url(), 'domain-rating') && $req['date'] === '2026-10-17' && $req['target'] === 'example.com');
     }
 
     public function test_keywords_request_uses_required_date_and_valid_columns(): void
     {
         $http = new Factory();
         $http->fake(['*/organic-keywords*' => $http->response(['keywords' => [[
-            'keyword' => 'safari kenya', 'best_position' => 4, 'best_position_prev' => 9,
-            'best_position_url' => 'https://example.com/safari', 'volume' => 1900,
-            'keyword_difficulty' => 33, 'sum_traffic' => 210, 'is_branded' => false, 'is_commercial' => true,
+            'keyword' => 'safari kenya',
+            'best_position' => 4,
+            'best_position_prev' => 9,
+            'best_position_url' => 'https://example.com/safari',
+            'volume' => 1900,
+            'keyword_difficulty' => 33,
+            'sum_traffic' => 210,
+            'is_branded' => false,
+            'is_commercial' => true,
         ]]])]);
 
         $rows = $this->api($http)->keywords('example.com', '2026-10-17', '2026-09-17', 50, 'KE');
@@ -77,19 +83,38 @@ class AhrefsApiTest extends TestCase
     {
         $http = new Factory();
         $http->fake(['*/all-backlinks*' => $http->response(['backlinks' => [
-            ['url_from' => 'https://a.com/p', 'url_to' => 'https://example.com/', 'anchor' => 'safari', 'title' => 'A',
-             'domain_rating_source' => 72.0, 'is_dofollow' => true, 'is_nofollow' => false,
-             'first_seen_link' => '2026-08-01T10:00:00Z', 'last_visited' => '2026-10-10T00:00:00Z',
-             'is_lost' => false, 'is_new' => true, 'is_spam' => false],
-            ['url_from' => 'https://b.com/p', 'url_to' => 'https://example.com/x', 'anchor' => 'x', 'title' => 'B',
-             'domain_rating_source' => 30.0, 'is_dofollow' => false, 'is_nofollow' => true,
-             'first_seen_link' => '2026-01-01T00:00:00Z', 'last_seen' => '2026-10-02T00:00:00Z',
-             'is_lost' => true, 'lost_reason' => 'notfound'],
+            [
+                'url_from' => 'https://a.com/p',
+                'url_to' => 'https://example.com/',
+                'anchor' => 'safari',
+                'title' => 'A',
+                'domain_rating_source' => 72.0,
+                'is_dofollow' => true,
+                'is_nofollow' => false,
+                'first_seen_link' => '2026-08-01T10:00:00Z',
+                'last_visited' => '2026-10-10T00:00:00Z',
+                'is_lost' => false,
+                'is_new' => true,
+                'is_spam' => false
+            ],
+            [
+                'url_from' => 'https://b.com/p',
+                'url_to' => 'https://example.com/x',
+                'anchor' => 'x',
+                'title' => 'B',
+                'domain_rating_source' => 30.0,
+                'is_dofollow' => false,
+                'is_nofollow' => true,
+                'first_seen_link' => '2026-01-01T00:00:00Z',
+                'last_seen' => '2026-10-02T00:00:00Z',
+                'is_lost' => true,
+                'lost_reason' => 'notfound'
+            ],
         ]])]);
 
         [$live, $lost] = $this->api($http)->backlinks('example.com', '2026-09-17', 100);
 
-        $http->assertSent(fn ($req) => $req['history'] === 'since:2026-09-17' && str_contains($req['select'], 'first_seen_link'));
+        $http->assertSent(fn($req) => $req['history'] === 'since:2026-09-17' && str_contains($req['select'], 'first_seen_link'));
 
         $this->assertSame('2026-08-01', $live['first_seen']);
         $this->assertSame('2026-10-10', $live['last_seen']);
@@ -115,6 +140,14 @@ class AhrefsApiTest extends TestCase
 
         $this->expectExceptionMessage('authorization failed');
         $this->api($http)->keywords('example.com', '2026-10-17', '2026-09-17');
+    }
+
+    public function test_service_reads_ahrefs_api_key_alias_and_trims_whitespace(): void
+    {
+        putenv('AHREFS_API_TOKEN=');
+        putenv('AHREFS_API_KEY=  alias-key-123  ');
+
+        $this->assertSame('alias-key-123', AhrefsApi::resolveToken());
     }
 
     public function test_malformed_site_stats_response_is_rejected(): void

@@ -25,8 +25,40 @@ class AhrefsApi
     public function __construct(?Factory $http = null, ?string $token = null, ?string $endpoint = null)
     {
         $this->http     = $http ?? new Factory();
-        $this->token    = (string) ($token ?? config('services.ahrefs.token'));
-        $this->endpoint = rtrim((string) ($endpoint ?? config('services.ahrefs.endpoint', 'https://api.ahrefs.com/v3')), '/');
+        $this->token    = self::resolveToken($token);
+        $this->endpoint = rtrim((string) ($endpoint ?? self::configValue('services.ahrefs.endpoint', 'https://api.ahrefs.com/v3')), '/');
+    }
+
+    public static function configValue(string $key, mixed $default = null): mixed
+    {
+        if (!function_exists('app') || !app()->bound('config')) {
+            return $default;
+        }
+
+        return config($key, $default);
+    }
+
+    public static function resolveToken(?string $configuredToken = null): string
+    {
+        $candidates = [
+            $configuredToken,
+            self::configValue('services.ahrefs.token'),
+            function_exists('env') ? env('AHREFS_API_TOKEN') : null,
+            function_exists('env') ? env('AHREFS_API_KEY') : null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (!is_string($candidate)) {
+                continue;
+            }
+
+            $token = trim($candidate);
+            if ($token !== '') {
+                return $token;
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -36,7 +68,9 @@ class AhrefsApi
     {
         $rating  = $this->get('site-explorer/domain-rating', ['target' => $domain, 'date' => $date]);
         $metrics = $this->get('site-explorer/metrics', array_filter([
-            'target' => $domain, 'date' => $date, 'country' => $country,
+            'target' => $domain,
+            'date' => $date,
+            'country' => $country,
         ]));
         $links   = $this->get('site-explorer/backlinks-stats', ['target' => $domain, 'date' => $date]);
 
@@ -80,7 +114,7 @@ class AhrefsApi
             'limit'         => $limit,
             'order_by'      => 'sum_traffic:desc',
             'select'        => 'keyword,best_position,best_position_prev,best_position_diff,best_position_url,'
-                             . 'volume,keyword_difficulty,sum_traffic,is_branded,is_commercial,is_transactional,is_informational',
+                . 'volume,keyword_difficulty,sum_traffic,is_branded,is_commercial,is_transactional,is_informational',
         ]));
 
         return array_map([self::class, 'mapKeyword'], $data['keywords'] ?? []);
@@ -95,8 +129,8 @@ class AhrefsApi
             // Computed here (not from best_position_diff) so the sign is unambiguous:
             // positive = moved UP the rankings (e.g. 12 -> 8 = +4).
             'position_change'   => (isset($k['best_position'], $k['best_position_prev']))
-                                    ? (int) $k['best_position_prev'] - (int) $k['best_position']
-                                    : null,
+                ? (int) $k['best_position_prev'] - (int) $k['best_position']
+                : null,
             'url'               => $k['best_position_url'] ?? null,
             'volume'            => $k['volume'] ?? null,
             'difficulty'        => $k['keyword_difficulty'] ?? null,
@@ -129,7 +163,7 @@ class AhrefsApi
             'aggregation' => '1_per_domain',
             'order_by'    => 'domain_rating_source:desc',
             'select'      => 'url_from,url_to,anchor,title,domain_rating_source,is_dofollow,is_nofollow,'
-                           . 'first_seen_link,last_visited,last_seen,is_lost,is_new,lost_reason,is_spam',
+                . 'first_seen_link,last_visited,last_seen,is_lost,is_new,lost_reason,is_spam',
         ]);
 
         return array_map([self::class, 'mapBacklink'], $data['backlinks'] ?? []);
@@ -187,7 +221,7 @@ class AhrefsApi
 
         $status = $response->status();
         if (in_array($status, [401, 403], true)) {
-            throw new RuntimeException("Ahrefs API authorization failed (HTTP {$status}) on {$path}. Check the API token.");
+            throw new RuntimeException("Ahrefs API authorization failed (HTTP {$status}) on {$path}. Check the value of AHREFS_API_TOKEN or AHREFS_API_KEY and clear config cache after updating .env.");
         }
         if ($status === 429) {
             throw new RuntimeException("Ahrefs API rate limit exceeded on {$path}.");

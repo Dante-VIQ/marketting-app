@@ -18,8 +18,9 @@ class AhrefsService
 
     public function __construct(?AhrefsApi $api = null)
     {
-        $this->apiToken = config('services.ahrefs.token', env('AHREFS_API_TOKEN'));
-        $this->apiEndpoint = rtrim(config('services.ahrefs.endpoint', env('AHREFS_API_ENDPOINT', 'https://api.ahrefs.com/v3')), '/');
+        $configuredToken = AhrefsApi::configValue('services.ahrefs.token');
+        $this->apiToken = AhrefsApi::resolveToken($configuredToken);
+        $this->apiEndpoint = rtrim((string) AhrefsApi::configValue('services.ahrefs.endpoint', env('AHREFS_API_ENDPOINT', 'https://api.ahrefs.com/v3')), '/');
         $this->api = $api ?? new AhrefsApi();
     }
 
@@ -56,12 +57,18 @@ class AhrefsService
         $results = ['collected' => [], 'errors' => []];
 
         $sections = [
-            'site_stats' => fn () => $this->storeSiteStats($brand, $domain, $this->api->siteStats($domain, $date, $country)),
-            'keywords'   => fn () => $this->storeKeywords($brand, $this->api->keywords(
-                $domain, $date, $compare, (int) config('services.ahrefs.keyword_limit', 100), $country
+            'site_stats' => fn() => $this->storeSiteStats($brand, $domain, $this->api->siteStats($domain, $date, $country)),
+            'keywords'   => fn() => $this->storeKeywords($brand, $this->api->keywords(
+                $domain,
+                $date,
+                $compare,
+                (int) config('services.ahrefs.keyword_limit', 100),
+                $country
             )),
-            'backlinks'  => fn () => $this->storeBacklinks($brand, $domain, $this->api->backlinks(
-                $domain, $compare, (int) config('services.ahrefs.backlink_limit', 100)
+            'backlinks'  => fn() => $this->storeBacklinks($brand, $domain, $this->api->backlinks(
+                $domain,
+                $compare,
+                (int) config('services.ahrefs.backlink_limit', 100)
             )),
         ];
 
@@ -71,14 +78,18 @@ class AhrefsService
             } catch (\Throwable $e) {
                 $results['errors'][$name] = $e->getMessage();
                 Log::error("Ahrefs {$name} collection failed", [
-                    'brand_id' => $brand->id, 'domain' => $domain, 'error' => $e->getMessage(),
+                    'brand_id' => $brand->id,
+                    'domain' => $domain,
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
 
         if ($results['errors']) {
             $results['error'] = implode(' | ', array_map(
-                fn ($k, $v) => "{$k}: {$v}", array_keys($results['errors']), $results['errors']
+                fn($k, $v) => "{$k}: {$v}",
+                array_keys($results['errors']),
+                $results['errors']
             ));
         }
 
@@ -199,19 +210,19 @@ class AhrefsService
     public function getDashboardData(Brand $brand): array
     {
         $latestStats = AhrefsSiteStat::where('brand_id', $brand->id)
-        ->orderBy('tracked_date', 'desc')
-        ->first();
+            ->orderBy('tracked_date', 'desc')
+            ->first();
 
         $recentBacklinks = AhrefsBacklink::where('brand_id', $brand->id)
-        ->orderBy('last_seen_at', 'desc')
-        ->limit(10)
-        ->get();
+            ->orderBy('last_seen_at', 'desc')
+            ->limit(10)
+            ->get();
 
         $topKeywords = AhrefsKeyword::where('brand_id', $brand->id)
-        ->where('tracked_date', Carbon::today())
-        ->orderBy('position')
-        ->limit(20)
-        ->get();
+            ->where('tracked_date', Carbon::today())
+            ->orderBy('position')
+            ->limit(20)
+            ->get();
 
         return [
             'site_stats' => $latestStats,
@@ -219,8 +230,8 @@ class AhrefsService
             'top_keywords' => $topKeywords,
             'backlinks_count' => AhrefsBacklink::where('brand_id', $brand->id)->count(),
             'keywords_count' => AhrefsKeyword::where('brand_id', $brand->id)
-            ->where('tracked_date', Carbon::today())
-            ->count(),
+                ->where('tracked_date', Carbon::today())
+                ->count(),
         ];
     }
 }
