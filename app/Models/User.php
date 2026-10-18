@@ -44,6 +44,23 @@ class User extends Authenticatable
      */
     public function isSuperAdmin(): bool
     {
+        return $this->hasGlobalRole('super-admin');
+    }
+
+    /** The platform administrator (super-admin) or someone they appointed as a user approver. */
+    public function isApprover(): bool
+    {
+        return $this->isSuperAdmin() || $this->hasGlobalRole('user-approver');
+    }
+
+    /** Super-admins are never locked out by approval status. */
+    public function isApproved(): bool
+    {
+        return $this->approval_status === 'approved' || $this->isSuperAdmin();
+    }
+
+    public function hasGlobalRole(string $name): bool
+    {
         if (!$this->exists) {
             return false;
         }
@@ -52,7 +69,7 @@ class User extends Authenticatable
             ->join('roles', 'roles.id', '=', 'model_has_roles.role_id')
             ->where('model_has_roles.model_id', $this->getKey())
             ->where('model_has_roles.model_type', $this->getMorphClass())
-            ->where('roles.name', 'super-admin')
+            ->where('roles.name', $name)
             ->exists();
     }
 

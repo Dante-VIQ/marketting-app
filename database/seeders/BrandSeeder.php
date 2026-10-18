@@ -80,8 +80,17 @@ class BrandSeeder extends Seeder
         // Clear permission cache
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
+        // The platform administrator: approved, and holds the global (not brand-scoped) super-admin role.
+        app(PermissionRegistrar::class)->setPermissionsTeamId(null);
+        $superAdminRole = Role::firstOrCreate(['name' => 'super-admin', 'guard_name' => 'web']);
+        if (!$admin->hasGlobalRole('super-admin')) {
+            $admin->assignRole($superAdminRole);
+        }
+        $admin->forceFill(['approval_status' => 'approved', 'approved_at' => now()])->save();
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
         $this->command->info('✅ Brand created: Vumbi Ventures');
-        $this->command->info('📧 Email: admin@vumbiventures.com');
-        $this->command->info('🔑 Password: password');
+        $this->command->info("📧 Super admin: {$admin->email}");
+        $this->command->info('🔑 Password: change_this_password (change it after the first login)');
     }
 }

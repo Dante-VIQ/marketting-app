@@ -18,6 +18,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'agent.brand' => \App\Http\Middleware\AgentBrandAuthorized::class,
             'agent.monitor' => \App\Http\Middleware\MonitorAgentIP::class,
             'superadmin' => \App\Http\Middleware\RequireSuperAdmin::class,
+            'approver' => \App\Http\Middleware\RequireApprover::class,
+            'approved' => \App\Http\Middleware\EnsureUserApproved::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
