@@ -118,6 +118,57 @@ class AhrefsApi
     }
 
     /**
+     * Domains competing with `$domain` in organic search. `country` is required by Ahrefs.
+     */
+    public function competitors(string $domain, string $date, string $country, int $limit = 25): array
+    {
+        $data = $this->get('site-explorer/organic-competitors', [
+            'target'   => $domain,
+            'mode'     => 'subdomains',
+            'date'     => $date,
+            'country'  => $country,
+            'limit'    => $limit,
+            'order_by' => 'keywords_common:desc',
+            'select'   => 'competitor_domain,domain_rating,keywords_common,keywords_competitor,keywords_target,'
+                        . 'share,traffic,traffic_diff',
+        ]);
+
+        return array_map([self::class, 'mapCompetitor'], $data['competitors'] ?? []);
+    }
+
+    public static function mapCompetitor(array $c): array
+    {
+        return [
+            'domain'              => $c['competitor_domain'] ?? null,
+            'domain_rating'       => isset($c['domain_rating']) ? (float) $c['domain_rating'] : null,
+            'keywords_common'     => (int) ($c['keywords_common'] ?? 0),
+            'keywords_competitor' => (int) ($c['keywords_competitor'] ?? 0),   // they rank, we don't
+            'keywords_target'     => (int) ($c['keywords_target'] ?? 0),       // we rank, they don't
+            'share'               => isset($c['share']) ? round((float) $c['share'], 2) : null,
+            'traffic'             => $c['traffic'] ?? null,
+            'traffic_change'      => $c['traffic_diff'] ?? null,
+        ];
+    }
+
+    /**
+     * A competitor's best organic keywords (candidates for our content gap).
+     */
+    public function competitorKeywords(string $domain, string $date, string $country, int $limit = 50): array
+    {
+        $data = $this->get('site-explorer/organic-keywords', [
+            'target'   => $domain,
+            'mode'     => 'subdomains',
+            'date'     => $date,
+            'country'  => $country,
+            'limit'    => $limit,
+            'order_by' => 'sum_traffic:desc',
+            'select'   => 'keyword,best_position,best_position_url,volume,keyword_difficulty,sum_traffic',
+        ]);
+
+        return array_map([self::class, 'mapKeyword'], $data['keywords'] ?? []);
+    }
+
+    /**
      * Strongest backlinks, including ones lost since `$since` so losses are visible.
      */
     public function backlinks(string $domain, string $since, int $limit = 100): array

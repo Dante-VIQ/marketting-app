@@ -164,6 +164,11 @@ $schedule->job(new \App\Jobs\ProcessAllAhrefsDataJob())
     ->onFailure(function () {
         Log::error('Ahrefs data collection failed.');
     });
+
+    // Mondays 06:00 - Scan competitors (free: homepage, sitemap, blog feed)
+    $schedule->job(new \App\Jobs\ProcessAllCompetitorsJob())
+        ->weeklyOn(1, '06:00')
+        ->withoutOverlapping();
     
     }
 
