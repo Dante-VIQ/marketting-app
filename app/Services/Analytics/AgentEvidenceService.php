@@ -85,6 +85,33 @@ class AgentEvidenceService
 
     // ---------------------------------------------------------------- seo
 
+    /** Competitor data is optional: a failure here must never take the whole evidence payload down. */
+    private function competitors(int $brandId): ?array
+    {
+        try {
+            return app(\App\Services\Competitors\CompetitorInsights::class)->summary($brandId);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return null;
+        }
+    }
+
+    /** Listening is optional too; a brand with no mentions yields state=no_mentions_yet, not an error. */
+    private function listening(int $brandId): ?array
+    {
+        try {
+            $s = app(\App\Services\Listening\ListeningInsights::class)->summary($brandId);
+            unset($s['queries'], $s['suggestions']);   // configuration, not evidence
+
+            return $s;
+        } catch (\Throwable $e) {
+            report($e);
+
+            return null;
+        }
+    }
+
     /** Public read of the SEO section (authority, keyword movement, backlinks) for pages and the agent. */
     public function seoSummary(int $brandId): array
     {

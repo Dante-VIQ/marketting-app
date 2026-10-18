@@ -69,4 +69,14 @@ class AgentEvidenceServiceTest extends TestCase
         $this->assertSame('backlink_lost', $a['payload']['issue_type']);
         $this->assertSame('medium', E::lostBacklinkAlert('b.example', 45.0, null, null)['severity']);
     }
+
+    /** build() calls these; a missing one is a fatal error on every /agent/evidence request. */
+    public function test_every_section_build_depends_on_exists(): void
+    {
+        $src = file_get_contents((new \ReflectionClass(E::class))->getFileName());
+        preg_match_all('/\$this->(\w+)\(/', $src, $m);
+        foreach (array_unique($m[1]) as $method) {
+            $this->assertTrue(method_exists(E::class, $method), "AgentEvidenceService calls \$this->{$method}() but does not define it");
+        }
+    }
 }
