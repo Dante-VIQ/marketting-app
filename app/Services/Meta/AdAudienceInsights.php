@@ -45,6 +45,18 @@ class AdAudienceInsights
         return ['state' => 'ok', 'currency' => $totalRow['currency'] ?? null, 'total' => $total, 'groups' => $groups];
     }
 
+    /** Small version for the agent: state, totals and the top three groups per cut. Nothing the agent cannot act on. */
+    public static function compact(array $built): array
+    {
+        $groups = [];
+        foreach ($built['groups'] as $key => $g) {
+            $groups[$key] = ['best_ctr' => $g['best_ctr'], 'top' => array_map(
+                fn ($r) => array_intersect_key($r, array_flip(['name', 'impressions', 'clicks', 'ctr', 'cpc', 'spend_share'])), array_slice($g['rows'], 0, 3))];
+        }
+
+        return ['state' => $built['state'], 'currency' => $built['currency'], 'total' => $built['total'], 'groups' => $groups];
+    }
+
     private static function metrics(array $r, ?float $spendSum): array
     {
         $imp = $r['impressions'] ?? null;

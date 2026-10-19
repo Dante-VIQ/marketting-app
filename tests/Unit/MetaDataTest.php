@@ -270,4 +270,17 @@ class MetaDataTest extends MetaTestCase
         $this->assertSame(0, $r['created']);
         $this->assertStringContainsString('leads_retrieval', $r['errors'][0]);
     }
+
+    public function test_compact_view_for_the_agent_keeps_top_three_and_no_extras(): void
+    {
+        $rows = [['breakdown' => 'total', 'impressions' => 9000, 'clicks' => 90, 'spend' => 90, 'currency' => 'USD']];
+        foreach ([['18-24', 'male'], ['25-34', 'female'], ['35-44', 'male'], ['45-54', 'female']] as $i => [$a, $g]) {
+            $rows[] = ['breakdown' => 'age_gender', 'dim1' => $a, 'dim2' => $g, 'impressions' => 2000 - $i * 100, 'clicks' => 20 + $i, 'spend' => 10];
+        }
+        $c = AdAudienceInsights::compact(AdAudienceInsights::build($rows));
+        $this->assertCount(3, $c['groups']['age_gender']['top']);
+        $this->assertArrayNotHasKey('reach', $c['groups']['age_gender']['top'][0]);
+        $this->assertSame('ok', $c['state']);
+        $this->assertSame([], AdAudienceInsights::compact(AdAudienceInsights::build([]))['groups']);
+    }
 }

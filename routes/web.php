@@ -369,7 +369,7 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     Route::get('/admin/contacts', function () {
         $contacts = \App\Models\Contact::latest()->paginate(20);
         return view('admin.contacts', compact('contacts'));
-    })->name('admin.contacts');
+    })->middleware('superadmin')->name('admin.contacts');
 
     Route::view('/recurring-issues', 'recurring-issues')->name('recurring-issues');
 });
