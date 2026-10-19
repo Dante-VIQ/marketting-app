@@ -41,6 +41,9 @@ class ContentPlanController extends Controller
     public function update(Request $request, int $idea)
     {
         $i = $this->find($idea);
+        if (in_array($i->status, ['scheduled', 'publishing'], true)) {
+            return back()->withErrors(['Cancel the scheduled auto-post before editing it.']);
+        }
         $i->update($this->validatedIdea($request, $i->brand_id) + $request->validate(['status' => 'nullable|in:idea,ready,skipped']));
 
         return back()->with('message', 'Saved.');
@@ -70,6 +73,28 @@ class ContentPlanController extends Controller
         $i->update($data + ['measured_at' => now()]);
 
         return back()->with('message', 'Results saved.');
+    }
+
+    /** A human approves an auto-post for a set time. The system never posts anything nobody approved. */
+    public function schedule(Request $request, int $idea, \App\Services\Meta\ContentPublisher $publisher)
+    {
+        $i = $this->find($idea);
+        $data = $request->validate(['scheduled_at' => 'required|date', 'media_url' => 'nullable|url|max:1000', 'link_url' => 'nullable|url|max:1000']);
+        try {
+            $publisher->approve($i, (int) Auth::id(), \Illuminate\Support\Carbon::parse($data['scheduled_at'], $this->brand()->timezone ?? config('app.timezone')),
+                $data['media_url'] ?? null, $data['link_url'] ?? null);
+        } catch (\DomainException $e) {
+            return back()->withErrors([$e->getMessage()]);
+        }
+
+        return back()->with('message', 'Approved. It will be posted at the scheduled time.');
+    }
+
+    public function cancelSchedule(int $idea, \App\Services\Meta\ContentPublisher $publisher)
+    {
+        $publisher->cancel($this->find($idea));
+
+        return back()->with('message', 'Auto-post cancelled. It is back in your list to post by hand.');
     }
 
     public function destroy(int $idea)

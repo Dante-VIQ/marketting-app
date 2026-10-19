@@ -144,8 +144,14 @@ Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
         Route::put('/{idea}', [$c, 'update'])->name('update')->whereNumber('idea');
         Route::post('/{idea}/posted', [$c, 'posted'])->name('posted')->whereNumber('idea');
         Route::post('/{idea}/results', [$c, 'results'])->name('results')->whereNumber('idea');
+        Route::post('/{idea}/schedule', [$c, 'schedule'])->name('schedule')->whereNumber('idea');
+        Route::post('/{idea}/cancel-schedule', [$c, 'cancelSchedule'])->name('cancel-schedule')->whereNumber('idea');
         Route::delete('/{idea}', [$c, 'destroy'])->name('destroy')->whereNumber('idea');
     });
+
+    // Meta connection: token scopes, capabilities, Pages; results sync
+    Route::get('/meta', [App\Http\Controllers\MetaController::class, 'index'])->name('meta.index');
+    Route::post('/meta/sync', [App\Http\Controllers\MetaController::class, 'sync'])->name('meta.sync');
 
     // Competitors (free scan of public pages)
     Route::prefix('competitors')->name('competitors.')->group(function () {
