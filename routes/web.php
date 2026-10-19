@@ -22,7 +22,15 @@ Route::get('/dashboard', function () {
     return redirect()->route('login');
 });
 
-Route::middleware(['auth:sanctum', 'verified'])->group(function () {
+// Signed in but not yet approved by the platform administrator
+Route::middleware('auth:sanctum')->get('/pending-approval', function () {
+    if (auth()->user()->isApproved()) {
+        return redirect()->route('dashboard');
+    }
+    return view('auth.pending-approval', ['user' => auth()->user()]);
+})->name('approval.pending');
+
+Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
     // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
@@ -353,6 +361,21 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('/{id}', [App\Http\Controllers\PageScannerController::class, 'show'])->name('show');
         Route::put('/{id}/url', [App\Http\Controllers\PageScannerController::class, 'updateUrl'])->name('update-url');
         Route::post('/{id}/rescan', [App\Http\Controllers\PageScannerController::class, 'rescan'])->name('rescan');
+    });
+
+    // User approval: approvers (super-admin, or someone they appoint) review sign-ups;
+    // only the super-admin appoints approvers.
+    Route::prefix('admin/users')->name('admin.users.')->group(function () {
+        $c = App\Http\Controllers\UserApprovalController::class;
+        Route::middleware('approver')->group(function () use ($c) {
+            Route::get('/', [$c, 'index'])->name('index');
+            Route::post('/{user}/approve', [$c, 'approve'])->name('approve')->whereNumber('user');
+            Route::post('/{user}/reject', [$c, 'reject'])->name('reject')->whereNumber('user');
+        });
+        Route::middleware('superadmin')->group(function () use ($c) {
+            Route::post('/{user}/make-approver', [$c, 'makeApprover'])->name('make-approver')->whereNumber('user');
+            Route::post('/{user}/remove-approver', [$c, 'removeApprover'])->name('remove-approver')->whereNumber('user');
+        });
     });
 
     // System documentation: super-admins only (404 for everyone else, so the page's existence is not disclosed)

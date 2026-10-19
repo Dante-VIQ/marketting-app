@@ -29,6 +29,7 @@ class MakeSuperAdmin extends Command
             $this->info("Removed super-admin from {$user->email}.");
         } else {
             $user->assignRole($role);
+            $user->forceFill(['approval_status' => 'approved', 'approved_at' => now()])->save();
             $this->info("{$user->email} is now a super-admin.");
         }
 
