@@ -39,6 +39,7 @@ class AgentEvidenceService
             'listening'    => $this->listening($brandId),
             'personas'     => $this->personas($brandId),
             'content'      => $this->content($brandId),
+            'audience'     => $this->audience($brandId),
         ];
         $evidence['data_quality'] = $this->dataQuality($summary, $evidence['seo']);
 
@@ -106,6 +107,26 @@ class AgentEvidenceService
             return app(\App\Services\ContentPlan\ContentPlanInsights::class)->summary($brandId);
         } catch (\Throwable $e) {
             report($e);
+            return null;
+        }
+    }
+
+    /** What Meta says about who responds (ads by audience) and what people write under our posts. Optional, like the rest. */
+    private function audience(int $brandId): ?array
+    {
+        try {
+            $ads = \App\Services\Meta\AdAudienceInsights::compact(\App\Services\Meta\AdAudienceInsights::build(
+                \App\Models\AdInsightRow::where('brand_id', $brandId)->get()));
+            $c = \App\Models\AudienceComment::where('brand_id', $brandId)->where('commented_at', '>=', now()->subDays(30));
+            $questions = (clone $c)->where('is_question', true)->orderByDesc('commented_at')->limit(5)->pluck('body')
+                ->map(fn ($b) => \Illuminate\Support\Str::limit($b, 160))->all();
+
+            return ['ads' => $ads, 'comments' => ['total_30d' => (clone $c)->count(),
+                'sentiment_30d' => (clone $c)->whereNotNull('sentiment')->selectRaw('sentiment, count(*) as n')->groupBy('sentiment')->pluck('n', 'sentiment')->all(),
+                'recent_questions' => $questions]];
+        } catch (\Throwable $e) {
+            report($e);
+
             return null;
         }
     }

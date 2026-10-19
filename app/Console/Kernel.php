@@ -177,6 +177,8 @@ $schedule->job(new \App\Jobs\ProcessAllAhrefsDataJob())
 
     // Meta: import recent posts + refresh results daily; publish human-approved posts when due.
     $schedule->command('meta:sync-results')->dailyAt('09:15')->withoutOverlapping();
+    $schedule->command('meta:sync-data --only=ads')->dailyAt('06:30')->withoutOverlapping();
+    $schedule->command('meta:sync-data --only=comments,leads')->everyThirtyMinutes()->withoutOverlapping();
     $schedule->command('meta:publish-due')->everyFiveMinutes()->withoutOverlapping();
     
     }

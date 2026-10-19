@@ -18,6 +18,11 @@ return [
     'page_id'      => env('META_PAGE_ID'),
     'instagram_id' => env('META_INSTAGRAM_ID'),
 
+    // Ad account for ad reporting, e.g. act_1234567890 (or just the number). Brand config key: meta_ad_account_id.
+    'ad_account_id' => env('META_AD_ACCOUNT_ID'),
+    // Country codes used when sizing an audience.
+    'audience_countries' => array_filter(array_map('trim', explode(',', (string) env('META_AUDIENCE_COUNTRIES', 'KE')))),
+
     'publishing' => [
         // Master switch. Nothing is ever posted automatically unless this is true AND a human approved the post.
         'enabled'      => (bool) env('META_PUBLISHING_ENABLED', false),
