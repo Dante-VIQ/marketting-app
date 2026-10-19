@@ -30,6 +30,11 @@ class BrandSeeder extends Seeder
                 'travel_payouts_api_key' => env('TRAVEL_PAYOUTS_API_KEY'),
                 'bonusarrive_api_key' => env('BONUSARRIVE_API_KEY'),
                 'awin_api_key' => env('AWIN_API_KEY'),
+                'awin_publisher_id' => env('AWIN_PUBLISHER_ID'),
+                'ahrefs_api_key' => env('AHREFS_API_KEY'),
+                'ahrefs_api_endpoint' => env('AHREFS_API_ENDPOINT', 'https://apiv3.ahrefs.com'),
+                
+
             ],
             'brand_voice' => 'Professional, adventurous, trustworthy, and data-driven. Speak with authority about African travel, technology, and business growth.',
             'timezone' => 'Africa/Nairobi',

@@ -2,16 +2,23 @@
 
 namespace App\Models;
 
-use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use App\Models\AiBrief;
+use App\Models\Brand;
+use App\Models\ContentDraft;
+use App\Models\GuardianAuditLog;
+use App\Models\Lead;
+use App\Models\LeadInteraction;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Spatie\Permission\Traits\HasRoles;
-use Laravel\Fortify\TwoFactorAuthenticatable;
+use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Fortify\TwoFactorAuthenticatable;
 use Spatie\Permission\PermissionRegistrar;
+use Spatie\Permission\Traits\HasRoles;
 
-class User extends Authenticatable
+class User extends Authenticatable implements MustVerifyEmail
 {
     use HasRoles, TwoFactorAuthenticatable, Notifiable;
 
