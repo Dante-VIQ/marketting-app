@@ -144,6 +144,7 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     // Meta connection: token scopes, capabilities, Pages; results sync
     Route::get('/meta', [App\Http\Controllers\MetaController::class, 'index'])->name('meta.index');
     Route::post('/meta/sync', [App\Http\Controllers\MetaController::class, 'sync'])->name('meta.sync');
+    Route::post('/meta/sync-data', [App\Http\Controllers\MetaController::class, 'syncData'])->name('meta.sync-data');
 
     // Competitors (free scan of public pages)
     Route::prefix('competitors')->name('competitors.')->group(function () {

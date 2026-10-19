@@ -29,7 +29,8 @@ class MetaPureTest extends TestCase
         $this->assertContains('instagram_content_publish', $missing);
         $this->assertNotContains('ads_read', $missing);
         $this->assertSame(count($missing), count(array_unique($missing)));
-        $this->assertNotContains('pages_read_user_content', $missing);   // only needed by a feature not built yet
+        $this->assertContains('pages_read_user_content', $missing);   // comment ingestion is built now
+        $this->assertNotContains('pages_manage_metadata', $missing);  // webhooks are not built yet
     }
 
     public function test_instagram_publishing_needs_its_dependencies(): void

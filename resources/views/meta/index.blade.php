@@ -45,6 +45,7 @@
             <div class="mt-3 p-3 rounded bg-sky-50 border border-sky-200 text-xs text-sky-900">
                 <p class="font-semibold">Add these permissions to unlock features the app already has:</p>
                 <p class="mt-1 font-mono">{{ implode(', ', $status['missing']) }}</p>
+                <p class="mt-1 text-sky-800">One token for everything built: <span class="font-mono">{{ implode(', ', $recommended) }}</span></p>
                 <p class="mt-1">In the Meta app, add the Page and Instagram use cases (under "Content management"), then generate the token again with these ticked. Pages and Instagram permissions are free; other people's accounts need Meta App Review, your own do not.</p>
             </div>
         @endif
@@ -70,6 +71,77 @@
         <p class="mt-1 text-gray-700">You can always post by hand and record it in the Content Plan. Auto-posting is
             <strong class="{{ $publishing ? 'text-emerald-700' : 'text-gray-700' }}">{{ $publishing ? 'ON' : 'OFF' }}</strong>
             (META_PUBLISHING_ENABLED). When on, the system only posts text you approved, at the time you chose, up to {{ $cap }} posts a day per brand, and never retries a failed post on its own.</p>
+    </div>
+
+
+    {{-- Pull data --}}
+    <div class="bg-white border rounded-lg p-4 text-sm">
+        <h2 class="font-semibold text-gray-900">Pull data from Meta</h2>
+        <p class="text-gray-600 mt-1">These also run on a schedule: ads daily, comments and leads every 30 minutes.</p>
+        <div class="mt-2 flex flex-wrap gap-2">
+            @foreach(['ads' => 'Ad performance', 'comments' => 'Customer comments', 'leads' => 'Lead form leads'] as $k => $label)
+                <form method="POST" action="{{ route('meta.sync-data') }}">@csrf<input type="hidden" name="what" value="{{ $k }}">
+                    <button class="px-3 py-1.5 text-xs border rounded-lg hover:bg-gray-50 disabled:opacity-40" @disabled(!$status['configured'])>{{ $label }}</button></form>
+            @endforeach
+        </div>
+    </div>
+
+    {{-- Who the ads reach --}}
+    <div class="bg-white border rounded-lg p-4 text-sm">
+        <h2 class="font-semibold text-gray-900">Who your ads reach (last 30 days)</h2>
+        @if($ads['state'] === 'no_data')
+            <p class="mt-1 text-gray-600">No ad data yet. Needs the ads_read permission and an ad account (set META_AD_ACCOUNT_ID if there are several). Press "Ad performance" above.</p>
+        @elseif($ads['state'] === 'too_early')
+            <p class="mt-1 text-gray-600">Only {{ number_format($ads['total']['impressions'] ?? 0) }} impressions so far. Breakdowns are shown once there are at least {{ \App\Services\Meta\AdAudienceInsights::MIN_TOTAL_IMPRESSIONS }}, because smaller samples mislead.</p>
+        @else
+            <p class="mt-1 text-gray-700">{{ number_format($ads['total']['impressions']) }} impressions · {{ $ads['total']['clicks'] === null ? '—' : number_format($ads['total']['clicks']) }} clicks · spend {{ $ads['total']['spend'] === null ? '—' : number_format($ads['total']['spend'], 2) . ' ' . $ads['currency'] }}@if($ads['total']['results'] !== null) · {{ $ads['total']['results'] }} leads @endif</p>
+            @foreach(['age_gender' => 'Age and gender', 'country' => 'Country', 'placement' => 'Where ads showed'] as $k => $title)
+                @if(isset($ads['groups'][$k]))
+                    <h3 class="mt-3 font-medium text-gray-900">{{ $title }}@if($ads['groups'][$k]['best_ctr']) <span class="text-xs font-normal text-emerald-700">· best click rate: {{ $ads['groups'][$k]['best_ctr'] }}</span>@endif</h3>
+                    <table class="w-full text-xs mt-1">
+                        <thead><tr class="text-left text-gray-500"><th class="py-1">Group</th><th>Impressions</th><th>Clicks</th><th>Click rate</th><th>Cost per click</th><th>Spend share</th></tr></thead>
+                        <tbody>
+                        @foreach(array_slice($ads['groups'][$k]['rows'], 0, 8) as $r)
+                            <tr class="border-t"><td class="py-1">{{ $r['name'] }}</td><td>{{ $r['impressions'] === null ? '—' : number_format($r['impressions']) }}</td><td>{{ $r['clicks'] ?? '—' }}</td>
+                                <td>{{ $r['ctr'] === null ? '—' : $r['ctr'] . '%' }}</td><td>{{ $r['cpc'] ?? '—' }}</td><td>{{ $r['spend_share'] === null ? '—' : $r['spend_share'] . '%' }}</td></tr>
+                        @endforeach
+                        </tbody>
+                    </table>
+                @endif
+            @endforeach
+        @endif
+    </div>
+
+    {{-- Customer voice --}}
+    <div class="bg-white border rounded-lg p-4 text-sm">
+        <h2 class="font-semibold text-gray-900">What people say under your posts</h2>
+        @if($commentCount === 0)
+            <p class="mt-1 text-gray-600">No comments saved yet. Needs pages_read_user_content (Facebook) and instagram_manage_comments (Instagram).</p>
+        @else
+            <p class="mt-1 text-gray-700">{{ $commentCount }} comments saved
+                @foreach($sentiment as $k => $n)· {{ $n }} {{ $k }} @endforeach
+                <span class="text-xs text-gray-500">(sentiment is a rough word-based guess)</span></p>
+            @if($questions->isNotEmpty())
+                <h3 class="mt-3 font-medium text-gray-900">Recent questions and buying signals</h3>
+                @foreach($questions as $c)<p class="text-xs text-gray-700 border-t py-1">{{ $c->platform }} · {{ \Illuminate\Support\Str::limit($c->body, 200) }}</p>@endforeach
+            @endif
+        @endif
+    </div>
+
+    {{-- Audience research --}}
+    <div class="bg-white border rounded-lg p-4 text-sm">
+        <h2 class="font-semibold text-gray-900">Audience research</h2>
+        <p class="text-gray-600 mt-1">How many people Meta says are interested in a topic. Sizes are Meta's estimates, shown as ranges, worldwide.</p>
+        <form method="GET" action="{{ route('meta.index') }}" class="mt-2 flex gap-2">
+            <input name="q" value="{{ $q }}" placeholder="e.g. safari, budget travel, Maasai Mara" class="flex-1 border rounded-lg px-3 py-1.5 text-sm">
+            <button class="px-3 py-1.5 text-xs border rounded-lg hover:bg-gray-50" @disabled(!$status['configured'])>Search</button>
+        </form>
+        @if($researchError)<p class="mt-2 text-amber-800 text-xs">{{ $researchError }}</p>@endif
+        @if($q !== '' && !$researchError && !$interests)<p class="mt-2 text-gray-600 text-xs">Nothing found for "{{ $q }}".</p>@endif
+        @foreach($interests as $i)
+            <p class="text-xs border-t py-1 text-gray-800">{{ $i['name'] }}
+                <span class="text-gray-500">· {{ $i['low'] === null ? 'size unknown' : number_format($i['low']) . ' – ' . number_format($i['high']) }}@if($i['topic']) · {{ $i['topic'] }}@endif</span></p>
+        @endforeach
     </div>
 
     {{-- Capability matrix --}}
