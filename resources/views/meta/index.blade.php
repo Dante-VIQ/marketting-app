@@ -131,7 +131,7 @@
     {{-- Audience research --}}
     <div class="bg-white border rounded-lg p-4 text-sm">
         <h2 class="font-semibold text-gray-900">Audience research</h2>
-        <p class="text-gray-600 mt-1">How many people Meta says are interested in a topic. Sizes are Meta's estimates, shown as ranges, worldwide.</p>
+        <p class="text-gray-600 mt-1">Interests Meta offers for targeting a topic. A size range is shown only when Meta returns one; otherwise it says unknown.</p>
         <form method="GET" action="{{ route('meta.index') }}" class="mt-2 flex gap-2">
             <input name="q" value="{{ $q }}" placeholder="e.g. safari, budget travel, Maasai Mara" class="flex-1 border rounded-lg px-3 py-1.5 text-sm">
             <button class="px-3 py-1.5 text-xs border rounded-lg hover:bg-gray-50" @disabled(!$status['configured'])>Search</button>
