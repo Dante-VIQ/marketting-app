@@ -5,11 +5,14 @@ namespace Tests\Feature;
 use App\Models\Brand;
 use App\Models\User;
 use App\Services\BrandManagementService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Gate;
 use Tests\TestCase;
 
 class BrandManagementServiceTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_update_brand_accepts_nested_config_arrays(): void
     {
         Gate::before(fn() => true);
