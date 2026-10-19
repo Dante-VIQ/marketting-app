@@ -156,7 +156,7 @@ class MetaDataTest extends MetaTestCase
     {
         $this->http->fake([
             '*search*' => $this->http->response(['data' => [['id' => '6003', 'name' => 'Safari', 'audience_size_lower_bound' => 1000000, 'audience_size_upper_bound' => 2000000, 'topic' => 'Travel'], ['id' => '6004', 'name' => 'Odd']]]),
-            '*reachestimate*' => $this->http->response(['data' => ['users_lower_bound' => 100000, 'users_upper_bound' => 150000]]),
+            '*delivery_estimate*' => $this->http->response(['data' => [['estimate_ready' => true, 'estimate_mau_lower_bound' => 100000, 'estimate_mau_upper_bound' => 150000]]]),
         ]);
         $r = new AudienceResearch($this->graph());
         $i = $r->interests('safari');
@@ -165,7 +165,7 @@ class MetaDataTest extends MetaTestCase
 
         $e = $r->reachEstimate('act_5', '6003', ['KE']);
         $this->assertSame([100000, 150000], [$e['low'], $e['high']]);
-        $this->http->assertSent(fn (Request $q) => str_contains($q->url(), 'reachestimate') && str_contains(urldecode($q->url()), '"countries":["KE"]'));
+        $this->http->assertSent(fn (Request $q) => str_contains($q->url(), 'delivery_estimate') && str_contains(urldecode($q->url()), '"countries":["KE"]') && str_contains($q->url(), 'optimization_goal=REACH'));
     }
 
     // ---- comments ------------------------------------------------------------------------------------
@@ -282,5 +282,31 @@ class MetaDataTest extends MetaTestCase
         $this->assertArrayNotHasKey('reach', $c['groups']['age_gender']['top'][0]);
         $this->assertSame('ok', $c['state']);
         $this->assertSame([], AdAudienceInsights::compact(AdAudienceInsights::build([]))['groups']);
+    }
+
+    public function test_page_is_found_directly_when_me_accounts_is_empty_for_a_system_user(): void
+    {
+        $this->http->fake(function (Request $r) {
+            $u = $r->url();
+            return match (true) {
+                str_contains($u, 'me/accounts') => $this->http->response(['data' => []]),
+                str_contains($u, '/77?') => $this->http->response(['id' => '77', 'name' => 'Vumbi', 'access_token' => 'page-token', 'instagram_business_account' => ['id' => '88', 'username' => 'vumbi']]),
+                default => $this->http->response([], 404),
+            };
+        });
+        $page = $this->assets()->pageFor(['meta_page_id' => '77']);
+        $this->assertSame(['77', 'page-token', '88'], [$page['id'], $page['token'], $page['instagram_id']]);
+    }
+
+    public function test_page_without_a_page_token_is_reported_not_guessed(): void
+    {
+        $this->http->fake(function (Request $r) {
+            return str_contains($r->url(), 'me/accounts')
+                ? $this->http->response(['data' => []])
+                : $this->http->response(['id' => '77', 'name' => 'Vumbi']);
+        });
+        $this->expectException(\App\Services\Meta\MetaApiException::class);
+        $this->expectExceptionMessage('no Page access token');
+        $this->assets()->pageFor(['meta_page_id' => '77']);
     }
 }

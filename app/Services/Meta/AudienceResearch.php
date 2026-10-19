@@ -23,16 +23,20 @@ class AudienceResearch
         ], $rows);
     }
 
-    /** People in $countries interested in $interestId, per the ad account's reach estimate. @return array{low:?int,high:?int} */
+    /**
+     * People in $countries interested in $interestId, from the ad account's delivery estimate (Meta's current way to size an audience).
+     * Returns nulls when Meta does not report a size; never a guess.
+     * @return array{low:?int,high:?int}
+     */
     public function reachEstimate(string $adAccount, string $interestId, array $countries): array
     {
         $spec = ['geo_locations' => ['countries' => array_values($countries)], 'interests' => [['id' => $interestId]]];
-        $res = $this->graph->get($adAccount . '/reachestimate', ['targeting_spec' => json_encode($spec)]);
-        $d = $res['data'] ?? $res;
+        $res = $this->graph->get($adAccount . '/delivery_estimate', ['targeting_spec' => json_encode($spec), 'optimization_goal' => 'REACH']);
+        $d = $res['data'][0] ?? [];
 
         return [
-            'low' => isset($d['users_lower_bound']) ? (int) $d['users_lower_bound'] : null,
-            'high' => isset($d['users_upper_bound']) ? (int) $d['users_upper_bound'] : null,
+            'low' => isset($d['estimate_mau_lower_bound']) ? (int) $d['estimate_mau_lower_bound'] : null,
+            'high' => isset($d['estimate_mau_upper_bound']) ? (int) $d['estimate_mau_upper_bound'] : null,
         ];
     }
 }
