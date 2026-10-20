@@ -14,8 +14,8 @@ return new class extends Migration
             $table->string('slug')->unique();
             $table->enum('domain_type', ['marketing', 'healthcare', 'education', 'youth', 'general'])
                 ->default('general');
-            $table->json('config');
-            $table->longText('brand_voice');
+            $table->json('config')->nullable()->default(json_encode([]));
+            $table->longText('brand_voice')->default('');
             $table->string('timezone')->default('Africa/Nairobi');
             $table->boolean('is_active')->default(true);
             $table->json('settings')->nullable();

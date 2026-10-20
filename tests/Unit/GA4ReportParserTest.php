@@ -4,16 +4,18 @@ namespace Tests\Unit;
 
 use App\Services\Analytics\AnalyticsCollectorService;
 use App\Services\Analytics\GA4ReportParser;
+use App\Services\Analytics\GA4Service;
 use Carbon\Carbon;
-use PHPUnit\Framework\TestCase;
+use Illuminate\Support\Facades\Http;
+use Tests\TestCase;
 
 class GA4ReportParserTest extends TestCase
 {
     private function row(array $dims, array $metrics): array
     {
         return [
-            'dimensionValues' => array_map(fn ($v) => ['value' => $v], $dims),
-            'metricValues'    => array_map(fn ($v) => ['value' => (string) $v], $metrics),
+            'dimensionValues' => array_map(fn($v) => ['value' => $v], $dims),
+            'metricValues'    => array_map(fn($v) => ['value' => (string) $v], $metrics),
         ];
     }
 
@@ -70,6 +72,38 @@ class GA4ReportParserTest extends TestCase
     {
         $this->assertSame([], GA4ReportParser::daily([]));
         $this->assertSame([], GA4ReportParser::daily(['metricHeaders' => [], 'rows' => [['dimensionValues' => [['value' => '']]]]]));
+    }
+
+    public function test_run_report_keeps_metric_headers_for_parser(): void
+    {
+        Http::fake([
+            'https://analyticsdata.googleapis.com/v1beta/properties/123456:runReport' => Http::response([
+                'metricHeaders' => [
+                    ['name' => 'activeUsers'],
+                    ['name' => 'sessions'],
+                ],
+                'rows' => [
+                    [
+                        'dimensionValues' => [['value' => '20261016']],
+                        'metricValues' => [['value' => '80'], ['value' => '120']],
+                    ],
+                ],
+                'rowCount' => 1,
+            ], 200),
+        ]);
+
+        $service = new class extends GA4Service {
+            public function exposeRunReport(string $propertyId, string $accessToken, array $payload, bool $mandatory): array
+            {
+                return $this->runReport($propertyId, $accessToken, $payload, $mandatory);
+            }
+        };
+
+        $response = $service->exposeRunReport('123456', 'token', ['limit' => 1000], true);
+
+        $this->assertSame(['activeUsers', 'sessions'], array_column($response['metricHeaders'], 'name'));
+        $this->assertSame(80.0, GA4ReportParser::daily($response)['2026-10-16']['activeUsers']);
+        $this->assertSame(120.0, GA4ReportParser::daily($response)['2026-10-16']['sessions']);
     }
 
     public function test_collection_window_backfills_first_time(): void

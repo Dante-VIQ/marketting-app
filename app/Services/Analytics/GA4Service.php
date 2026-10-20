@@ -442,7 +442,12 @@ class GA4Service
      */
     protected function runReport(string $propertyId, string $accessToken, array $payload, bool $mandatory): array
     {
-        $rows = [];
+        $combined = [
+            'metricHeaders' => [],
+            'dimensionHeaders' => [],
+            'rows' => [],
+            'rowCount' => 0,
+        ];
         $offset = 0;
         $pageSize = min((int) ($payload['limit'] ?? 10000), 10000);
         $cap = (int) ($payload['limit'] ?? 10000);
@@ -460,13 +465,24 @@ class GA4Service
                 throw new \Exception('GA4 API error: ' . $message);
             }
 
-            $batch = $response->json('rows') ?? [];
-            $rows = array_merge($rows, $batch);
-            $total = (int) ($response->json('rowCount') ?? count($rows));
-            $offset += $pageSize;
-        } while (count($batch) === $pageSize && count($rows) < min($total, $cap));
+            $body = $response->json() ?? [];
+            if (empty($combined['metricHeaders']) && isset($body['metricHeaders'])) {
+                $combined['metricHeaders'] = $body['metricHeaders'];
+            }
+            if (empty($combined['dimensionHeaders']) && isset($body['dimensionHeaders'])) {
+                $combined['dimensionHeaders'] = $body['dimensionHeaders'];
+            }
+            if (($combined['rowCount'] ?? 0) === 0 && isset($body['rowCount'])) {
+                $combined['rowCount'] = (int) $body['rowCount'];
+            }
 
-        return $rows;
+            $batch = $body['rows'] ?? [];
+            $combined['rows'] = array_merge($combined['rows'], $batch);
+            $total = (int) ($body['rowCount'] ?? count($combined['rows']));
+            $offset += $pageSize;
+        } while (count($batch) === $pageSize && count($combined['rows']) < min($total, $cap));
+
+        return $combined;
     }
 
     // protected function runReport(string $propertyId, string $accessToken, array $payload): array
