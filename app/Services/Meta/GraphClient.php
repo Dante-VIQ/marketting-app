@@ -10,7 +10,12 @@ class GraphClient
 {
     private const BASE = 'https://graph.facebook.com';
 
-    public function __construct(private ?Factory $http = null, private ?string $token = null, private ?string $version = null)
+    /**
+     * $retries: extra attempts after a connection failure (DNS timeout, dropped connection) on READS only.
+     * A write is never repeated, because the first attempt may have reached Meta and a repeat could post twice.
+     */
+    public function __construct(private ?Factory $http = null, private ?string $token = null, private ?string $version = null,
+        private int $retries = 2, private int $retryDelayMs = 800)
     {
         $this->http ??= new Factory();
         $this->token ??= (string) self::cfg('meta.access_token', '');
@@ -73,12 +78,20 @@ class GraphClient
 
         $url = self::BASE . '/' . $this->version . '/' . ltrim($path, '/');
         $req = $this->http->timeout(30)->acceptJson();
-        try {
-            // Token goes in the Authorization header, never in the URL, so it cannot end up in logs.
-            $req = $req->withToken($token);
-            $res = $method === 'get' ? $req->get($url, $params) : $req->asForm()->post($url, $params);
-        } catch (ConnectionException $e) {
-            throw new MetaApiException('Could not reach Meta: ' . $e->getMessage());
+        // Token goes in the Authorization header, never in the URL, so it cannot end up in logs.
+        $req = $req->withToken($token);
+
+        $attempts = $method === 'get' ? $this->retries + 1 : 1;
+        for ($i = 1; ; $i++) {
+            try {
+                $res = $method === 'get' ? $req->get($url, $params) : $req->asForm()->post($url, $params);
+                break;
+            } catch (ConnectionException $e) {
+                if ($i >= $attempts) {
+                    throw new MetaApiException('Could not reach Meta' . ($attempts > 1 ? " after {$attempts} tries" : '') . ': ' . $e->getMessage());
+                }
+                usleep($this->retryDelayMs * 1000 * $i);   // 0.8s, then 1.6s
+            }
         }
 
         if (!$res->successful()) {
