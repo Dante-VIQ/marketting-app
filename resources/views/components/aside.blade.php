@@ -122,14 +122,18 @@
 </style>
 
 <aside
-    class="w-16 md:w-64 flex-shrink-0 h-full overflow-y-auto overflow-x-hidden
-           bg-white/60 dark:bg-slate-900/60 backdrop-blur-md
-           border-r border-slate-200/60 dark:border-slate-800/60
-           transition-[width] duration-200 ease-in-out"
+    id="app-sidebar"
+    :class="navOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'"
+    class="fixed top-16 bottom-0 left-0 z-40 w-72 max-w-[85vw]
+           bg-white dark:bg-slate-900 lg:bg-white/60 lg:dark:bg-slate-900/60
+           lg:static lg:z-auto lg:w-64 lg:max-w-none lg:h-full lg:flex-shrink-0
+           backdrop-blur-md border-r border-slate-200/60 dark:border-slate-800/60
+           overflow-y-auto overflow-x-hidden overscroll-contain
+           transform transition-transform duration-200 ease-out"
     aria-label="Main sidebar">
 
     <nav
-        class="p-2 md:p-4 space-y-1"
+        class="p-4 space-y-1"
         x-data="{
             open: {},
 
@@ -160,15 +164,15 @@
             href="{{ route('dashboard') }}"
             title="Dashboard"
             aria-label="Dashboard"
-            class="group flex items-center justify-center md:justify-start
-                   min-h-10 px-0 md:px-3 py-2 text-sm font-medium rounded-xl
+            class="group flex items-center justify-start
+                   min-h-10 px-3 py-2 text-sm font-medium rounded-xl
                    transition-all duration-150
                    {{ $dashActive
                         ? 'bg-white/90 dark:bg-slate-800/90 text-emerald-600 dark:text-emerald-400 shadow-sm border border-emerald-100 dark:border-emerald-900/50'
                         : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-white' }}">
 
             <svg
-                class="w-5 h-5 md:mr-3 flex-shrink-0
+                class="w-5 h-5 mr-3 flex-shrink-0
                        {{ $dashActive
                             ? 'text-emerald-600 dark:text-emerald-400'
                             : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300' }}"
@@ -183,7 +187,7 @@
                     d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
             </svg>
 
-            <span class="hidden md:inline">Dashboard</span>
+            <span class="inline">Dashboard</span>
         </a>
 
         {{-- Navigation groups --}}
@@ -201,15 +205,15 @@
                     aria-controls="nav-{{ $g['key'] }}"
                     title="{{ $g['label'] }}"
                     aria-label="{{ $g['label'] }}"
-                    class="w-full group flex items-center justify-center md:justify-start
-                           min-h-10 px-0 md:px-3 py-2 text-sm font-semibold rounded-xl
+                    class="w-full group flex items-center justify-start
+                           min-h-10 px-3 py-2 text-sm font-semibold rounded-xl
                            transition-all duration-150
                            {{ $has
                                 ? 'text-emerald-600 dark:text-emerald-400'
                                 : 'text-slate-700 dark:text-slate-200 hover:bg-white/50 dark:hover:bg-slate-800/50' }}">
 
                     <svg
-                        class="w-5 h-5 md:mr-3 flex-shrink-0
+                        class="w-5 h-5 mr-3 flex-shrink-0
                                {{ $has
                                     ? 'text-emerald-600 dark:text-emerald-400'
                                     : 'text-slate-400 dark:text-slate-500' }}"
@@ -224,14 +228,14 @@
                             d="{{ $g['icon'] }}" />
                     </svg>
 
-                    <span class="hidden md:inline">{{ $g['label'] }}</span>
+                    <span class="inline">{{ $g['label'] }}</span>
 
-                    <span class="hidden md:inline ml-2 text-[10px] font-medium text-slate-400 dark:text-slate-500">
+                    <span class="inline ml-2 text-[10px] font-medium text-slate-400 dark:text-slate-500">
                         {{ count($g['items']) }}
                     </span>
 
                     <svg
-                        class="hidden md:block w-4 h-4 ml-auto text-slate-400 transition-transform duration-150"
+                        class="block w-4 h-4 ml-auto text-slate-400 transition-transform duration-150"
                         :class="open['{{ $g['key'] }}'] ? 'rotate-180' : ''"
                         fill="none"
                         stroke="currentColor"
@@ -253,8 +257,8 @@
                     x-transition:enter="transition ease-out duration-150"
                     x-transition:enter-start="opacity-0"
                     x-transition:enter-end="opacity-100"
-                    class="mt-1 ml-0 md:ml-4 pl-0 md:pl-2
-                           border-l-0 md:border-l border-slate-200 dark:border-slate-700
+                    class="mt-1 ml-4 pl-2
+                           border-l border-slate-200 dark:border-slate-700
                            space-y-0.5">
 
                     @foreach($g['items'] as $i)
@@ -267,15 +271,15 @@
                             title="{{ $i['label'] }}"
                             aria-label="{{ $i['label'] }}"
                             @if($on) aria-current="page" @endif
-                            class="group flex items-center justify-center md:justify-start
-                                   min-h-9 px-0 md:px-2 py-2 md:py-1.5
+                            class="group flex items-center justify-start
+                                   min-h-9 px-2 py-2 lg:py-1.5
                                    text-sm font-medium rounded-lg transition-all duration-150
                                    {{ $on
                                         ? 'bg-white/90 dark:bg-slate-800/90 text-emerald-600 dark:text-emerald-400 shadow-sm border border-emerald-100 dark:border-emerald-900/50'
                                         : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-white' }}">
 
                             <svg
-                                class="w-5 h-5 md:w-4 md:h-4 md:mr-2 flex-shrink-0
+                                class="w-4 h-4 mr-2 flex-shrink-0
                                        {{ $on
                                             ? 'text-emerald-600 dark:text-emerald-400'
                                             : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300' }}"
@@ -292,14 +296,14 @@
                                 @endforeach
                             </svg>
 
-                            <span class="hidden md:inline truncate">
+                            <span class="inline truncate">
                                 {{ $i['label'] }}
                             </span>
 
                             @if(!empty($i['badge']))
                                 <span
                                     @if($i['badge'][2]) id="{{ $i['badge'][2] }}" @endif
-                                    class="hidden md:inline-flex ml-auto text-[10px] font-semibold
+                                    class="inline-flex ml-auto text-[10px] font-semibold
                                            px-2 py-0.5 rounded-full border whitespace-nowrap shrink-0
                                            {{ $badgeColors[$i['badge'][1]] ?? '' }}">
                                     {{ $i['badge'][0] }}
@@ -313,7 +317,7 @@
 
         {{-- AI Provider Status: desktop only --}}
         <div
-            class="hidden md:block mt-6 p-3 bg-white/40 dark:bg-slate-800/40
+            class="mt-6 p-3 bg-white/40 dark:bg-slate-800/40
                    backdrop-blur-xs rounded-xl border border-slate-200/60 dark:border-slate-800">
 
             <div class="flex items-center justify-between text-xs">
