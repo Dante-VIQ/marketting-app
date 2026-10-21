@@ -129,4 +129,51 @@ class MetaApiTest extends MetaTestCase
         $this->expectExceptionMessage('no linked Instagram');
         (new MetaPublisher($this->graph()))->instagram(['id' => '1', 'token' => 'pt'], 'cap', 'https://x.test/a.jpg');
     }
+
+    private function flaky(int $failures, array $okBody, int &$calls): \Closure
+    {
+        return function () use ($failures, $okBody, &$calls) {
+            $calls++;
+            if ($calls <= $failures) {
+                throw new \Illuminate\Http\Client\ConnectionException('cURL error 28: Resolving timed out');
+            }
+            return $this->http->response($okBody);
+        };
+    }
+
+    public function test_a_read_survives_a_brief_network_failure(): void
+    {
+        $calls = 0;
+        $this->http->fake(['*' => $this->flaky(2, ['data' => [['id' => 1]]], $calls)]);
+        $g = new \App\Services\Meta\GraphClient($this->http, 'user-token', 'v25.0', 2, 0);
+        $this->assertSame(['data' => [['id' => 1]]], $g->get('me/accounts'));
+        $this->assertSame(3, $calls);
+    }
+
+    public function test_a_read_gives_up_with_a_clear_message_when_the_network_stays_down(): void
+    {
+        $calls = 0;
+        $this->http->fake(['*' => $this->flaky(99, [], $calls)]);
+        $g = new \App\Services\Meta\GraphClient($this->http, 'user-token', 'v25.0', 2, 0);
+        try {
+            $g->get('me/accounts');
+            $this->fail('expected exception');
+        } catch (MetaApiException $e) {
+            $this->assertStringContainsString('after 3 tries', $e->getMessage());
+            $this->assertSame(3, $calls);
+        }
+    }
+
+    public function test_a_write_is_never_repeated_because_it_could_post_twice(): void
+    {
+        $calls = 0;
+        $this->http->fake(['*' => $this->flaky(99, [], $calls)]);
+        $g = new \App\Services\Meta\GraphClient($this->http, 'user-token', 'v25.0', 2, 0);
+        $this->expectException(MetaApiException::class);
+        try {
+            $g->post('77/feed', ['message' => 'hi']);
+        } finally {
+            $this->assertSame(1, $calls);
+        }
+    }
 }
