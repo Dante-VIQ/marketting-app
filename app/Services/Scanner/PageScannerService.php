@@ -23,7 +23,7 @@ class PageScannerService
         $this->config = [
             'timeout' => 30,
             'max_links' => 100,
-            'user_agent' => 'VumbiAI-Scanner/1.0 (+https://vumbi-ai.com)',
+            'user_agent' => 'VumbiAI-Scanner/1.0 (+https://vumbidna.com)',
         ];
     }
 

@@ -25,6 +25,12 @@ class ScheduleLog extends Model
         'duration_ms' => 'integer',
     ];
 
+    protected $appends = [
+        'duration',
+        'status_badge',
+        'status_icon',
+    ];
+
     public function scopeSuccess($query)
     {
         return $query->where('status', 'success');

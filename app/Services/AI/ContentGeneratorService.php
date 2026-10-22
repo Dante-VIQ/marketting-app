@@ -165,7 +165,13 @@ class ContentGeneratorService
         // ── Persist atomically ──
         try {
             return DB::transaction(function () use (
-                $action, $brand, $contentData, $promptData, $response, $pageSnapshot, $siteProfile
+                $action,
+                $brand,
+                $contentData,
+                $promptData,
+                $response,
+                $pageSnapshot,
+                $siteProfile
             ) {
                 $draft = ContentDraft::create([
                     'brand_id'         => $brand->id,
@@ -184,7 +190,7 @@ class ContentGeneratorService
                         'model'             => $response['model_used'] ?? null,
                         'tokens_used'       => $response['tokens_used'] ?? 0,
                         'page_snapshot_id'  => $pageSnapshot?->id,
-                        'site_profile_pages'=> $siteProfile['page_count'] ?? 0,
+                        'site_profile_pages' => $siteProfile['page_count'] ?? 0,
                     ],
                 ]);
 
