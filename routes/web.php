@@ -296,17 +296,23 @@ Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
     //         ->name('import.post');
     // });
 
-    Route::prefix('blog')->name('blog.')->group(function () {
-        Route::get('/', [BlogController::class, 'index'])->name('index');
-        Route::get('/{id}', [BlogController::class, 'show'])->name('show')->whereNumber('id'); // numeric only, so /blog/import is reachable
-        Route::get('/import', [BlogController::class, 'import'])->name('import'); // Make sure this exists
-        Route::post('/generate-all', [BlogController::class, 'generateAll'])->name('generate-all');
+    Route::middleware(['auth:sanctum'])
+        ->withoutMiddleware([
+            \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
+            \App\Http\Middleware\EnsureUserApproved::class,
+            \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
+        ])
+        ->prefix('blog')->name('blog.')->group(function () {
+            Route::get('/', [BlogController::class, 'index'])->name('index');
+            Route::get('/{id}', [BlogController::class, 'show'])->name('show')->whereNumber('id'); // numeric only, so /blog/import is reachable
+            Route::get('/import', [BlogController::class, 'import'])->name('import'); // Make sure this exists
+            Route::post('/generate-all', [BlogController::class, 'generateAll'])->name('generate-all');
 
-        // Import routes
-        Route::post('/import/wordpress', [BlogController::class, 'importWordPress'])->name('import.wordpress');
-        Route::post('/import/csv', [BlogController::class, 'importCsv'])->name('import.csv');
-        Route::post('/import/manual', [BlogController::class, 'importManual'])->name('import.manual');
-    });
+            // Import routes
+            Route::post('/import/wordpress', [BlogController::class, 'importWordPress'])->name('import.wordpress');
+            Route::post('/import/csv', [BlogController::class, 'importCsv'])->name('import.csv');
+            Route::post('/import/manual', [BlogController::class, 'importManual'])->name('import.manual');
+        });
 
     // Travel Guides
     Route::prefix('guides')->name('guides.')->group(function () {
@@ -386,7 +392,7 @@ Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
     });
 
     // System documentation: super-admins only (404 for everyone else, so the page's existence is not disclosed)
-    Route::get('/admin/docs', fn () => view('admin.docs'))->middleware('superadmin')->name('admin.docs');
+    Route::get('/admin/docs', fn() => view('admin.docs'))->middleware('superadmin')->name('admin.docs');
 
     // routes/web.php
     Route::get('/admin/contacts', function () {

@@ -18,7 +18,9 @@ class Kernel extends ConsoleKernel
         // })
         // ->name('test-scheduler')
         // ->everyMinute()
-        // ->withoutOverlapping();
+        // ->withoutOverlapping()
+        // ->onOneServer()
+        // ->runInBackground();
 
         // ============================================================
         // PHASE 1: Analytics Collection
@@ -26,7 +28,9 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllBrandsAnalyticsJob())
             ->name('analytics-collection')
             ->dailyAt('05:30')
-            ->withoutOverlapping();
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer();
 
         // ============================================================
         // PHASE 1.5: Site Scan (page inventory for content generation)
@@ -34,7 +38,9 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllBrandsSiteScansJob())
             ->name('site-scan')
             ->weeklyOn(0, '04:00') // Sunday 04:00, ahead of daily brief/content jobs
-            ->withoutOverlapping();
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer();
 
         // ============================================================
         // PHASE 2: AI Brief Generation
@@ -42,7 +48,9 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllBrandsBriefsJob())
             ->name('brief-generation')
             ->dailyAt('06:00')
-            ->withoutOverlapping();
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer();
 
         // ============================================================
         // PHASE 4: Content Generation
@@ -50,7 +58,9 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllApprovedActionsJob())
             ->name('content-generation')
             ->everyFiveMinutes()
-            ->withoutOverlapping();
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer();
 
         // ============================================================
         // PHASE 4: SEO Checks
@@ -58,7 +68,9 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllSeoChecksJob())
             ->name('seo-checks')
             ->dailyAt('07:00')
-            ->withoutOverlapping();
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer();
 
         // ============================================================
         // PHASE 5: Lead Processing
@@ -66,7 +78,9 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllBrandsLeadsJob())
             ->name('lead-processing')
             ->everyFifteenMinutes()
-            ->withoutOverlapping();
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer();
 
         // ============================================================
         // PHASE 5: Campaign Performance
@@ -74,7 +88,9 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllBrandsCampaignsJob())
             ->name('campaign-performance')
             ->dailyAt('08:00')
-            ->withoutOverlapping();
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer();
 
         // ============================================================
         // PHASE 6: Health Checks (Guardian)
@@ -82,10 +98,12 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllHealthChecksJob())
             ->name('health-checks')
             ->dailyAt('09:30')
-            ->withoutOverlapping();
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer();
 
         // ============================================================
-        // PHASE 6: Lead Follow-Ups (Callback - NEEDS name)
+        // PHASE 6: Lead Follow-Ups
         // ============================================================
         $schedule->call(function () {
             try {
@@ -113,7 +131,9 @@ class Kernel extends ConsoleKernel
         })
             ->name('lead-followups')
             ->dailyAt('10:00')
-            ->withoutOverlapping();
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer();
 
         // ============================================================
         // Emergency: Hourly health check when incidents exist
@@ -121,7 +141,9 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllHealthChecksJob())
             ->name('emergency-health-checks')
             ->hourly()
+            ->environments(['production', 'staging'])
             ->withoutOverlapping()
+            ->onOneServer()
             ->when(function () {
                 try {
                     $brand = \App\Models\Brand::where('is_active', true)->first();
@@ -142,11 +164,13 @@ class Kernel extends ConsoleKernel
                 }
             });
 
-        // In schedule() method
         // 8:30 AM - Collect affiliate data
         $schedule->job(new \App\Jobs\ProcessAllAffiliateDataJob())
+            ->name('affiliate-data-collection')
             ->dailyAt('08:30')
+            ->environments(['production', 'staging'])
             ->withoutOverlapping()
+            ->onOneServer()
             ->onSuccess(function () {
                 Log::info('Affiliate data collection completed successfully.');
             })
@@ -154,33 +178,64 @@ class Kernel extends ConsoleKernel
                 Log::error('Affiliate data collection failed.');
             });
 
-            // 7:30 AM - Collect Ahrefs data
-$schedule->job(new \App\Jobs\ProcessAllAhrefsDataJob())
-    ->dailyAt('07:30')
-    ->withoutOverlapping()
-    ->onSuccess(function () {
-        Log::info('Ahrefs data collection completed successfully.');
-    })
-    ->onFailure(function () {
-        Log::error('Ahrefs data collection failed.');
-    });
+        // 7:30 AM - Collect Ahrefs data
+        $schedule->job(new \App\Jobs\ProcessAllAhrefsDataJob())
+            ->name('ahrefs-data-collection')
+            ->dailyAt('07:30')
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->onSuccess(function () {
+                Log::info('Ahrefs data collection completed successfully.');
+            })
+            ->onFailure(function () {
+                Log::error('Ahrefs data collection failed.');
+            });
 
-    // Mondays 06:00 - Scan competitors (free: homepage, sitemap, blog feed)
-    $schedule->job(new \App\Jobs\ProcessAllCompetitorsJob())
-        ->weeklyOn(1, '06:00')
-        ->withoutOverlapping();
+        // Mondays 06:00 - Scan competitors (free: homepage, sitemap, blog feed)
+        $schedule->job(new \App\Jobs\ProcessAllCompetitorsJob())
+            ->name('competitor-scan')
+            ->weeklyOn(1, '06:00')
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer();
 
-    // 8:00 AM - Social listening (Google News, Reddit, Hacker News; free)
-    $schedule->job(new \App\Jobs\ProcessAllListeningJob())
-        ->dailyAt('08:00')
-        ->withoutOverlapping();
+        // 8:00 AM - Social listening (Google News, Reddit, Hacker News; free)
+        $schedule->job(new \App\Jobs\ProcessAllListeningJob())
+            ->name('social-listening')
+            ->dailyAt('08:00')
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer();
 
-    // Meta: import recent posts + refresh results daily; publish human-approved posts when due.
-    $schedule->command('meta:sync-results')->dailyAt('09:15')->withoutOverlapping();
-    $schedule->command('meta:sync-data --only=ads')->dailyAt('06:30')->withoutOverlapping();
-    $schedule->command('meta:sync-data --only=comments,leads')->everyThirtyMinutes()->withoutOverlapping();
-    $schedule->command('meta:publish-due')->everyFiveMinutes()->withoutOverlapping();
-    
+        // Meta: import recent posts + refresh results daily; publish human-approved posts when due.
+        $schedule->command('meta:sync-results')
+            ->dailyAt('09:15')
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->runInBackground();
+
+        $schedule->command('meta:sync-data --only=ads')
+            ->dailyAt('06:30')
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->runInBackground();
+
+        $schedule->command('meta:sync-data --only=comments,leads')
+            ->everyThirtyMinutes()
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->runInBackground();
+
+        $schedule->command('meta:publish-due')
+            ->everyFiveMinutes()
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->runInBackground();
     }
 
     /**

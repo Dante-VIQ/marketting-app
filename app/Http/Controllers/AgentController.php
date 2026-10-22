@@ -349,11 +349,11 @@ class AgentController extends Controller
 
         $rankings = \App\Models\KeywordRanking::where('brand_id', $brandId)
             ->whereDate('tracked_date', $latest)
-            ->when($pageUrl, fn ($q) => $q->where('page_url', $pageUrl))
+            ->when($pageUrl, fn($q) => $q->where('page_url', $pageUrl))
             ->orderBy('position')
             ->limit(50)
             ->get()
-            ->map(fn ($r) => [
+            ->map(fn($r) => [
                 'keyword'           => $r->keyword,
                 'page_url'          => $r->page_url,
                 'position'          => $r->position,
@@ -1840,7 +1840,8 @@ class AgentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'No brief available for today yet.',
-            ], 404);
+                'brief' => null,
+            ], 200);
         }
 
         $raw = $brief->raw_llm_output ?? [];
