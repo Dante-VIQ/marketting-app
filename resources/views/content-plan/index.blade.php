@@ -5,7 +5,7 @@
 @php
     $platforms = \App\Models\ContentIdea::PLATFORMS;
     $formats = \App\Models\ContentIdea::FORMATS;
-    $srcLabel = ['manual' => 'Your idea', 'competitor_gap' => 'Competitor gap', 'listening' => 'Social listening', 'keyword' => 'SEO keyword', 'persona' => 'Persona pain'];
+    $srcLabel = ['manual' => 'Your idea', 'competitor_gap' => 'Competitor gap', 'listening' => 'Social listening', 'keyword' => 'SEO keyword', 'persona' => 'Persona pain', 'audience_comment' => 'Audience question'];
     $todo = collect($ideas->get('ready', []))->concat($ideas->get('idea', []));
     $todo = $todo->concat($ideas->get('failed', []));
     $scheduled = collect($ideas->get('scheduled', []))->concat($ideas->get('publishing', []));

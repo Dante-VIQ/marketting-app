@@ -100,6 +100,23 @@ class AgentEvidenceService
         }
     }
 
+    /**
+     * What the daily brief needs to suggest social content from real signals: what people ask and respond to
+     * (Meta comments and ad audiences), how our own posts performed, who we are writing for, what is already planned.
+     * Each part is optional; a missing part is left out, never filled with zeros.
+     */
+    public function socialContext(int $brandId): array
+    {
+        $out = [];
+        foreach (['content' => $this->content($brandId), 'audience' => $this->audience($brandId), 'personas' => $this->personas($brandId)] as $key => $block) {
+            if (!empty($block)) {
+                $out[$key] = $block;
+            }
+        }
+
+        return $out;
+    }
+
     /** Listening is optional too; a brand with no mentions yields state=no_mentions_yet, not an error. */
     private function content(int $brandId): ?array
     {

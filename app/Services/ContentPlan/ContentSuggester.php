@@ -14,8 +14,9 @@ class ContentSuggester
      * @param array $striking      keywords ranking 4-20: keyword, position, volume
      * @param array $personas      persona summaries: name, pains
      * @param array $existing      lower-cased titles/topics already planned, to avoid repeats
+     * @param array $questions     real questions people asked in comments on our posts (Meta)
      */
-    public static function suggest(array $topicGaps, array $conversations, array $striking, array $personas, array $existing = [], int $limit = 12): array
+    public static function suggest(array $topicGaps, array $conversations, array $striking, array $personas, array $existing = [], int $limit = 12, array $questions = []): array
     {
         $seen = array_flip(array_map('mb_strtolower', $existing));
         $out = [];
@@ -28,6 +29,15 @@ class ContentSuggester
             $out[] = $s;
         };
 
+        foreach ($questions as $q) {
+            $q = trim((string) $q);
+            if ($q === '') {
+                continue;
+            }
+            $short = mb_strimwidth($q, 0, 90, '…');
+            $add(['title' => 'Answer: ' . $short, 'topic' => $q, 'source' => 'audience_comment',
+                'source_detail' => 'A real question from the comments on our posts.']);
+        }
         foreach ($striking as $k) {
             $add(['title' => "Improve or expand content for \"{$k['keyword']}\"", 'topic' => (string) $k['keyword'], 'source' => 'keyword',
                 'source_detail' => "Ranks #{$k['position']}" . (isset($k['volume']) ? ", about {$k['volume']} searches a month" : '') . ': close enough to reach page one.']);

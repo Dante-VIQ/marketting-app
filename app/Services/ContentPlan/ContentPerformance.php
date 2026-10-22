@@ -11,6 +11,25 @@ class ContentPerformance
     public const MIN_TOTAL = 8;   // measured posts before any conclusion
     public const MIN_GROUP = 3;   // posts in a group before it can lead
 
+    /**
+     * The best individual posts so far, with their real numbers. Descriptive only: it never says a format "works".
+     * Posts with no measured impressions are left out (unknown is not zero).
+     * @return array<int,array{title:?string,platform:?string,format:?string,impressions:int,engagement_rate_pct:float}>
+     */
+    public static function topPosts(array $posts, int $limit = 3): array
+    {
+        $rows = [];
+        foreach ($posts as $p) {
+            if (($p['impressions'] ?? 0) > 0 && isset($p['engagements'])) {
+                $rows[] = ['title' => $p['title'] ?? ($p['topic'] ?? null), 'platform' => $p['platform'] ?? null, 'format' => $p['format'] ?? null,
+                    'impressions' => (int) $p['impressions'], 'engagement_rate_pct' => round($p['engagements'] / $p['impressions'] * 100, 2)];
+            }
+        }
+        usort($rows, fn ($a, $b) => $b['engagement_rate_pct'] <=> $a['engagement_rate_pct']);
+
+        return array_slice($rows, 0, $limit);
+    }
+
     /** @param array<int,array{platform:?string,format:?string,topic:?string,posted_at:?string,impressions:?int,engagements:?int}> $posts */
     public static function analyze(array $posts): array
     {

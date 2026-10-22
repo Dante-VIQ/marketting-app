@@ -206,6 +206,14 @@ class BriefGeneratorService
         // Site-wide profile — dominant topics + full page inventory
         $siteProfile = $this->siteProfileService->build($brand->id);
 
+        // Social and audience signals (Meta results, ad audiences, comments, personas, content plan). Optional.
+        try {
+            $social = app(\App\Services\Analytics\AgentEvidenceService::class)->socialContext($brand->id);
+        } catch (\Throwable $e) {
+            report($e);
+            $social = [];
+        }
+
         return [
             'brand' => [
                 'name'        => $brand->name,
@@ -215,6 +223,7 @@ class BriefGeneratorService
                 'website_url' => $brand->website_url ?? '',
             ],
             'analytics'      => $analytics,
+            'social'         => $social ?: null,
             'revenue_leaks'  => $revenueLeaks,
             'knowledge_base' => $knowledge,
             'business_goals' => $goals,
@@ -367,6 +376,15 @@ Guiding Principles:
 3. Formulate 3-5 distinct, prioritized action items.
 4. Voice guidelines: "{$brandVoice}"
 
+USING THE `social` BLOCK (Meta results, audience and content plan; may be null):
+- Social actions (category "social") must be built from this evidence, and the description must say which signal each one comes from: a real audience question (`audience.comments.recent_questions`), one of our own best posts (`content.performance.top_posts`), an audience segment (`audience.ads.groups`) or a persona pain (`personas`).
+- `audience.ads.state` and `content.performance.state`: only "ok" supports a conclusion. "too_early", "no_data" or "no_results" mean there is not enough data yet. They are NOT evidence of poor performance. Never present them as a result or as zero.
+- Never name a winning format, platform, topic or weekday unless `content.performance.state` is "ok" and it appears in `leaders`. `top_posts` are individual results, not proof that a format works.
+- Do not repeat anything listed in `content.planned_topics`.
+- Write the post itself in `suggested_content` in the brand voice, aimed at the persona. Do not promise outcomes.
+- Posts are published by a human, or scheduled for automatic publishing with human approval. Do not claim anything was posted.
+- If `social` is null, do not invent audience insights: base social ideas only on the analytics and site inventory, and say the Meta data is not available yet.
+
 CRITICAL RULES FOR target_url:
 - The user prompt contains a `site_inventory.pages` array listing every page that actually exists on {$website}.
 - `target_url` MUST be one of those pages exactly as listed, or null.
@@ -388,7 +406,7 @@ Output Schema:
             "description": "Step-by-step guidance on execution.",
             "suggested_content": "Short text for emails or social posts.",
             "content_draft": "Complete copy draft for blogs, web pages, or newsletters.",
-            "target_platform": "facebook|linkedin|twitter|blog|email",
+            "target_platform": "facebook|instagram|tiktok|linkedin|twitter|blog|email",
             "target_url": "/page-path-from-site_inventory-or-null",
             "estimated_impact": 500.00,
             "priority": 1
