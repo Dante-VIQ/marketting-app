@@ -230,7 +230,7 @@ class BriefGeneratorService
             'page_snapshots' => $pageSnapshots,
             'site_inventory' => [
                 'dominant_topics' => $siteProfile['dominant_topics'] ?? [],
-                'pages'           => array_map(fn ($p) => [
+                'pages'           => array_map(fn($p) => [
                     'url'   => $p['url'],
                     'title' => $p['title'],
                     'type'  => $p['page_type'],
@@ -419,18 +419,41 @@ PROMPT;
     protected function parseAiResponse(string $response): array
     {
         try {
-            $cleaned = preg_replace('/^```(?:json)?\s*|\s*```$/i', '', trim($response));
-            $data = json_decode($cleaned, true);
+            $cleaned = trim($response);
+            $cleaned = preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $cleaned) ?? $cleaned;
+            $cleaned = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $cleaned);
+
+            $data = json_decode($cleaned, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
 
             if (json_last_error() !== JSON_ERROR_NONE) {
+                $firstBrace = strpos($cleaned, '{');
+                $lastBrace  = strrpos($cleaned, '}');
+
+                if ($firstBrace !== false && $lastBrace !== false && $lastBrace > $firstBrace) {
+                    $candidate = substr($cleaned, $firstBrace, ($lastBrace - $firstBrace) + 1);
+                    $data = json_decode($candidate, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+                }
+
+                if (json_last_error() !== JSON_ERROR_NONE && $firstBrace !== false) {
+                    $candidate = substr($cleaned, $firstBrace);
+                    $lastComma = strrpos($candidate, ',');
+
+                    if ($lastComma !== false && $lastComma > 0) {
+                        $candidate = substr($candidate, 0, $lastComma) . '}';
+                        $data = json_decode($candidate, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+                    }
+                }
+            }
+
+            if (json_last_error() !== JSON_ERROR_NONE || !is_array($data)) {
                 Log::error('BriefGenerator: JSON decode failed', [
                     'error' => json_last_error_msg(),
-                    'raw'   => $response
+                    'raw'   => $response,
                 ]);
                 return [];
             }
 
-            return is_array($data) ? $data : [];
+            return $data;
         } catch (\Exception $e) {
             Log::error('BriefGenerator: Exception while parsing response', ['error' => $e->getMessage()]);
             return [];
@@ -500,15 +523,32 @@ PROMPT;
     protected function titleSignature(string $title): string
     {
         $stop = [
-            'the', 'a', 'an', 'and', 'or', 'for', 'to', 'of', 'in', 'on',
-            'with', 'our', 'your', 'launch', 'optimize', 'create', 'publish',
-            'implement', 'revise', 'improve',
+            'the',
+            'a',
+            'an',
+            'and',
+            'or',
+            'for',
+            'to',
+            'of',
+            'in',
+            'on',
+            'with',
+            'our',
+            'your',
+            'launch',
+            'optimize',
+            'create',
+            'publish',
+            'implement',
+            'revise',
+            'improve',
         ];
 
         $clean  = strtolower($title);
         $clean  = preg_replace('/[^a-z0-9 ]+/', ' ', $clean);
         $tokens = preg_split('/\s+/', trim($clean));
-        $tokens = array_filter($tokens, fn ($t) => $t !== '' && !in_array($t, $stop, true));
+        $tokens = array_filter($tokens, fn($t) => $t !== '' && !in_array($t, $stop, true));
         sort($tokens);
 
         return implode(' ', $tokens);
