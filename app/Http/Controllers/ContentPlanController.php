@@ -31,7 +31,7 @@ class ContentPlanController extends Controller
     {
         $brand = $this->brand();
         $data = $this->validatedIdea($request, $brand->id) + ['brand_id' => $brand->id];
-        $data['source'] = in_array($request->input('source'), ['manual', 'competitor_gap', 'listening', 'keyword', 'persona'], true) ? $request->input('source') : 'manual';
+        $data['source'] = in_array($request->input('source'), ['manual', 'competitor_gap', 'listening', 'keyword', 'persona', 'audience_comment'], true) ? $request->input('source') : 'manual';
         $data['source_detail'] = mb_substr((string) $request->input('source_detail'), 0, 300) ?: null;
         ContentIdea::create($data);
 

@@ -71,4 +71,33 @@ class ContentPerformanceTest extends TestCase
     {
         $this->assertSame([], S::suggest([], [], [], []));
     }
+
+    public function test_top_posts_ranks_by_rate_and_skips_unmeasured(): void
+    {
+        $posts = [
+            ['title' => 'A', 'platform' => 'facebook', 'format' => 'image', 'impressions' => 200, 'engagements' => 10],
+            ['title' => 'B', 'platform' => 'instagram', 'format' => 'short_video', 'impressions' => 100, 'engagements' => 20],
+            ['title' => 'C', 'platform' => 'facebook', 'format' => 'text', 'impressions' => null, 'engagements' => null],
+            ['title' => 'D', 'platform' => 'facebook', 'format' => 'text', 'impressions' => 0, 'engagements' => 0],
+        ];
+        $top = P::topPosts($posts, 3);
+        $this->assertCount(2, $top);
+        $this->assertSame('B', $top[0]['title']);
+        $this->assertSame(20.0, $top[0]['engagement_rate_pct']);
+        $this->assertSame('A', $top[1]['title']);
+    }
+
+    public function test_top_posts_empty_when_nothing_measured(): void
+    {
+        $this->assertSame([], P::topPosts([['title' => 'x', 'impressions' => null, 'engagements' => null]]));
+    }
+
+    public function test_real_comment_questions_become_ideas_first_and_are_not_repeated(): void
+    {
+        $out = S::suggest([], [], [], [], ['is it safe to self drive in the mara?'], 12, ['Is it safe to self drive in the Mara?', 'How much is a Kilimanjaro trek?', '  ']);
+        $this->assertCount(1, $out);
+        $this->assertSame('audience_comment', $out[0]['source']);
+        $this->assertSame('How much is a Kilimanjaro trek?', $out[0]['topic']);
+        $this->assertLessThanOrEqual(16, strlen($out[0]['source']));
+    }
 }
