@@ -28,8 +28,15 @@ new class extends Component {
 
     protected $listeners = ['refreshScheduleData' => 'loadData', 'refreshSchedules' => 'loadTasks'];
 
+    /** Livewire actions are callable directly, so every entry point checks, not just the route. */
+    private function guard(): void
+    {
+        abort_unless(Auth::user()?->isSuperAdmin(), 403);
+    }
+
     public function mount()
     {
+        $this->guard();
         $this->loadData();
         $this->loadTasks();
     }
@@ -53,6 +60,7 @@ new class extends Component {
 
     public function triggerTask($taskName)
     {
+        $this->guard();
         $user = Auth::user();
 
         $service = app(ScheduleTaskManagerService::class);
@@ -93,6 +101,7 @@ new class extends Component {
      */
     public function triggerJob($jobName)
     {
+        $this->guard();
         $user = Auth::user();
 
         // Log the manual trigger

@@ -51,7 +51,7 @@
                 ['route'=>'actions.queue', 'match'=>'actions.queue', 'label'=>'Action Queue', 'icon'=>['M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4'], 'badge'=>['0','amber','pending-count']],
                 ['route'=>'actions.history', 'match'=>'actions.history', 'label'=>'Action History', 'icon'=>['M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z']],
                 ['route'=>'recurring-issues', 'match'=>'recurring-issues', 'label'=>'Recurring Issues', 'icon'=>['M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15'], 'badge'=>['Alert','amber',null]],
-                ['route'=>'schedule.index', 'match'=>'schedule.*', 'label'=>'Schedule', 'icon'=>['M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z']],
+                ['route'=>'schedule.index', 'match'=>'schedule.*', 'label'=>'Schedule', 'only'=>'superadmin', 'icon'=>['M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z']],
                 ['route'=>'scanner.index', 'match'=>'scanner.*', 'label'=>'Page Scanner', 'icon'=>['M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z']],
             ],
         ],

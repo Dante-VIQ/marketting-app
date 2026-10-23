@@ -23,16 +23,20 @@ class PythonService
      */
     public function runScript(string $script, array $params = []): array
     {
+        // Script names are code identifiers, never user input; refuse anything else (no path tricks).
+        if (!preg_match('/^[a-z0-9_]+$/', $script)) {
+            return ['error' => 'Invalid script name'];
+        }
+
         $scriptPath = $this->scriptsPath . '/' . $script . '.py';
         $jsonParams = json_encode($params);
 
-        $command = [
+        // Array form: arguments go to the program directly, never through a shell, so params cannot inject commands.
+        $process = Process::timeout(120)->run([
             $this->pythonPath,
             $scriptPath,
             $jsonParams,
-        ];
-
-        $process = Process::run(implode(' ', $command));
+        ]);
 
         if (!$process->successful()) {
             Log::error('Python script failed', [
