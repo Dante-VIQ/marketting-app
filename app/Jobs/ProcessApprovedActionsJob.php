@@ -6,6 +6,7 @@ use App\Models\Brand;
 use App\Models\AiAction;
 use App\Services\AI\ContentGeneratorService;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -15,6 +16,14 @@ use Illuminate\Support\Facades\Log;
 class ProcessApprovedActionsJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    public int $timeout = 900;
+    public int $tries = 1;
+
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping('approved-actions:' . $this->brand->id))->releaseAfter(60)->expireAfter(960)];
+    }
 
     protected Brand $brand;
 

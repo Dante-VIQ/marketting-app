@@ -278,7 +278,8 @@ Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
         })->name('index');
     });
 
-    Route::prefix('schedule')->name('schedule.')->group(function () {
+    // Platform-wide jobs: super admin only (the page can trigger jobs for every brand).
+    Route::prefix('schedule')->name('schedule.')->middleware('superadmin')->group(function () {
         Route::get('/', function () {
             return view('schedule.index');
         })->name('index');

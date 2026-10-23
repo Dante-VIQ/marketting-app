@@ -18,7 +18,7 @@ class Kernel extends ConsoleKernel
         // })
         // ->name('test-scheduler')
         // ->everyMinute()
-        // ->withoutOverlapping()
+        // ->withoutOverlapping(180)
         // ->onOneServer()
         // ->runInBackground();
 
@@ -29,7 +29,7 @@ class Kernel extends ConsoleKernel
             ->name('analytics-collection')
             ->dailyAt('05:30')
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(180)
             ->onOneServer();
 
         // ============================================================
@@ -39,7 +39,7 @@ class Kernel extends ConsoleKernel
             ->name('site-scan')
             ->weeklyOn(0, '04:00') // Sunday 04:00, ahead of daily brief/content jobs
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(180)
             ->onOneServer();
 
         // ============================================================
@@ -49,7 +49,7 @@ class Kernel extends ConsoleKernel
             ->name('brief-generation')
             ->dailyAt('06:00')
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(180)
             ->onOneServer();
 
         // ============================================================
@@ -59,7 +59,7 @@ class Kernel extends ConsoleKernel
             ->name('content-generation')
             ->everyFiveMinutes()
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(10)
             ->onOneServer();
 
         // ============================================================
@@ -69,7 +69,7 @@ class Kernel extends ConsoleKernel
             ->name('seo-checks')
             ->dailyAt('07:00')
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(180)
             ->onOneServer();
 
         // ============================================================
@@ -79,7 +79,7 @@ class Kernel extends ConsoleKernel
             ->name('lead-processing')
             ->everyFifteenMinutes()
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(25)
             ->onOneServer();
 
         // ============================================================
@@ -89,7 +89,7 @@ class Kernel extends ConsoleKernel
             ->name('campaign-performance')
             ->dailyAt('08:00')
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(180)
             ->onOneServer();
 
         // ============================================================
@@ -99,7 +99,7 @@ class Kernel extends ConsoleKernel
             ->name('health-checks')
             ->dailyAt('09:30')
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(180)
             ->onOneServer();
 
         // ============================================================
@@ -117,7 +117,12 @@ class Kernel extends ConsoleKernel
                 $qualifier = app(\App\Services\Lead\LeadQualifierService::class);
 
                 foreach ($brands as $brand) {
-                    $qualifier->checkForFollowUps($brand);
+                    // One brand failing must not stop follow-ups for the others.
+                    try {
+                        $qualifier->checkForFollowUps($brand);
+                    } catch (\Throwable $e) {
+                        Log::error('Follow-up check failed for brand.', ['brand_id' => $brand->id, 'error' => $e->getMessage()]);
+                    }
                 }
 
                 Log::info('Follow-up check completed.', [
@@ -132,7 +137,7 @@ class Kernel extends ConsoleKernel
             ->name('lead-followups')
             ->dailyAt('10:00')
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(180)
             ->onOneServer();
 
         // ============================================================
@@ -142,21 +147,21 @@ class Kernel extends ConsoleKernel
             ->name('emergency-health-checks')
             ->hourly()
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(55)
             ->onOneServer()
             ->when(function () {
                 try {
-                    $brand = \App\Models\Brand::where('is_active', true)->first();
+                    // Any active brand with an open incident, not just the first one.
+                    $guardian = app(\App\Services\Guardian\GuardianService::class);
 
-                    if (!$brand) {
-                        return false;
+                    foreach (\App\Models\Brand::where('is_active', true)->get() as $brand) {
+                        if (count($guardian->getOpenIncidents($brand)) > 0) {
+                            return true;
+                        }
                     }
 
-                    $incidents = app(\App\Services\Guardian\GuardianService::class)
-                        ->getOpenIncidents($brand);
-
-                    return count($incidents) > 0;
-                } catch (\Exception $e) {
+                    return false;
+                } catch (\Throwable $e) {
                     Log::error('Health check condition failed', [
                         'error' => $e->getMessage(),
                     ]);
@@ -169,7 +174,7 @@ class Kernel extends ConsoleKernel
             ->name('affiliate-data-collection')
             ->dailyAt('08:30')
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(180)
             ->onOneServer()
             ->onSuccess(function () {
                 Log::info('Affiliate data collection completed successfully.');
@@ -183,7 +188,7 @@ class Kernel extends ConsoleKernel
             ->name('ahrefs-data-collection')
             ->dailyAt('07:30')
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(180)
             ->onOneServer()
             ->onSuccess(function () {
                 Log::info('Ahrefs data collection completed successfully.');
@@ -197,7 +202,7 @@ class Kernel extends ConsoleKernel
             ->name('competitor-scan')
             ->weeklyOn(1, '06:00')
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(180)
             ->onOneServer();
 
         // 8:00 AM - Social listening (Google News, Reddit, Hacker News; free)
@@ -205,35 +210,36 @@ class Kernel extends ConsoleKernel
             ->name('social-listening')
             ->dailyAt('08:00')
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(180)
             ->onOneServer();
 
         // Meta: import recent posts + refresh results daily; publish human-approved posts when due.
+        // Meta syncs run before the 06:00 brief so the brief sees today's results, not yesterday's.
         $schedule->command('meta:sync-results')
-            ->dailyAt('09:15')
+            ->dailyAt('05:40')
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(180)
             ->onOneServer()
             ->runInBackground();
 
         $schedule->command('meta:sync-data --only=ads')
-            ->dailyAt('06:30')
+            ->dailyAt('05:50')
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(180)
             ->onOneServer()
             ->runInBackground();
 
         $schedule->command('meta:sync-data --only=comments,leads')
             ->everyThirtyMinutes()
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(25)
             ->onOneServer()
             ->runInBackground();
 
         $schedule->command('meta:publish-due')
             ->everyFiveMinutes()
             ->environments(['production', 'staging'])
-            ->withoutOverlapping()
+            ->withoutOverlapping(10)
             ->onOneServer()
             ->runInBackground();
     }
