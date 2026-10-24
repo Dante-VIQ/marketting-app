@@ -51,12 +51,35 @@ class ContentPublisher
         if ($linkUrl && !preg_match('#^https?://#i', $linkUrl)) {
             throw new DomainException('The link must start with http:// or https://.');
         }
+        if (in_array($idea->format, ['image', 'carousel', 'story'], true) && !$mediaUrl) {
+            throw new DomainException('This post is planned as ' . $idea->format . ', so it needs its image. Use the image prompt to make one, then paste its public https URL.');
+        }
         if ($scheduledAt->lt(now()->subMinute())) {
             throw new DomainException('Pick a time in the future.');
         }
 
         $idea->update(['status' => 'scheduled', 'publish_mode' => 'auto', 'scheduled_at' => $scheduledAt, 'approved_by' => $approverId,
-            'approved_at' => now(), 'media_url' => $mediaUrl ?: null, 'link_url' => $linkUrl ?: null, 'publish_error' => null]);
+            'approved_at' => now(), 'media_url' => $mediaUrl ?: null, 'link_url' => self::tagLink($linkUrl, $idea), 'publish_error' => null]);
+    }
+
+    /**
+     * Adds UTM tags so site analytics can say which post sent a visit. Never overwrites tags someone already set.
+     * Only http(s) links; anything else is returned unchanged.
+     */
+    public static function tagLink(?string $url, ContentIdea $idea): ?string
+    {
+        if (!$url || !preg_match('#^https?://#i', $url)) {
+            return $url ?: null;
+        }
+        [$base, $frag] = array_pad(explode('#', $url, 2), 2, null);
+        parse_str((string) parse_url($base, PHP_URL_QUERY), $q);
+        $tags = ['utm_source' => (string) $idea->platform, 'utm_medium' => 'social', 'utm_campaign' => 'vumbiai-' . $idea->id];
+        foreach ($tags as $k => $v) {
+            $q[$k] ??= $v;
+        }
+        $base = explode('?', $base, 2)[0] . '?' . http_build_query($q);
+
+        return $base . ($frag !== null ? '#' . $frag : '');
     }
 
     public function cancel(ContentIdea $idea): void

@@ -98,7 +98,13 @@
                     <input type="date" name="planned_for" value="{{ $i->planned_for?->format('Y-m-d') }}" class="border rounded px-2 py-1">
                     <select name="status" class="border rounded px-2 py-1"><option value="idea" @selected($i->status === 'idea')>Idea</option><option value="ready" @selected($i->status === 'ready')>Ready to post</option><option value="skipped">Skip it</option></select>
                     <textarea name="copy" rows="3" placeholder="Post text, ready to copy and paste" class="border rounded px-2 py-1 md:col-span-4">{{ $i->copy }}</textarea>
+                    <textarea name="image_prompt" rows="2" placeholder="Image prompt (for an image tool). Make the image, then paste its public URL below." class="border rounded px-2 py-1 md:col-span-4">{{ $i->image_prompt }}</textarea>
+                    <input name="image_alt" maxlength="300" value="{{ $i->image_alt }}" placeholder="Image description (alt text)" class="border rounded px-2 py-1 md:col-span-3">
                     <button class="px-3 py-1 bg-gray-800 text-white rounded md:col-span-1">Save</button>
+                </form>
+                <form method="POST" action="{{ route('content-plan.draft', $i->id) }}" onsubmit="return {{ $i->copy ? 'confirm(\'Replace the current text with a new AI draft?\')' : 'true' }}">
+                    @csrf<button class="text-xs px-2 py-1 rounded border border-violet-300 text-violet-800 bg-violet-50">Draft text and image prompt with AI</button>
+                    <span class="text-xs text-gray-500">Uses only the brand facts you have given the system. You review it before anything is posted.</span>
                 </form>
                 @if($i->status === 'failed' && $i->publish_error)
                     <p class="p-2 rounded bg-red-50 border border-red-200 text-xs text-red-800">Auto-post failed: {{ $i->publish_error }}</p>
@@ -140,6 +146,16 @@
                         <button class="px-3 py-1 bg-blue-600 text-white rounded">Save results</button>
                         @if($i->measured_at)<span class="text-xs text-gray-400">updated {{ $i->measured_at->diffForHumans() }}</span>@else<span class="text-xs text-amber-700">not measured yet</span>@endif
                     </form>
+                    <p class="mt-2 text-xs">
+                        @if($i->site_measured_at)
+                            <span class="text-gray-700">On the website: <strong>{{ number_format($i->site_sessions) }}</strong> visits · <strong>{{ number_format($i->site_key_events) }}</strong> sign-up/key events</span>
+                            <span class="text-gray-400">(GA4, {{ $i->site_measured_at->diffForHumans() }})</span>
+                        @elseif($i->link_url && str_contains($i->link_url, 'utm_campaign=vumbiai-'))
+                            <span class="text-gray-500">Website visits appear here about 2 days after posting.</span>
+                        @else
+                            <span class="text-gray-500">No tracked link, so website visits cannot be measured for this post. Posts approved here get one automatically.</span>
+                        @endif
+                    </p>
                 </div>
             @endforeach
         </div>
