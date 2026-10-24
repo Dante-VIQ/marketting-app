@@ -436,6 +436,32 @@ class GA4Service
         return $result;
     }
     /**
+     * Visits and key events from social posts, by UTM campaign name (our tags look like vumbiai-123).
+     * Raw runReport response; parse with SocialSiteResults::parse().
+     *
+     * @throws \Exception when GA4 is unconfigured or the request fails.
+     */
+    public function getSocialCampaignReport(Brand $brand, string $startDate, string $endDate): array
+    {
+        $propertyId = $brand->config['ga4_property_id'] ?? $this->propertyId;
+        if (!$propertyId) {
+            throw new \Exception('GA4 Property ID is not configured. Please add it in Brand Settings.');
+        }
+        $token = $this->getAccessToken();
+        if (!$token) {
+            throw new \Exception('Could not get GA4 access token. Check your service account configuration.');
+        }
+
+        return $this->runReport($propertyId, $token, [
+            'dateRanges' => [['startDate' => $startDate, 'endDate' => $endDate]],
+            'dimensions' => [['name' => 'sessionCampaignName']],
+            'metrics'    => [['name' => 'sessions'], ['name' => 'keyEvents']],
+            'dimensionFilter' => ['filter' => ['fieldName' => 'sessionMedium', 'stringFilter' => ['matchType' => 'EXACT', 'value' => 'social']]],
+            'limit'      => 1000,
+        ], true);
+    }
+
+    /**
      * Run a GA4 runReport, following pagination up to a sane cap.
      *
      * @throws \Exception on API failure when $mandatory, otherwise rethrows too (callers decide).

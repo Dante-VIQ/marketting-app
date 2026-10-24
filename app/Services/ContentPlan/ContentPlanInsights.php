@@ -58,6 +58,8 @@ class ContentPlanInsights
                 // Individual results with real numbers; descriptive only, not proof a format works.
                 'top_posts' => ContentPerformance::topPosts($this->postedRows($brandId)),
             ],
+            // What tagged posts did on the website (visits, key events). Descriptive; not revenue.
+            'site_impact' => SocialSiteResults::summary($brandId),
             // Topics already planned or posted, so new suggestions do not repeat them.
             'planned_topics' => ContentIdea::where('brand_id', $brandId)->whereIn('status', ['idea', 'ready', 'posted'])->latest()->limit(15)->pluck('topic')->filter()->values()->all(),
             'note' => 'Posts are published by a human or scheduled for automatic publishing with human approval. Do not name a winning format unless performance.state is "ok".',

@@ -49,6 +49,22 @@ class ContentPlanController extends Controller
         return back()->with('message', 'Saved.');
     }
 
+    /** Ask the AI for a draft (text + image prompt). It only fills the form; a human edits and approves. */
+    public function draft(int $idea, \App\Services\ContentPlan\PostDrafter $drafter)
+    {
+        $i = $this->find($idea);
+        if (in_array($i->status, ['scheduled', 'publishing', 'posted'], true)) {
+            return back()->withErrors(['This one is already scheduled or posted.']);
+        }
+        try {
+            $drafter->draft($i, $this->brand());
+        } catch (\DomainException $e) {
+            return back()->withErrors([$e->getMessage()]);
+        }
+
+        return back()->with('message', 'Draft ready. Read it, edit it, then approve. Nothing has been posted.');
+    }
+
     /** You posted it yourself: record where and when. */
     public function posted(Request $request, int $idea)
     {
@@ -112,6 +128,8 @@ class ContentPlanController extends Controller
             'platform' => 'nullable|in:' . implode(',', array_keys(ContentIdea::PLATFORMS)),
             'format' => 'nullable|in:' . implode(',', array_keys(ContentIdea::FORMATS)),
             'copy' => 'nullable|string|max:5000',
+            'image_prompt' => 'nullable|string|max:1500',
+            'image_alt' => 'nullable|string|max:300',
             'planned_for' => 'nullable|date',
             'persona_id' => 'nullable|integer',
         ]);

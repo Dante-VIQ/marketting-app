@@ -15,7 +15,9 @@ class MetaPublisher
         }
 
         if ($imageUrl) {
-            $r = $this->graph->post("{$page['id']}/photos", ['url' => $imageUrl, 'caption' => $message, 'published' => 'true'], $page['token']);
+            // The photos endpoint has no link field, so the link goes in the caption; otherwise an image post sends nobody to the site.
+            $caption = $link && !str_contains($message, $link) ? rtrim($message) . "\n\n" . $link : $message;
+            $r = $this->graph->post("{$page['id']}/photos", ['url' => $imageUrl, 'caption' => $caption, 'published' => 'true'], $page['token']);
             $id = (string) ($r['post_id'] ?? $r['id'] ?? '');
         } else {
             $params = ['message' => $message] + ($link ? ['link' => $link] : []);

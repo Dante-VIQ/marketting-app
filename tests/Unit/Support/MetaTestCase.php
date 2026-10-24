@@ -46,7 +46,7 @@ abstract class MetaTestCase extends TestCase
             $t->unsignedInteger('impressions')->nullable(); $t->unsignedInteger('reach')->nullable(); $t->unsignedInteger('engagements')->nullable();
             $t->unsignedInteger('clicks')->nullable(); $t->unsignedInteger('shares')->nullable(); $t->timestamp('measured_at')->nullable();
             $t->timestamp('approved_at')->nullable(); $t->unsignedBigInteger('approved_by')->nullable(); $t->string('remote_post_id')->nullable();
-            $t->string('media_url')->nullable(); $t->string('link_url')->nullable(); $t->text('publish_error')->nullable(); $t->timestamps();
+            $t->string('media_url')->nullable(); $t->string('link_url')->nullable(); $t->text('publish_error')->nullable(); $t->text('image_prompt')->nullable(); $t->string('image_alt')->nullable(); $t->unsignedInteger('site_sessions')->nullable(); $t->unsignedInteger('site_key_events')->nullable(); $t->timestamp('site_measured_at')->nullable(); $t->timestamps();
         });
 
         $this->http = new Factory();

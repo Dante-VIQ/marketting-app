@@ -142,6 +142,7 @@ Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
         Route::get('/', [$c, 'index'])->name('index');
         Route::post('/', [$c, 'store'])->name('store');
         Route::put('/{idea}', [$c, 'update'])->name('update')->whereNumber('idea');
+        Route::post('/{idea}/draft', [$c, 'draft'])->name('draft')->whereNumber('idea')->middleware('throttle:10,1');
         Route::post('/{idea}/posted', [$c, 'posted'])->name('posted')->whereNumber('idea');
         Route::post('/{idea}/results', [$c, 'results'])->name('results')->whereNumber('idea');
         Route::post('/{idea}/schedule', [$c, 'schedule'])->name('schedule')->whereNumber('idea');

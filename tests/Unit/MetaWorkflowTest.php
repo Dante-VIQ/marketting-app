@@ -92,7 +92,20 @@ class MetaWorkflowTest extends MetaTestCase
         $this->assertSame('posted', $i->status);
         $this->assertSame('1_55', $i->remote_post_id);
         $this->assertSame(7, (int) $i->approved_by);
-        $this->http->assertSent(fn (Request $q) => str_ends_with($q->url(), '/1/feed') && $q['message'] === 'Hello Kenya' && $q['link'] === 'https://vumbi.test/post');
+        $this->http->assertSent(fn (Request $q) => str_ends_with($q->url(), '/1/feed') && $q['message'] === 'Hello Kenya' && $q['link'] === 'https://vumbi.test/post?utm_source=facebook&utm_medium=social&utm_campaign=vumbiai-' . $i->id);
+    }
+
+    public function test_image_post_keeps_its_link_in_the_caption(): void
+    {
+        $this->fakePage(['*/1/photos*' => $this->http->response(['post_id' => '1_77'])]);
+        $i = $this->idea();
+        $p = $this->publisher();
+        $p->approve($i, 7, Carbon::now()->addMinutes(1), 'https://cdn.example.com/a.jpg', 'https://vumbi.test/post');
+        ContentIdea::whereKey($i->id)->update(['scheduled_at' => Carbon::now()->subMinute()]);
+
+        $p->publishDue();
+
+        $this->http->assertSent(fn (Request $q) => str_ends_with($q->url(), '/1/photos') && str_contains($q['caption'], "Hello Kenya\n\nhttps://vumbi.test/post?utm_source=facebook"));
     }
 
     public function test_nothing_is_posted_before_its_time_or_without_approval(): void

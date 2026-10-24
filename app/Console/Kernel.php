@@ -222,6 +222,13 @@ class Kernel extends ConsoleKernel
             ->onOneServer()
             ->runInBackground();
 
+        $schedule->command('social:sync-site-results')
+            ->dailyAt('05:45')
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping(60)
+            ->onOneServer()
+            ->runInBackground();
+
         $schedule->command('meta:sync-data --only=ads')
             ->dailyAt('05:50')
             ->environments(['production', 'staging'])

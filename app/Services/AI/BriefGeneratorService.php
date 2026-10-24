@@ -381,6 +381,7 @@ USING THE `social` BLOCK (Meta results, audience and content plan; may be null):
 - `audience.ads.state` and `content.performance.state`: only "ok" supports a conclusion. "too_early", "no_data" or "no_results" mean there is not enough data yet. They are NOT evidence of poor performance. Never present them as a result or as zero.
 - Never name a winning format, platform, topic or weekday unless `content.performance.state` is "ok" and it appears in `leaders`. `top_posts` are individual results, not proof that a format works.
 - Do not repeat anything listed in `content.planned_topics`.
+- `content.site_impact` is what our posts did on the website (visits and key events such as sign-ups). Judge posts by it, not by likes alone: a post with modest engagement that sends visitors is worth more than a popular one that sends none. It is traffic and sign-up signals, never revenue: do not state or estimate money earned. Only "ok" supports a conclusion; "too_early" and "no_tracked_posts" are not evidence of failure.
 - Write the post itself in `suggested_content` in the brand voice, aimed at the persona. Do not promise outcomes.
 - Posts are published by a human, or scheduled for automatic publishing with human approval. Do not claim anything was posted.
 - If `social` is null, do not invent audience insights: base social ideas only on the analytics and site inventory, and say the Meta data is not available yet.
