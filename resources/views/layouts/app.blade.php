@@ -76,6 +76,9 @@
                                         <a href="{{ route('brands.index') }}" class="block px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/50 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
                                             Brand Settings
                                         </a>
+                                        <a href="{{ route('account.security') }}" class="block px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/50 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                                            Security (passkeys)
+                                        </a>
                                         <a href="{{ route('system.status') }}" class="block px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/50 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
                                             System Status
                                         </a>

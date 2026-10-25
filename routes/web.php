@@ -23,6 +23,10 @@ Route::get('/dashboard', function () {
 });
 
 // Signed in but not yet approved by the platform administrator
+// Passkeys: any signed-in user (even one still waiting for approval) can manage their own sign-in methods.
+// password.confirm makes them re-enter the password before adding or removing a passkey.
+Route::middleware(['auth:sanctum', 'password.confirm'])->get('/account/security', [\App\Http\Controllers\AccountSecurityController::class, 'index'])->name('account.security');
+
 Route::middleware('auth:sanctum')->get('/pending-approval', function () {
     if (auth()->user()->isApproved()) {
         return redirect()->route('dashboard');

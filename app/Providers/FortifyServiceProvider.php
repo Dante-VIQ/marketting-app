@@ -47,6 +47,11 @@ class FortifyServiceProvider extends ServiceProvider
             return view('auth.verify-email');
         });
 
+        // Passkey/2FA management asks for the password again first; Fortify needs a view for that.
+        Fortify::confirmPasswordView(function () {
+            return view('auth.confirm-password');
+        });
+
         RateLimiter::for('login', function (Request $request) {
             $email = (string) $request->email;
             return Limit::perMinute(5)->by($email . $request->ip());

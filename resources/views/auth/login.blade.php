@@ -70,6 +70,19 @@
                 </button>
             </div>
 
+            <div x-data="{ ok: !!(window.Passkeys && window.Passkeys.isSupported()), busy: false, error: '' }" x-show="ok" x-cloak class="pt-1">
+                <div class="relative my-2 text-center text-xs text-gray-500"><span class="bg-gray-50 px-2 relative z-10">or</span><div class="absolute inset-x-0 top-1/2 border-t border-gray-300"></div></div>
+                <button type="button" :disabled="busy"
+                        @click="busy = true; error = '';
+                                window.Passkeys.verify({ remember: document.getElementById('remember').checked })
+                                  .then(r => { window.location.href = (r && r.redirect) || '{{ url('/dashboard') }}'; })
+                                  .catch(e => { error = (e && e.message) ? e.message : 'Passkey sign-in did not work. Use your password instead.'; busy = false; })"
+                        class="w-full flex justify-center py-2 px-4 border border-gray-300 text-sm font-medium rounded-md text-gray-800 bg-white hover:bg-gray-50 disabled:opacity-50">
+                    <span x-text="busy ? 'Waiting for your device…' : 'Sign in with a passkey'"></span>
+                </button>
+                <p x-show="error" x-text="error" class="mt-2 text-sm text-red-600"></p>
+            </div>
+
             @if(Route::has('register'))
                 <div class="text-center">
                     <p class="text-sm text-gray-600">
