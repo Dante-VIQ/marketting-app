@@ -154,6 +154,11 @@ Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
         Route::delete('/{idea}', [$c, 'destroy'])->name('destroy')->whereNumber('idea');
     });
 
+    // Impact: is the system helping? (before/after, actions, posts, money logged by a person)
+    Route::get('/impact', [App\Http\Controllers\ImpactController::class, 'index'])->name('impact.index');
+    Route::post('/impact/revenue', [App\Http\Controllers\ImpactController::class, 'storeRevenue'])->name('impact.revenue.store');
+    Route::delete('/impact/revenue/{entry}', [App\Http\Controllers\ImpactController::class, 'destroyRevenue'])->name('impact.revenue.destroy')->whereNumber('entry');
+
     // Meta connection: token scopes, capabilities, Pages; results sync
     Route::get('/meta', [App\Http\Controllers\MetaController::class, 'index'])->name('meta.index');
     Route::post('/meta/sync', [App\Http\Controllers\MetaController::class, 'sync'])->name('meta.sync');
