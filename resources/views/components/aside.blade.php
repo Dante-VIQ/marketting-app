@@ -9,6 +9,7 @@
             'icon' => 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z',
             'items' => [
                 ['route'=>'analytics.index', 'match'=>'analytics.index', 'label'=>'Analytics', 'icon'=>['M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z'], 'badge'=>['Live','emerald',null]],
+                ['route'=>'impact.index', 'match'=>'impact.*', 'label'=>'Impact', 'icon'=>['M13 7h8m0 0v8m0-8l-8 8-4-4-6 6'], 'badge'=>['Proof','emerald',null]],
                 ['route'=>'briefs.index', 'match'=>'briefs.*', 'label'=>'AI Brief', 'icon'=>['M13 10V3L4 14h7v7l9-11h-7z'], 'badge'=>['Daily','sky',null]],
                 ['route'=>'seo.index', 'match'=>'seo.*', 'label'=>'SEO Assistant', 'icon'=>['M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z'], 'badge'=>['Monitor','amber',null]],
                 ['route'=>'ahrefs.index', 'match'=>'ahrefs.*', 'label'=>'Ahrefs', 'icon'=>['M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1'], 'badge'=>['Backlinks','sky',null]],
