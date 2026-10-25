@@ -205,6 +205,14 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping(180)
             ->onOneServer();
 
+        // 1st of the month 03:30 - Suggest competitors from the brand's own data (suggestions only; a human accepts them)
+        $schedule->command('competitors:discover')
+            ->monthlyOn(1, '03:30')
+            ->environments(['production', 'staging'])
+            ->withoutOverlapping(60)
+            ->onOneServer()
+            ->runInBackground();
+
         // 8:00 AM - Social listening (Google News, Reddit, Hacker News; free)
         $schedule->job(new \App\Jobs\ProcessAllListeningJob())
             ->name('social-listening')
