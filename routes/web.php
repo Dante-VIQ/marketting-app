@@ -163,6 +163,9 @@ Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
     Route::prefix('competitors')->name('competitors.')->group(function () {
         Route::get('/', [App\Http\Controllers\CompetitorController::class, 'index'])->name('index');
         Route::post('/', [App\Http\Controllers\CompetitorController::class, 'store'])->name('store');
+        Route::post('/discover', [App\Http\Controllers\CompetitorController::class, 'discover'])->name('discover')->middleware('throttle:3,60');
+        Route::post('/suggestions/{suggestion}/accept', [App\Http\Controllers\CompetitorController::class, 'accept'])->name('suggestions.accept')->whereNumber('suggestion');
+        Route::post('/suggestions/{suggestion}/dismiss', [App\Http\Controllers\CompetitorController::class, 'dismiss'])->name('suggestions.dismiss')->whereNumber('suggestion');
         Route::post('/{competitor}/scan', [App\Http\Controllers\CompetitorController::class, 'scan'])->name('scan')->whereNumber('competitor');
         Route::delete('/{competitor}', [App\Http\Controllers\CompetitorController::class, 'destroy'])->name('destroy')->whereNumber('competitor');
     });

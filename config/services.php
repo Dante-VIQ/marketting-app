@@ -35,6 +35,11 @@ return [
         ],
     ],
 
+    // Optional web search for competitor discovery. Free tier, no card: https://tavily.com. Without a key, discovery still runs on AI suggestions.
+    'tavily' => [
+        'key' => env('TAVILY_API_KEY'),
+    ],
+
     'ahrefs' => [
         'token' => env('AHREFS_API_TOKEN') ?: env('AHREFS_API_KEY'),
         'endpoint' => env('AHREFS_API_ENDPOINT', 'https://api.ahrefs.com/v3'),
