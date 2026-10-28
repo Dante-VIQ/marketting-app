@@ -1,8 +1,16 @@
 #!/bin/sh
+set -eu
 
-cd /home/u988184134/domains/vumbidna.com/public_html/marketting || exit 1
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
 
-PHP_BIN="/opt/alt/php84/usr/bin/php"
+mkdir -p storage/logs
+
+PHP_BIN="${PHP_BIN:-$(command -v php 2>/dev/null || true)}"
+if [ -z "$PHP_BIN" ]; then
+    echo "php executable not found" >&2
+    exit 1
+fi
 
 "$PHP_BIN" artisan schedule:run >> storage/logs/scheduler-cron.log 2>&1
 

@@ -341,7 +341,10 @@ class AgentController extends Controller
 
         // Latest snapshot only — previously every historical day was returned, so the
         // same keyword appeared once per day.
-        $latest = \App\Models\KeywordRanking::where('brand_id', $brandId)->max('tracked_date');
+        $latest = \App\Models\KeywordRanking::where('brand_id', $brandId)
+            ->selectRaw('DATE(tracked_date) as tracked_date')
+            ->orderByDesc('tracked_date')
+            ->value('tracked_date');
 
         if (!$latest) {
             return response()->json([]);
