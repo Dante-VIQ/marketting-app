@@ -6,7 +6,7 @@ cd "$SCRIPT_DIR" || exit 1
 
 mkdir -p storage/logs
 
-PHP_BIN="${PHP_BIN:-$(command -v php 2>/dev/null || true)}"
+PHP_BIN="${PHP_BIN:-$(command -v php8.4 2>/dev/null || command -v php 2>/dev/null || true)}"
 if [ -z "$PHP_BIN" ]; then
     echo "php executable not found" >&2
     exit 1
