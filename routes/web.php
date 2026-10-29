@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\AiVisibilityController;
 use App\Http\Controllers\BlogController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\DashboardController;
@@ -49,6 +50,12 @@ Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
     Route::get('/calibration', function () {
         return view('calibration');
     })->name('calibration');
+
+    // AI Visibility
+    Route::prefix('visibility')->name('visibility.')->group(function () {
+        Route::get('/', [AiVisibilityController::class, 'index'])->name('index');
+        Route::post('/run', [AiVisibilityController::class, 'run'])->name('run');
+    });
 
     // // Analytics
     // Route::prefix('analytics')->name('analytics.')->group(function () {
