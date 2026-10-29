@@ -101,7 +101,7 @@ class BrandOnboarding extends Component
         Auth::user()->switchBrand($brand);
 
         session()->flash('onboarding_done', $brand->name);
-        $this->redirect(route('dashboard', ['brand' => $brand->slug]), navigate: true);
+        $this->redirect(route('dashboard'), navigate: true);
     }
 
     public function render()

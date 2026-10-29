@@ -65,6 +65,7 @@ class BrandManagementService
                 'name'        => $data['name'],
                 'slug'        => $data['slug'],
                 'domain_type' => $domainType,
+                'website_url' => $data['website_url'] ?? null,
                 'config'      => $config,
                 'brand_voice' => $data['brand_voice'],
                 'timezone'    => $data['timezone'],
