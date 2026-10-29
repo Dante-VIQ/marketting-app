@@ -27,8 +27,13 @@ use Illuminate\Support\Facades\Log;
  */
 class AiVisibilityService
 {
+    // Resolved niche/region/product — populated by buildProbes(), reused by benchmarkCompetitors()
+    private string $resolvedNiche   = 'travel';
+    private string $resolvedRegion  = 'East Africa';
+    private string $resolvedProduct = 'travel';
+
     public function __construct(
-        private AiGatewayService   $ai,
+        private AiGatewayService    $ai,
         private BrandContextService $brandContext,
     ) {}
 
@@ -89,16 +94,44 @@ class AiVisibilityService
      */
     private function buildProbes(Brand $brand, array $context): array
     {
-        $name    = $brand->name;
-        $niche   = $context['industry'] ?? $context['domain_type'] ?? 'travel';
-        $region  = $context['region']   ?? 'East Africa';
-        $product = $context['product']  ?? $niche;
+        $name      = $brand->name;
+        $brandVoice = $context['brand_voice'] ?? '';
+        $website   = $brand->website_url ?? '';
 
-        // Generate additional probes via AI
+        // Step 1: Let the AI determine the brand's actual niche and region
+        // from its name, website and brand voice — so we don't rely on domain_type
+        // which describes the platform category, not the brand's actual market.
+        $nicheRaw = $this->ai->generate([
+            'system_prompt'   => 'You are a brand analyst. Return ONLY a JSON object, no markdown.',
+            'user_prompt'     => "Based on this information, determine the brand's niche industry and primary region.\n"
+                . "Brand name: {$name}\n"
+                . "Website: {$website}\n"
+                . "Brand description: {$brandVoice}\n\n"
+                . "Return ONLY JSON: {\"niche\": \"e.g. travel and safari\", \"region\": \"e.g. East Africa\", \"product\": \"e.g. safari tour\"}",
+            'response_format' => 'json',
+            'max_tokens'      => 128,
+        ]);
+
+        $niche   = $context['domain_type'] ?? 'travel';
+        $region  = 'East Africa';
+        $product = $niche;
+
+        if ($nicheRaw['success']) {
+            $decoded = json_decode($nicheRaw['content'], true);
+            if (is_array($decoded)) {
+                $niche   = $decoded['niche']   ?? $niche;
+                $region  = $decoded['region']  ?? $region;
+                $product = $decoded['product'] ?? $niche;
+            }
+        }
+
+        // Step 2: Generate buyer probe questions for this niche
         $aiProbesRaw = $this->ai->generate([
             'system_prompt'   => 'You are an AI visibility analyst. Return ONLY valid JSON arrays, no markdown, no explanations.',
-            'user_prompt'     => "Generate 6 realistic buyer questions that someone might ask an AI assistant like ChatGPT or Google Gemini when looking for a {$product} company in {$region} (brand: '{$name}', niche: {$niche}). "
-                . "These should be natural language questions, not keyword searches. "
+            'user_prompt'     => "Generate 6 realistic questions that a potential customer might ask an AI assistant like ChatGPT or Google Gemini "
+                . "when looking for a {$product} company in {$region}. "
+                . "These should be natural language questions a real buyer would ask — not keyword searches. "
+                . "Do NOT include the brand name '{$name}' in the questions. "
                 . "Return ONLY a JSON array of strings. Example: [\"question 1\", \"question 2\"]",
             'response_format' => 'json',
             'max_tokens'      => 512,
@@ -116,12 +149,17 @@ class AiVisibilityService
             }
         }
 
-        // Always include a direct brand name probe
+        // Always include fixed high-priority probes that directly name the brand
         $fixed = [
-            ['query' => "What is {$name} and what do they do?",                       'priority' => 'high'],
+            ['query' => "What is {$name} and what do they offer?",                    'priority' => 'high'],
             ['query' => "Best {$product} companies in {$region} — recommendations?",  'priority' => 'high'],
             ['query' => "Who are the top {$product} providers in Africa?",             'priority' => 'high'],
         ];
+
+        // Store resolved niche/region so benchmarkCompetitors can reuse them
+        $this->resolvedNiche   = $niche;
+        $this->resolvedRegion  = $region;
+        $this->resolvedProduct = $product;
 
         return array_merge($fixed, array_slice($aiProbes, 0, 6));
     }
@@ -165,8 +203,9 @@ class AiVisibilityService
      */
     private function benchmarkCompetitors(Brand $brand, array $context): array
     {
-        $niche  = $context['industry'] ?? $context['domain_type'] ?? 'travel';
-        $region = $context['region'] ?? 'East Africa';
+        // Use the niche/region resolved by buildProbes() — they reflect the brand's actual market
+        $niche  = $this->resolvedNiche;
+        $region = $this->resolvedRegion;
 
         $response = $this->ai->generate([
             'system_prompt'   => 'You are an AI visibility analyst. Return ONLY valid JSON arrays, no markdown, no explanations.',
