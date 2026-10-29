@@ -39,6 +39,14 @@ return [
             'required_config_keys' => [],
             'optional_config_keys' => ['program_id', 'cohort_id'],
         ],
+        'travel' => [
+            'label' => 'Travel & Tourism',
+            'icon' => '✈️',
+            'description' => 'Safaris, tours, hospitality, and destination marketing',
+            'default_timezone' => 'Africa/Nairobi',
+            'required_config_keys' => [],
+            'optional_config_keys' => ['ga4_property_id', 'ga4_measurement_id', 'ga4_api_secret', 'facebook_page_id', 'facebook_access_token', 'tripadvisor_location_id', 'booking_engine_url'],
+        ],
         'general' => [
             'label' => 'General',
             'icon' => '📋',

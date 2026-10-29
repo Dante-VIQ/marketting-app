@@ -94,19 +94,35 @@ class AiVisibilityService
      */
     private function buildProbes(Brand $brand, array $context): array
     {
-        $name      = $brand->name;
+        $name       = $brand->name;
         $brandVoice = $context['brand_voice'] ?? '';
-        $website   = $brand->website_url ?? '';
+        $website    = $brand->website_url ?? '';
+
+        // Collect supplementary signals from page scanner if available
+        $pageSignals = '';
+        if (!empty($context['pages_scanned_count']) && $context['pages_scanned_count'] > 0) {
+            $pageTopics = implode(', ', array_slice($context['all_topics'] ?? [], 0, 15));
+            $pageTypes  = implode(', ', $context['page_types_found'] ?? []);
+            $pageTitles = implode(' | ', array_filter(array_map(
+                fn($p) => $p['title'] ?? null,
+                array_slice($context['scanned_pages'] ?? [], 0, 5)
+            )));
+            $pageSignals = "\nScanned pages ({$context['pages_scanned_count']} pages): {$pageTitles}"
+                . "\nPage types found: {$pageTypes}"
+                . "\nTop topics across all pages: {$pageTopics}";
+        }
 
         // Step 1: Let the AI determine the brand's actual niche and region
-        // from its name, website and brand voice — so we don't rely on domain_type
-        // which describes the platform category, not the brand's actual market.
+        // from its name, website, brand voice, and page scanner data — so we
+        // don't rely on domain_type which describes the platform category, not
+        // the brand's actual market.
         $nicheRaw = $this->ai->generate([
             'system_prompt'   => 'You are a brand analyst. Return ONLY a JSON object, no markdown.',
             'user_prompt'     => "Based on this information, determine the brand's niche industry and primary region.\n"
                 . "Brand name: {$name}\n"
                 . "Website: {$website}\n"
-                . "Brand description: {$brandVoice}\n\n"
+                . "Brand description: {$brandVoice}"
+                . $pageSignals . "\n\n"
                 . "Return ONLY JSON: {\"niche\": \"e.g. travel and safari\", \"region\": \"e.g. East Africa\", \"product\": \"e.g. safari tour\"}",
             'response_format' => 'json',
             'max_tokens'      => 128,
