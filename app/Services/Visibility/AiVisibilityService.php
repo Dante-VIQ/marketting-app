@@ -27,8 +27,13 @@ use Illuminate\Support\Facades\Log;
  */
 class AiVisibilityService
 {
+    // Resolved niche/region/product — populated by buildProbes(), reused by benchmarkCompetitors()
+    private string $resolvedNiche   = 'travel';
+    private string $resolvedRegion  = 'East Africa';
+    private string $resolvedProduct = 'travel';
+
     public function __construct(
-        private AiGatewayService   $ai,
+        private AiGatewayService    $ai,
         private BrandContextService $brandContext,
     ) {}
 
@@ -89,17 +94,63 @@ class AiVisibilityService
      */
     private function buildProbes(Brand $brand, array $context): array
     {
-        $name    = $brand->name;
-        $niche   = $context['industry'] ?? $context['domain_type'] ?? 'travel';
-        $region  = $context['region']   ?? 'East Africa';
-        $product = $context['product']  ?? $niche;
+        $name       = $brand->name;
+        $brandVoice = $context['brand_voice'] ?? '';
+        $website    = $brand->website_url ?? '';
 
-        // Generate additional probes via AI
+        // Collect supplementary signals from page scanner if available
+        $pageSignals = '';
+        if (!empty($context['pages_scanned_count']) && $context['pages_scanned_count'] > 0) {
+            $pageTopics = implode(', ', array_slice($context['all_topics'] ?? [], 0, 15));
+            $pageTypes  = implode(', ', $context['page_types_found'] ?? []);
+            $pageTitles = implode(' | ', array_filter(array_map(
+                fn($p) => $p['title'] ?? null,
+                array_slice($context['scanned_pages'] ?? [], 0, 5)
+            )));
+            $pageSignals = "\nScanned pages ({$context['pages_scanned_count']} pages): {$pageTitles}"
+                . "\nPage types found: {$pageTypes}"
+                . "\nTop topics across all pages: {$pageTopics}";
+        }
+
+        // Step 1: Let the AI determine the brand's actual niche and region
+        // from its name, website, brand voice, and page scanner data — so we
+        // don't rely on domain_type which describes the platform category, not
+        // the brand's actual market.
+        $nicheRaw = $this->ai->generate([
+            'system_prompt'   => 'You are a brand analyst. Return ONLY a JSON object, no markdown.',
+            'user_prompt'     => "Based on this information, determine the brand's niche industry and primary region.\n"
+                . "Brand name: {$name}\n"
+                . "Website: {$website}\n"
+                . "Brand description: {$brandVoice}"
+                . $pageSignals . "\n\n"
+                . "Return ONLY JSON: {\"niche\": \"e.g. travel and safari\", \"region\": \"e.g. East Africa\", \"product\": \"e.g. safari tour\"}",
+            'response_format' => 'json',
+            'max_tokens'      => 128,
+        ]);
+
+        $niche   = $context['domain_type'] ?? 'travel';
+        $region  = 'East Africa';
+        $product = $niche;
+
+        if ($nicheRaw['success']) {
+            $decoded = json_decode($nicheRaw['content'], true);
+            if (is_array($decoded)) {
+                $niche   = $decoded['niche']   ?? $niche;
+                $region  = $decoded['region']  ?? $region;
+                $product = $decoded['product'] ?? $niche;
+            }
+        }
+
+        // Step 2: Generate buyer probe questions for this niche
         $aiProbesRaw = $this->ai->generate([
-            'prompt' => "You are helping audit AI visibility for a brand called '{$name}' operating in {$niche} in {$region}.\n\n"
-                . "Generate 6 realistic buyer questions that someone might ask an AI assistant like ChatGPT or Google Gemini when looking for a {$product} company in {$region}. "
-                . "These should be natural language questions, not keyword searches. "
-                . "Return ONLY a JSON array of strings, nothing else. Example: [\"question 1\", \"question 2\"]",
+            'system_prompt'   => 'You are an AI visibility analyst. Return ONLY valid JSON arrays, no markdown, no explanations.',
+            'user_prompt'     => "Generate 6 realistic questions that a potential customer might ask an AI assistant like ChatGPT or Google Gemini "
+                . "when looking for a {$product} company in {$region}. "
+                . "These should be natural language questions a real buyer would ask — not keyword searches. "
+                . "Do NOT include the brand name '{$name}' in the questions. "
+                . "Return ONLY a JSON array of strings. Example: [\"question 1\", \"question 2\"]",
+            'response_format' => 'json',
+            'max_tokens'      => 512,
         ]);
 
         $aiProbes = [];
@@ -114,12 +165,17 @@ class AiVisibilityService
             }
         }
 
-        // Always include a direct brand name probe
+        // Always include fixed high-priority probes that directly name the brand
         $fixed = [
-            ['query' => "What is {$name} and what do they do?",                       'priority' => 'high'],
+            ['query' => "What is {$name} and what do they offer?",                    'priority' => 'high'],
             ['query' => "Best {$product} companies in {$region} — recommendations?",  'priority' => 'high'],
             ['query' => "Who are the top {$product} providers in Africa?",             'priority' => 'high'],
         ];
+
+        // Store resolved niche/region so benchmarkCompetitors can reuse them
+        $this->resolvedNiche   = $niche;
+        $this->resolvedRegion  = $region;
+        $this->resolvedProduct = $product;
 
         return array_merge($fixed, array_slice($aiProbes, 0, 6));
     }
@@ -133,8 +189,9 @@ class AiVisibilityService
 
         foreach ($probes as $probe) {
             $response = $this->ai->generate([
-                'prompt' => "Answer the following question as an AI assistant would, drawing on your knowledge of real companies and services. "
-                    . "Be specific and name real brands when relevant.\n\nQuestion: {$probe['query']}",
+                'system_prompt' => 'You are a knowledgeable AI assistant. Answer questions accurately, naming real companies and services when relevant.',
+                'user_prompt'   => $probe['query'],
+                'max_tokens'    => 600,
             ]);
 
             $mentioned = false;
@@ -162,14 +219,18 @@ class AiVisibilityService
      */
     private function benchmarkCompetitors(Brand $brand, array $context): array
     {
-        $niche  = $context['industry'] ?? $context['domain_type'] ?? 'travel';
-        $region = $context['region'] ?? 'East Africa';
+        // Use the niche/region resolved by buildProbes() — they reflect the brand's actual market
+        $niche  = $this->resolvedNiche;
+        $region = $this->resolvedRegion;
 
         $response = $this->ai->generate([
-            'prompt' => "In the context of {$niche} in {$region}, list 4 well-known competitors to '{$brand->name}'. "
-                . "For each, estimate their AI visibility score (0–100) based on how often they'd be mentioned by AI assistants for niche queries. "
-                . "Return ONLY a JSON array like: [{\"name\": \"CompanyX\", \"score\": 65, \"reason\": \"brief reason\"}]. "
+            'system_prompt'   => 'You are an AI visibility analyst. Return ONLY valid JSON arrays, no markdown, no explanations.',
+            'user_prompt'     => "In the context of {$niche} in {$region}, list 4 well-known competitors to '{$brand->name}'. "
+                . "For each, estimate their AI visibility score (0–100) based on how often they would be mentioned by AI assistants for niche queries. "
+                . "Return ONLY a JSON array: [{\"name\": \"CompanyX\", \"score\": 65, \"reason\": \"brief reason\"}]. "
                 . "Include '{$brand->name}' as one of the entries.",
+            'response_format' => 'json',
+            'max_tokens'      => 512,
         ]);
 
         if (!$response['success']) {
@@ -195,7 +256,12 @@ class AiVisibilityService
             . "Each should be concrete (e.g. 'Add FAQ schema markup to your homepage', not 'improve content'). "
             . "Return ONLY JSON: [{\"priority\": \"high|medium\", \"action\": \"...\", \"reason\": \"...\"}]";
 
-        $response = $this->ai->generate(['prompt' => $prompt]);
+        $response = $this->ai->generate([
+            'system_prompt'   => 'You are an AEO expert. Return ONLY valid JSON arrays, no markdown, no explanations.',
+            'user_prompt'     => $prompt,
+            'response_format' => 'json',
+            'max_tokens'      => 800,
+        ]);
 
         if (!$response['success']) {
             return [];
@@ -217,10 +283,12 @@ class AiVisibilityService
         $topRec = !empty($recs) ? $recs[0]['action'] : 'improve structured content';
 
         $response = $this->ai->generate([
-            'prompt' => "Write one paragraph (3–4 sentences) summarising the AI visibility audit for '{$brand->name}'. "
+            'system_prompt' => 'You are a marketing analyst. Write concise, direct prose. No bullet points.',
+            'user_prompt'   => "Write one paragraph (3–4 sentences) summarising the AI visibility audit for '{$brand->name}'. "
                 . "Key facts: score {$score}/100, mentioned in {$hit} of {$total} probe queries. "
                 . "Top recommendation: {$topRec}. "
-                . "Be direct, specific, and practical. Do not use bullet points.",
+                . "Be direct, specific, and practical.",
+            'max_tokens'    => 300,
         ]);
 
         return $response['success'] ? $response['content'] : "Audit complete. Score: {$score}/100 ({$hit}/{$total} probes).";
