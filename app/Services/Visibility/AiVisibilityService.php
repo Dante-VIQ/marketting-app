@@ -43,7 +43,7 @@ class AiVisibilityService
         ]);
 
         try {
-            $context     = $this->brandContext->gather($brand);
+            $context     = $this->brandContext->getFullContext($brand);
             $probes      = $this->buildProbes($brand, $context);
             $results     = $this->runProbes($brand, $probes);
             $competitors = $this->benchmarkCompetitors($brand, $context);

@@ -39,7 +39,7 @@ class AiVisibilityServiceTest extends TestCase
     private function makeContextService(array $context = []): BrandContextService
     {
         $stub = $this->createMock(BrandContextService::class);
-        $stub->method('gather')->willReturn(array_merge([
+        $stub->method('getFullContext')->willReturn(array_merge([
             'industry'    => 'travel',
             'region'      => 'East Africa',
             'domain_type' => 'marketing',
