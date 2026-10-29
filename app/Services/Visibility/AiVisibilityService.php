@@ -96,10 +96,12 @@ class AiVisibilityService
 
         // Generate additional probes via AI
         $aiProbesRaw = $this->ai->generate([
-            'prompt' => "You are helping audit AI visibility for a brand called '{$name}' operating in {$niche} in {$region}.\n\n"
-                . "Generate 6 realistic buyer questions that someone might ask an AI assistant like ChatGPT or Google Gemini when looking for a {$product} company in {$region}. "
+            'system_prompt'   => 'You are an AI visibility analyst. Return ONLY valid JSON arrays, no markdown, no explanations.',
+            'user_prompt'     => "Generate 6 realistic buyer questions that someone might ask an AI assistant like ChatGPT or Google Gemini when looking for a {$product} company in {$region} (brand: '{$name}', niche: {$niche}). "
                 . "These should be natural language questions, not keyword searches. "
-                . "Return ONLY a JSON array of strings, nothing else. Example: [\"question 1\", \"question 2\"]",
+                . "Return ONLY a JSON array of strings. Example: [\"question 1\", \"question 2\"]",
+            'response_format' => 'json',
+            'max_tokens'      => 512,
         ]);
 
         $aiProbes = [];
@@ -133,8 +135,9 @@ class AiVisibilityService
 
         foreach ($probes as $probe) {
             $response = $this->ai->generate([
-                'prompt' => "Answer the following question as an AI assistant would, drawing on your knowledge of real companies and services. "
-                    . "Be specific and name real brands when relevant.\n\nQuestion: {$probe['query']}",
+                'system_prompt' => 'You are a knowledgeable AI assistant. Answer questions accurately, naming real companies and services when relevant.',
+                'user_prompt'   => $probe['query'],
+                'max_tokens'    => 600,
             ]);
 
             $mentioned = false;
@@ -166,10 +169,13 @@ class AiVisibilityService
         $region = $context['region'] ?? 'East Africa';
 
         $response = $this->ai->generate([
-            'prompt' => "In the context of {$niche} in {$region}, list 4 well-known competitors to '{$brand->name}'. "
-                . "For each, estimate their AI visibility score (0–100) based on how often they'd be mentioned by AI assistants for niche queries. "
-                . "Return ONLY a JSON array like: [{\"name\": \"CompanyX\", \"score\": 65, \"reason\": \"brief reason\"}]. "
+            'system_prompt'   => 'You are an AI visibility analyst. Return ONLY valid JSON arrays, no markdown, no explanations.',
+            'user_prompt'     => "In the context of {$niche} in {$region}, list 4 well-known competitors to '{$brand->name}'. "
+                . "For each, estimate their AI visibility score (0–100) based on how often they would be mentioned by AI assistants for niche queries. "
+                . "Return ONLY a JSON array: [{\"name\": \"CompanyX\", \"score\": 65, \"reason\": \"brief reason\"}]. "
                 . "Include '{$brand->name}' as one of the entries.",
+            'response_format' => 'json',
+            'max_tokens'      => 512,
         ]);
 
         if (!$response['success']) {
@@ -195,7 +201,12 @@ class AiVisibilityService
             . "Each should be concrete (e.g. 'Add FAQ schema markup to your homepage', not 'improve content'). "
             . "Return ONLY JSON: [{\"priority\": \"high|medium\", \"action\": \"...\", \"reason\": \"...\"}]";
 
-        $response = $this->ai->generate(['prompt' => $prompt]);
+        $response = $this->ai->generate([
+            'system_prompt'   => 'You are an AEO expert. Return ONLY valid JSON arrays, no markdown, no explanations.',
+            'user_prompt'     => $prompt,
+            'response_format' => 'json',
+            'max_tokens'      => 800,
+        ]);
 
         if (!$response['success']) {
             return [];
@@ -217,10 +228,12 @@ class AiVisibilityService
         $topRec = !empty($recs) ? $recs[0]['action'] : 'improve structured content';
 
         $response = $this->ai->generate([
-            'prompt' => "Write one paragraph (3–4 sentences) summarising the AI visibility audit for '{$brand->name}'. "
+            'system_prompt' => 'You are a marketing analyst. Write concise, direct prose. No bullet points.',
+            'user_prompt'   => "Write one paragraph (3–4 sentences) summarising the AI visibility audit for '{$brand->name}'. "
                 . "Key facts: score {$score}/100, mentioned in {$hit} of {$total} probe queries. "
                 . "Top recommendation: {$topRec}. "
-                . "Be direct, specific, and practical. Do not use bullet points.",
+                . "Be direct, specific, and practical.",
+            'max_tokens'    => 300,
         ]);
 
         return $response['success'] ? $response['content'] : "Audit complete. Score: {$score}/100 ({$hit}/{$total} probes).";
