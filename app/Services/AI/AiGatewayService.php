@@ -88,22 +88,35 @@ class AiGatewayService
     }
 
     /**
+     * Build a messages array from history + current user prompt.
+     * History entries are [{role: 'user'|'assistant', content: '...'}].
+     */
+    protected function buildMessages(array $promptData): array
+    {
+        $messages = [];
+        foreach ($promptData['history'] ?? [] as $entry) {
+            $messages[] = ['role' => $entry['role'], 'content' => $entry['content']];
+        }
+        $messages[] = ['role' => 'user', 'content' => $promptData['user_prompt']];
+        return $messages;
+    }
+
+    /**
      * Call OpenAI API.
      */
     protected function callOpenAI(array $promptData): array
     {
+        $messages = $this->buildMessages($promptData);
+        array_unshift($messages, ['role' => 'system', 'content' => $promptData['system_prompt'] ?? '']);
+
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $this->config['api_key'],
             'Content-Type' => 'application/json',
         ])->post($this->config['endpoint'], [
             'model' => $this->config['model'],
-            'messages' => [
-                ['role' => 'system', 'content' => $promptData['system_prompt'] ?? ''],
-                ['role' => 'user', 'content' => $promptData['user_prompt']],
-            ],
+            'messages' => $messages,
             'temperature' => $promptData['temperature'] ?? 0.7,
             'max_tokens' => $promptData['max_tokens'] ?? 4096,
-            'response_format' => ['type' => 'json_object'],
         ]);
 
         if (!$response->successful()) {
@@ -131,9 +144,7 @@ class AiGatewayService
         ])->post($this->config['endpoint'], [
             'model' => $this->config['model'],
             'system' => $promptData['system_prompt'] ?? '',
-            'messages' => [
-                ['role' => 'user', 'content' => $promptData['user_prompt']],
-            ],
+            'messages' => $this->buildMessages($promptData),
             'temperature' => $promptData['temperature'] ?? 0.7,
             'max_tokens' => $promptData['max_tokens'] ?? 4096,
         ]);
@@ -165,17 +176,26 @@ class AiGatewayService
         $systemPrompt = $promptData['system_prompt'] ?? '';
         $userPrompt = $promptData['user_prompt'] ?? '';
 
-        // Combine system and user prompts for Gemini
-        $fullPrompt = $systemPrompt ? $systemPrompt . "\n\n" . $userPrompt : $userPrompt;
+        // Combine system prompt into user turn (Gemini doesn't have a system role)
+        $fullFirstPrompt = $systemPrompt ? $systemPrompt . "\n\n" . $userPrompt : $userPrompt;
+
+        // Build contents array — history first, then current turn
+        $contents = [];
+        foreach ($promptData['history'] ?? [] as $entry) {
+            $role = $entry['role'] === 'assistant' ? 'model' : 'user';
+            $contents[] = ['role' => $role, 'parts' => [['text' => $entry['content']]]];
+        }
+
+        // If no history, inject system into the first user turn
+        if (empty($contents)) {
+            $contents[] = ['role' => 'user', 'parts' => [['text' => $fullFirstPrompt]]];
+        } else {
+            // System prompt already baked in; just add current user message
+            $contents[] = ['role' => 'user', 'parts' => [['text' => $userPrompt]]];
+        }
 
         $payload = [
-            'contents' => [
-                [
-                    'parts' => [
-                        ['text' => $fullPrompt]
-                    ]
-                ]
-            ],
+            'contents' => $contents,
             'generationConfig' => [
                 'temperature' => $promptData['temperature'] ?? 0.7,
                 'maxOutputTokens' => $promptData['max_tokens'] ?? 4096,
@@ -274,7 +294,7 @@ class AiGatewayService
     }
 
     /**
-     * Build prompt for Ollama (system + user combined).
+     * Build prompt for Ollama (system + history + user combined).
      */
     protected function buildOllamaPrompt(array $promptData): string
     {
@@ -282,6 +302,11 @@ class AiGatewayService
 
         if (!empty($promptData['system_prompt'])) {
             $prompt .= "System: " . $promptData['system_prompt'] . "\n\n";
+        }
+
+        foreach ($promptData['history'] ?? [] as $entry) {
+            $label   = $entry['role'] === 'assistant' ? 'Assistant' : 'User';
+            $prompt .= "{$label}: " . $entry['content'] . "\n\n";
         }
 
         $prompt .= "User: " . $promptData['user_prompt'] . "\n\n";

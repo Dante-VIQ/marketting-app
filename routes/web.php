@@ -422,4 +422,10 @@ Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
     })->middleware('superadmin')->name('admin.contacts');
 
     Route::view('/recurring-issues', 'recurring-issues')->name('recurring-issues');
+
+    // ── Conversational Bot ───────────────────────────────────────────────────
+    Route::prefix('chat')->name('chat.')->group(function () {
+        Route::post('/message', [App\Http\Controllers\BotController::class, 'message'])->name('message');
+        Route::delete('/session', [App\Http\Controllers\BotController::class, 'clearSession'])->name('clear');
+    });
 });
