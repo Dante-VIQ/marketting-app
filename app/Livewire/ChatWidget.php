@@ -13,6 +13,7 @@ class ChatWidget extends Component
     // UI state
     public bool   $isOpen    = false;
     public bool   $isLoading = false;
+    public bool   $isGuest   = false;
 
     // Chat state
     public string $input     = '';
@@ -24,6 +25,7 @@ class ChatWidget extends Component
 
     public function mount(?Brand $brand = null): void
     {
+        $this->isGuest = !Auth::check();
         $this->brandId = $brand?->id ?? Auth::user()?->active_brand_id;
 
         // Greet
@@ -40,6 +42,14 @@ class ChatWidget extends Component
 
     public function send(): void
     {
+        if ($this->isGuest) {
+            $this->messages = [[
+                'role'    => 'assistant',
+                'content' => $this->getGreeting(),
+            ]];
+            return;
+        }
+
         $message = trim($this->input);
         if (empty($message) || $this->isLoading) {
             return;
@@ -61,6 +71,15 @@ class ChatWidget extends Component
     #[\Livewire\Attributes\On('send-to-ai')]
     public function processMessage(string $message): void
     {
+        if ($this->isGuest || !Auth::check()) {
+            $this->messages = [[
+                'role'    => 'assistant',
+                'content' => $this->getGreeting(),
+            ]];
+            $this->isLoading = false;
+            return;
+        }
+
         try {
             $user  = Auth::user();
             $brand = $this->brandId ? Brand::find($this->brandId) : $user->brands()->first();
@@ -76,7 +95,6 @@ class ChatWidget extends Component
 
             $this->sessionId = $result['session_id'];
             $this->messages[] = ['role' => 'assistant', 'content' => $result['reply']];
-
         } catch (\Throwable $e) {
             $this->messages[] = [
                 'role'    => 'assistant',
@@ -89,6 +107,15 @@ class ChatWidget extends Component
 
     public function clearChat(): void
     {
+        if ($this->isGuest || !Auth::check()) {
+            $this->messages = [[
+                'role'    => 'assistant',
+                'content' => $this->getGreeting(),
+            ]];
+            $this->sessionId = null;
+            return;
+        }
+
         try {
             $user  = Auth::user();
             $brand = $this->brandId ? Brand::find($this->brandId) : $user->brands()->first();
@@ -111,6 +138,10 @@ class ChatWidget extends Component
 
     private function getGreeting(): string
     {
+        if (!Auth::check()) {
+            return 'Please log in to use Vumbi AI.';
+        }
+
         $user  = Auth::user();
         $brand = $this->brandId ? Brand::find($this->brandId) : $user?->brands()->first();
         $name  = $user?->name ? explode(' ', $user->name)[0] : 'there';
