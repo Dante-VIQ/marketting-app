@@ -117,6 +117,9 @@
         </div>
     </div>
 
+    {{-- Vumbi AI floating chat widget --}}
+    @livewire('chat-widget')
+
     @livewireScripts
     @stack('scripts')
 </body>
