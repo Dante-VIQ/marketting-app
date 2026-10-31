@@ -2,10 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Brand;
-use App\Models\PageSnapshot;
 use App\Services\Scanner\PageScannerService;
 use App\Services\AI\AiGatewayService;
+use App\Services\Intelligence\AcquisitionIntelligenceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -15,16 +14,17 @@ use Illuminate\Support\Str;
  * Public URL scanner — no auth required.
  *
  * Free-tier entry point for Vumbi AI.
- * Paste a URL → AI analyses what it can see → visibility report.
+ * Paste a URL → AI visibility report + full customer acquisition strategy.
  *
  * Rate limit: 3 scans per IP per hour (enforced via Cache).
- * Results cached for 1 hour per URL so the same URL doesn't cost AI credits twice.
+ * Results cached for 2 hours per URL to avoid duplicate AI costs.
  */
 class PublicScannerController extends Controller
 {
     public function __construct(
-        private PageScannerService $scanner,
-        private AiGatewayService   $ai,
+        private PageScannerService            $scanner,
+        private AiGatewayService              $ai,
+        private AcquisitionIntelligenceService $intelligence,
     ) {}
 
     // ── Landing page ─────────────────────────────────────────────────────────
@@ -55,10 +55,10 @@ class PublicScannerController extends Controller
 
         Cache::put($rateLimitKey, $scanCount + 1, now()->addHour());
 
-        // ── Cache results by URL (1 hour) ─────────────────────────────────────
-        $cacheKey = 'public_scan_result:' . md5($url);
+        // ── Cache results by URL (2 hours) ────────────────────────────────────
+        $cacheKey = 'public_scan_result_v2:' . md5($url);
 
-        $result = Cache::remember($cacheKey, now()->addHour(), function () use ($url) {
+        $result = Cache::remember($cacheKey, now()->addHours(2), function () use ($url) {
             return $this->runScan($url);
         });
 
@@ -66,9 +66,8 @@ class PublicScannerController extends Controller
             return back()->withErrors(['url' => $result['error']])->withInput();
         }
 
-        // Store in session so we can redirect to a result page
         $resultKey = 'scan_' . Str::random(12);
-        Cache::put("public_scan_display:{$resultKey}", $result, now()->addHour());
+        Cache::put("public_scan_display:{$resultKey}", $result, now()->addHours(2));
 
         return redirect()->route('public.scanner.result', ['key' => $resultKey]);
     }
@@ -92,25 +91,29 @@ class PublicScannerController extends Controller
     private function runScan(string $url): array
     {
         try {
-            // 1. Fetch and parse the page (reuse existing PageScannerService)
+            // 1. Fetch and parse the page
             $parsed = $this->scanner->scanPublicUrl($url);
 
             if (!$parsed) {
                 return ['error' => "We couldn't reach that URL. Check it's publicly accessible and try again."];
             }
 
-            // 2. Ask AI to analyse what it sees about this business
-            $aiAnalysis = $this->buildAiReport($url, $parsed);
+            // 2. Visibility analysis (what AI sees about this business right now)
+            $aiAnalysis = $this->buildVisibilityReport($url, $parsed);
+
+            // 3. Customer acquisition intelligence (the growth strategy)
+            $intelligence = $this->intelligence->analyse($parsed, $url);
 
             return [
-                'url'             => $url,
-                'domain'          => parse_url($url, PHP_URL_HOST),
-                'scanned_at'      => now()->toISOString(),
-                'page'            => $parsed,
-                'ai'              => $aiAnalysis,
+                'url'              => $url,
+                'domain'           => parse_url($url, PHP_URL_HOST),
+                'scanned_at'       => now()->toISOString(),
+                'page'             => $parsed,
+                'ai'               => $aiAnalysis,
                 'visibility_score' => $aiAnalysis['score'] ?? 0,
-                'tier'            => $this->scoreTier($aiAnalysis['score'] ?? 0),
-                'tier_color'      => $this->tierColor($aiAnalysis['score'] ?? 0),
+                'tier'             => $this->scoreTier($aiAnalysis['score'] ?? 0),
+                'tier_color'       => $this->tierColor($aiAnalysis['score'] ?? 0),
+                'intelligence'     => $intelligence,
             ];
 
         } catch (\Throwable $e) {
@@ -123,7 +126,9 @@ class PublicScannerController extends Controller
         }
     }
 
-    private function buildAiReport(string $url, array $parsed): array
+    // ── Visibility report (what AI sees right now) ────────────────────────────
+
+    private function buildVisibilityReport(string $url, array $parsed): array
     {
         $title       = $parsed['title'] ?? '';
         $description = $parsed['meta_description'] ?? '';
@@ -134,57 +139,44 @@ class PublicScannerController extends Controller
         $wordCount   = $parsed['word_count'] ?? 0;
         $pageType    = $parsed['page_type'] ?? 'website';
 
-        $systemPrompt = <<<SYSTEM
-You are an AI visibility analyst. You analyse what can be observed about a business purely from its public web presence — title, headings, content, meta tags — the way an AI search engine would see it.
-
-Return ONLY valid JSON. No markdown, no explanation outside the JSON.
-SYSTEM;
-
-        $userPrompt = <<<PROMPT
-Analyse this business website and return a JSON report.
-
+        $response = $this->ai->generate([
+            'system_prompt'   => 'You are an AI visibility analyst. Analyse a business website and return ONLY valid JSON. No markdown.',
+            'user_prompt'     => <<<PROMPT
 URL: {$url}
 Domain: {$domain}
-Page title: {$title}
+Title: {$title}
 H1: {$h1}
 Meta description: {$description}
 Page type: {$pageType}
 Word count: {$wordCount}
-Topics detected: {$topics}
+Topics: {$topics}
 Content excerpt: {$excerpt}
 
-Return this exact JSON structure:
+Return this exact JSON:
 {
-  "business_summary": "2-sentence plain-English description of what this business does, based only on what you can see",
-  "score": <integer 0-100 representing AI visibility — how clearly a business is described for AI search engines>,
+  "business_summary": "2-sentence description of what this business does based only on what is visible",
+  "score": <integer 0-100, AI visibility score — how clearly AI search engines can understand this business>,
   "score_rationale": "1 sentence explaining the score",
   "top_topics": ["topic1", "topic2", "topic3", "topic4", "topic5"],
   "content_gaps": ["gap1", "gap2", "gap3"],
-  "recommendations": [
+  "content_recommendations": [
     {"priority": "high", "action": "short action title", "detail": "1-sentence explanation"},
     {"priority": "high", "action": "short action title", "detail": "1-sentence explanation"},
     {"priority": "medium", "action": "short action title", "detail": "1-sentence explanation"}
   ],
-  "what_ai_sees": "1 sentence describing how an AI assistant would describe this business when asked about it"
+  "what_ai_sees": "1 sentence: how an AI assistant would describe this business if asked about it"
 }
-PROMPT;
-
-        $response = $this->ai->generate([
-            'system_prompt'   => $systemPrompt,
-            'user_prompt'     => $userPrompt,
+PROMPT,
             'temperature'     => 0.3,
             'max_tokens'      => 1200,
             'response_format' => 'json',
         ]);
 
         if (!$response['success']) {
-            return $this->fallbackAnalysis($parsed);
+            return $this->fallbackVisibility($parsed);
         }
 
-        $content = $response['content'];
-
-        // Strip possible markdown fences
-        $content = preg_replace('/^```json\s*/m', '', $content);
+        $content = preg_replace('/^```json\s*/m', '', $response['content']);
         $content = preg_replace('/^```\s*$/m', '', $content);
         $content = trim($content);
 
@@ -193,25 +185,22 @@ PROMPT;
             $decoded['score'] = max(0, min(100, (int) ($decoded['score'] ?? 0)));
             return $decoded;
         } catch (\JsonException) {
-            return $this->fallbackAnalysis($parsed);
+            return $this->fallbackVisibility($parsed);
         }
     }
 
-    private function fallbackAnalysis(array $parsed): array
+    private function fallbackVisibility(array $parsed): array
     {
-        $topics = array_slice($parsed['topics'] ?? [], 0, 5);
-        $score  = min(100, max(10, ($parsed['word_count'] ?? 0) / 10));
+        $score = min(100, max(10, (int) (($parsed['word_count'] ?? 0) / 10)));
 
         return [
-            'business_summary'  => "We analysed the page content. Connect your AI provider in Vumbi to get a detailed breakdown.",
-            'score'             => (int) $score,
-            'score_rationale'   => "Estimated from content volume only. AI analysis unavailable.",
-            'top_topics'        => $topics ?: ['No topics detected'],
-            'content_gaps'      => ['AI analysis required for gap detection'],
-            'recommendations'   => [
-                ['priority' => 'high', 'action' => 'Connect AI provider', 'detail' => 'Sign up to get full AI-powered recommendations.'],
-            ],
-            'what_ai_sees'      => "Insufficient data — AI provider not configured.",
+            'business_summary'       => 'We scanned the page. Connect an AI provider for a full analysis.',
+            'score'                  => $score,
+            'score_rationale'        => 'Estimated from content volume — AI provider not configured.',
+            'top_topics'             => array_slice($parsed['topics'] ?? [], 0, 5) ?: ['No topics detected'],
+            'content_gaps'           => ['AI analysis required for gap detection'],
+            'content_recommendations'=> [['priority' => 'high', 'action' => 'Connect AI provider', 'detail' => 'Sign up to get full recommendations.']],
+            'what_ai_sees'           => 'Insufficient data — AI provider not configured.',
         ];
     }
 
