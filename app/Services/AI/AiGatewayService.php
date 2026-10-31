@@ -42,6 +42,14 @@ class AiGatewayService
                 'model' => env('OLLAMA_MODEL', 'llama3.1'),
                 'endpoint' => env('OLLAMA_ENDPOINT', 'http://localhost:11434/api/generate'),
             ],
+            // Fireworks AI — OpenAI-compatible, runs Meta Llama open-weights models
+            // Model IDs: accounts/fireworks/models/llama-v3p3-70b-instruct (recommended)
+            //            accounts/fireworks/models/llama-v3p1-8b-instruct  (fast/cheap)
+            'fireworks' => [
+                'api_key'  => env('FIREWORKS_API_KEY'),
+                'model'    => env('FIREWORKS_MODEL', 'accounts/fireworks/models/llama-v3p3-70b-instruct'),
+                'endpoint' => 'https://api.fireworks.ai/inference/v1/chat/completions',
+            ],
             default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
         };
     }
@@ -55,10 +63,11 @@ class AiGatewayService
 
         try {
             $response = match ($this->provider) {
-                'openai' => $this->callOpenAI($promptData),
-                'anthropic' => $this->callAnthropic($promptData),
-                'gemini' => $this->callGeminiWithRetry($promptData), // Use retry version
-                'ollama' => $this->callOllama($promptData),
+                'openai'     => $this->callOpenAI($promptData),
+                'anthropic'  => $this->callAnthropic($promptData),
+                'gemini'     => $this->callGeminiWithRetry($promptData),
+                'ollama'     => $this->callOllama($promptData),
+                'fireworks'  => $this->callFireworks($promptData),
                 default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
             };
 
@@ -129,6 +138,41 @@ class AiGatewayService
             'content' => $data['choices'][0]['message']['content'] ?? '',
             'tokens_used' => $data['usage']['total_tokens'] ?? 0,
             'raw' => $data,
+        ];
+    }
+
+    /**
+     * Call Fireworks AI API (OpenAI-compatible, runs Meta Llama models).
+     *
+     * Endpoint: https://api.fireworks.ai/inference/v1/chat/completions
+     * Default model: accounts/fireworks/models/llama-v3p3-70b-instruct
+     */
+    protected function callFireworks(array $promptData): array
+    {
+        $messages = $this->buildMessages($promptData);
+        array_unshift($messages, ['role' => 'system', 'content' => $promptData['system_prompt'] ?? '']);
+
+        $response = Http::timeout(120)->withHeaders([
+            'Authorization' => 'Bearer ' . $this->config['api_key'],
+            'Content-Type'  => 'application/json',
+        ])->post($this->config['endpoint'], [
+            'model'       => $this->config['model'],
+            'messages'    => $messages,
+            'temperature' => $promptData['temperature'] ?? 0.7,
+            'max_tokens'  => $promptData['max_tokens'] ?? 4096,
+            'top_p'       => 0.95,
+        ]);
+
+        if (!$response->successful()) {
+            throw new \Exception('Fireworks API error: ' . $response->body());
+        }
+
+        $data = $response->json();
+
+        return [
+            'content'     => $data['choices'][0]['message']['content'] ?? '',
+            'tokens_used' => $data['usage']['total_tokens'] ?? 0,
+            'raw'         => $data,
         ];
     }
 
@@ -329,17 +373,12 @@ class AiGatewayService
     public function isAvailable(): bool
     {
         try {
-            if ($this->provider === 'gemini') {
-                $apiKey = $this->config['api_key'] ?? null;
-                return !empty($apiKey);
-            }
-
             if ($this->provider === 'ollama') {
                 $response = Http::timeout(5)->get('http://localhost:11434/api/tags');
                 return $response->successful();
             }
 
-            return !empty($this->config['api_key']);
+            return !empty($this->config['api_key'] ?? null);
         } catch (\Exception $e) {
             return false;
         }
