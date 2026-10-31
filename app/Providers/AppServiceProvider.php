@@ -9,9 +9,11 @@ use App\Models\User;
 use App\Policies\AiActionPolicy;
 use App\Policies\BrandPolicy;
 use App\Policies\ContentDraftPolicy;
+use App\Services\Competitors\Discovery\TavilySearch;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -22,7 +24,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Bind TavilySearch so it can be auto-injected anywhere (including AcquisitionIntelligenceService).
+        // Reads TAVILY_API_KEY from .env; if absent the service degrades gracefully (configured() → false).
+        $this->app->singleton(TavilySearch::class, function ($app) {
+            return new TavilySearch(
+                new \Illuminate\Http\Client\Factory(),
+                config('services.tavily.key') ?? env('TAVILY_API_KEY'),
+            );
+        });
     }
 
     /**
