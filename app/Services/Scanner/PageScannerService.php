@@ -142,6 +142,35 @@ class PageScannerService
     }
 
     /**
+     * Public scanner — fetch and parse a URL without requiring a Brand or DB writes.
+     *
+     * Used by PublicScannerController (no-auth free-tier entry point).
+     * Returns parsed page data array or null if the page can't be reached.
+     *
+     * @return array{title: string, h1: string, meta_description: string, word_count: int,
+     *               page_type: string, topics: string[], content: string}|null
+     */
+    public function scanPublicUrl(string $url): ?array
+    {
+        $normalizedUrl = $this->normalizeUrl($url);
+
+        $pageData = $this->fetchPage($normalizedUrl);
+
+        if (!$pageData) {
+            return null;
+        }
+
+        $parsed   = $this->parseHtml($pageData['html'], $normalizedUrl);
+        $analysis = $this->analyzeContent($parsed);
+
+        return array_merge($parsed, [
+            'topics'        => $analysis['topics_covered'] ?? [],
+            'load_time_ms'  => $pageData['load_time_ms'] ?? null,
+            'status_code'   => $pageData['status_code'] ?? 200,
+        ]);
+    }
+
+    /**
      * Check if a URL has been scanned recently.
      */
     public function isRecentlyScanned(string $url, int $brandId, int $hours = 24): bool
