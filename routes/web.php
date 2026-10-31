@@ -11,6 +11,35 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 
+// ── TEMP: Tavily debug route — DELETE AFTER TESTING ──────────────────────
+Route::get('/__tavily-test', function () {
+    $t = app(\App\Services\Competitors\Discovery\TavilySearch::class);
+
+    $configured = $t->configured();
+    $keyPreview = config('services.tavily.key')
+        ? substr(config('services.tavily.key'), 0, 8) . '...'
+        : '(empty)';
+
+    $results = [];
+    $error   = null;
+
+    if ($configured) {
+        try {
+            $results = $t->search('how travel companies find customers Kenya', 3);
+        } catch (\Throwable $e) {
+            $error = $e->getMessage();
+        }
+    }
+
+    return response()->json([
+        'configured'  => $configured,
+        'key_preview' => $keyPreview,
+        'result_count'=> count($results),
+        'results'     => $results,
+        'error'       => $error,
+    ], 200, [], JSON_PRETTY_PRINT);
+});
+
 Route::get('/', [PageController::class, 'landing'])->name('landing');
 Route::get('/about', [PageController::class, 'about'])->name('about');
 Route::get('/contact', [PageController::class, 'contact'])->name('contact');
