@@ -41,10 +41,13 @@ class SeoAssistantService
 
     /**
      * Check for SEO issues on high-traffic pages.
+     *
+     * Previously fetched each URL 4 times sequentially (once per check method) — 80 HTTP
+     * requests for 20 pages. Now uses Http::pool() to fetch all URLs in parallel once, then
+     * runs all four checks on the same cached HTML — ~20 concurrent requests instead of 80 sequential.
      */
     protected function checkForIssues(Brand $brand): void
     {
-        // Fetch top 20 pages from analytics over the last 30 days
         $pages = AnalyticsSnapshot::where('brand_id', $brand->id)
             ->where('source', 'ga4')
             ->where('metric', 'visitors')
@@ -56,16 +59,98 @@ class SeoAssistantService
             ->limit(20)
             ->get();
 
-        foreach ($pages as $page) {
-            $url = $page->dimension;
+        if ($pages->isEmpty()) {
+            return;
+        }
 
-            // Add a small delay to avoid rate limiting
-            usleep(100000); // 0.1 seconds
+        $urls = $pages->pluck('dimension')->filter()->values()->toArray();
 
-            $this->checkBrokenLinks($brand, $url);
-            $this->checkMissingMeta($brand, $url);
-            $this->checkContentLength($brand, $url);
-            $this->checkDuplicateContent($brand, $url);
+        // Fetch all pages in parallel — one request per URL
+        $responses = Http::pool(function ($pool) use ($urls) {
+            return array_map(
+                fn($url) => $pool->as($url)->timeout(8)->get($url),
+                $urls
+            );
+        });
+
+        // Run all checks on the already-fetched HTML — zero additional HTTP calls
+        foreach ($urls as $url) {
+            $response = $responses[$url] ?? null;
+            $this->runChecksOnResponse($brand, $url, $response);
+        }
+    }
+
+    /**
+     * Run all four SEO checks on a pre-fetched HTTP response.
+     * Avoids re-fetching the same URL multiple times.
+     */
+    protected function runChecksOnResponse(Brand $brand, string $url, $response): void
+    {
+        $html       = null;
+        $statusCode = 0;
+        $isBroken   = true;
+
+        if ($response !== null) {
+            try {
+                $statusCode = $response->status();
+                $isBroken   = $response->failed() || $statusCode >= 400;
+                $html       = $isBroken ? null : $response->body();
+            } catch (\Throwable) {
+                // treat as broken
+            }
+        }
+
+        // 1. Broken link check
+        if ($isBroken) {
+            SeoIssue::firstOrCreate(
+                ['brand_id' => $brand->id, 'page_url' => $url, 'type' => 'broken_link', 'status' => 'open'],
+                [
+                    'severity'       => $statusCode >= 500 ? 'critical' : 'medium',
+                    'description'    => "Broken link detected on {$url} (Status: {$statusCode})",
+                    'recommendation' => 'Check the URL and update or remove the broken link.',
+                ]
+            );
+            return; // No point checking meta/content on a broken page
+        }
+
+        // 2. Missing meta tags
+        $hasTitle = preg_match('/<title.*?<\/title>/is', $html ?? '');
+        $hasMeta  = preg_match('/<meta\s+name=["\']description["\']\s+content=["\'](.*?)["\']/is', $html ?? '');
+        if (!$hasTitle || !$hasMeta) {
+            SeoIssue::firstOrCreate(
+                ['brand_id' => $brand->id, 'page_url' => $url, 'type' => 'missing_meta', 'status' => 'open'],
+                [
+                    'severity'       => 'high',
+                    'description'    => "Meta title or description is missing on {$url}",
+                    'recommendation' => 'Add an optimized title (50–60 chars) and meta description (150–160 chars).',
+                ]
+            );
+        }
+
+        // 3. Thin content
+        $wordCount = str_word_count(strip_tags($html ?? ''));
+        if ($wordCount < 300) {
+            SeoIssue::firstOrCreate(
+                ['brand_id' => $brand->id, 'page_url' => $url, 'type' => 'thin_content', 'status' => 'open'],
+                [
+                    'severity'       => 'low',
+                    'description'    => "Page content is under 300 words on {$url} (current: {$wordCount} words)",
+                    'recommendation' => 'Expand content body with relevant FAQs and detailed insights.',
+                ]
+            );
+        }
+
+        // 4. Missing canonical
+        $hasCanonical = preg_match('/<link\s+rel=["\']canonical["\']\s+href=["\'](.*?)["\']/is', $html ?? '');
+        if (!$hasCanonical) {
+            SeoIssue::firstOrCreate(
+                ['brand_id' => $brand->id, 'page_url' => $url, 'type' => 'duplicate_content', 'status' => 'open'],
+                [
+                    'severity'       => 'medium',
+                    'description'    => "Missing canonical tag on {$url}",
+                    'recommendation' => 'Add a canonical tag to specify the preferred URL version.',
+                ]
+            );
         }
     }
 

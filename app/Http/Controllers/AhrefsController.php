@@ -117,6 +117,9 @@ class AhrefsController extends Controller
 
     /**
      * Get keyword history for the last 7 days.
+     *
+     * Previously fired 1 query per keyword (N+1).
+     * Now fetches all history rows for the top 5 keywords in a single whereIn query.
      */
     protected function getKeywordHistory($brand): array
     {
@@ -127,21 +130,26 @@ class AhrefsController extends Controller
             ->pluck('keyword')
             ->toArray();
 
+        if (empty($topKeywords)) {
+            return [];
+        }
+
+        // Single query for all keywords at once — replaces N separate queries
+        $sevenDaysAgo = Carbon::today()->subDays(6);
+        $allRows = AhrefsKeyword::where('brand_id', $brand->id)
+            ->whereIn('keyword', $topKeywords)
+            ->where('tracked_date', '>=', $sevenDaysAgo)
+            ->orderBy('tracked_date', 'asc')
+            ->get()
+            ->groupBy('keyword');
+
         $history = [];
         foreach ($topKeywords as $keyword) {
-            $rankings = AhrefsKeyword::where('brand_id', $brand->id)
-                ->where('keyword', $keyword)
-                ->orderBy('tracked_date', 'desc')
-                ->limit(7)
-                ->get()
-                ->reverse();
-
-            $history[$keyword] = $rankings->map(function ($item) {
-                return [
-                    'date' => $item->tracked_date->format('M d'),
-                    'position' => $item->position ?? 'N/A',
-                ];
-            })->toArray();
+            $rows = $allRows->get($keyword, collect());
+            $history[$keyword] = $rows->map(fn($item) => [
+                'date'     => $item->tracked_date->format('M d'),
+                'position' => $item->position ?? 'N/A',
+            ])->toArray();
         }
 
         return $history;

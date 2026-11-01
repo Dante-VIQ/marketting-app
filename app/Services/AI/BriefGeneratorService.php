@@ -242,12 +242,26 @@ class BriefGeneratorService
 
     /**
      * Get page snapshots for pages mentioned in analytics.
+     *
+     * Previously fired one LIKE query per top-page URL (N+1).
+     * Now fetches all recent snapshots for this brand in a single query,
+     * then matches locally — 1 query instead of N.
      */
     protected function getPageSnapshotsForAnalytics(Brand $brand, array $analytics): array
     {
         $snapshots = [];
+        $topPages  = $analytics['top_pages'] ?? [];
 
-        $topPages = $analytics['top_pages'] ?? [];
+        if (empty($topPages)) {
+            return $snapshots;
+        }
+
+        // Fetch the 50 most-recent snapshots once, match locally
+        $allSnapshots = PageSnapshot::where('brand_id', $brand->id)
+            ->orderBy('created_at', 'desc')
+            ->limit(50)
+            ->get()
+            ->keyBy('url');
 
         foreach ($topPages as $page) {
             $url = $page['dimension'] ?? '';
@@ -255,10 +269,9 @@ class BriefGeneratorService
                 continue;
             }
 
-            $snapshot = PageSnapshot::where('brand_id', $brand->id)
-                ->where('url', 'like', '%' . $url . '%')
-                ->orderBy('created_at', 'desc')
-                ->first();
+            // First try exact match, then substring match within already-loaded collection
+            $snapshot = $allSnapshots->get($url)
+                ?? $allSnapshots->first(fn($s) => str_contains($s->url, $url) || str_contains($url, $s->url));
 
             if ($snapshot) {
                 $snapshots[] = [
