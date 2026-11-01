@@ -46,11 +46,12 @@ Route::get('/contact', [PageController::class, 'contact'])->name('contact');
 Route::post('/contact', [PageController::class, 'submitContact'])->name('contact.submit');
 
 // ── Public URL scanner (no auth) ──────────────────────────────────────────
-// Free-tier entry point: paste a URL, get an AI visibility report.
+// Free-tier entry point: paste a URL → async job → polling page → report.
 Route::prefix('scan')->name('public.scanner.')->group(function () {
-    Route::get('/',        [\App\Http\Controllers\PublicScannerController::class, 'index'])->name('index');
-    Route::post('/',       [\App\Http\Controllers\PublicScannerController::class, 'scan'])->name('scan');
-    Route::get('/result/{key}', [\App\Http\Controllers\PublicScannerController::class, 'result'])->name('result');
+    Route::get('/',               [\App\Http\Controllers\PublicScannerController::class, 'index'])->name('index');
+    Route::post('/',              [\App\Http\Controllers\PublicScannerController::class, 'scan'])->name('scan');
+    Route::get('/result/{key}',   [\App\Http\Controllers\PublicScannerController::class, 'result'])->name('result');
+    Route::get('/status/{key}',   [\App\Http\Controllers\PublicScannerController::class, 'status'])->name('status');
 });
 
 Route::get('/dashboard', function () {

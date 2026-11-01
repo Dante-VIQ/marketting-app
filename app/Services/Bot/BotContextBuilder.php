@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Analytics\DashboardDataService;
 use App\Services\BrandContextService;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -117,6 +118,17 @@ PROMPT;
     // ── Private helpers ─────────────────────────────────────────────────────
 
     private function getLiveSnapshot(Brand $brand): string
+    {
+        // Cache per brand for 5 minutes — eliminates 8+ DB queries per chat message.
+        // TTL is short enough that data feels live, long enough to not hammer the DB.
+        $cacheKey = "bot_context_snapshot:{$brand->id}";
+
+        return Cache::remember($cacheKey, now()->addMinutes(5), function () use ($brand) {
+            return $this->buildLiveSnapshot($brand);
+        });
+    }
+
+    private function buildLiveSnapshot(Brand $brand): string
     {
         try {
             $data = $this->dashboard->getDashboardData($brand);

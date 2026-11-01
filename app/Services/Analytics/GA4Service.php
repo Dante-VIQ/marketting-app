@@ -5,6 +5,7 @@ namespace App\Services\Analytics;
 use App\Models\Brand;
 use Carbon\Carbon;
 use Google\Client as GoogleClient;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -528,6 +529,9 @@ class GA4Service
 
     /**
      * Fetch OAuth2 access token via Service Account Credentials.
+     *
+     * Cached for 55 minutes — Google tokens expire in 60 minutes.
+     * This eliminates a round-trip to Google on every GA4 API call.
      */
     protected function getAccessToken(): ?string
     {
@@ -536,17 +540,19 @@ class GA4Service
             return null;
         }
 
-        try {
-            $client = new GoogleClient();
-            $client->setAuthConfig($this->serviceAccountJson);
-            $client->addScope('https://www.googleapis.com/auth/analytics.readonly');
-            $client->fetchAccessTokenWithAssertion();
+        return Cache::remember('ga4_oauth_token', now()->addMinutes(55), function () {
+            try {
+                $client = new GoogleClient();
+                $client->setAuthConfig($this->serviceAccountJson);
+                $client->addScope('https://www.googleapis.com/auth/analytics.readonly');
+                $client->fetchAccessTokenWithAssertion();
 
-            return $client->getAccessToken()['access_token'] ?? null;
-        } catch (\Exception $e) {
-            Log::error('GA4 Authentication Error: ' . $e->getMessage());
-            return null;
-        }
+                return $client->getAccessToken()['access_token'] ?? null;
+            } catch (\Exception $e) {
+                Log::error('GA4 Authentication Error: ' . $e->getMessage());
+                return null;
+            }
+        });
     }
 
     // ============================================================
