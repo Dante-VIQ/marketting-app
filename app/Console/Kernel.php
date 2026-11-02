@@ -10,6 +10,8 @@ class Kernel extends ConsoleKernel
 {
     protected function schedule(Schedule $schedule): void
     {
+        $allowedEnvironments = ['local', 'staging', 'production'];
+
         // ============================================================
         // TEST TASK - Check if scheduler is working
         // ============================================================
@@ -28,7 +30,7 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllBrandsAnalyticsJob())
             ->name('analytics-collection')
             ->dailyAt('05:30')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(180)
             ->onOneServer();
 
@@ -38,7 +40,7 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllBrandsSiteScansJob())
             ->name('site-scan')
             ->weeklyOn(0, '04:00') // Sunday 04:00, ahead of daily brief/content jobs
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(180)
             ->onOneServer();
 
@@ -48,7 +50,7 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllBrandsBriefsJob())
             ->name('brief-generation')
             ->dailyAt('06:00')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(180)
             ->onOneServer();
 
@@ -58,7 +60,7 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllApprovedActionsJob())
             ->name('content-generation')
             ->everyFiveMinutes()
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(10)
             ->onOneServer();
 
@@ -68,7 +70,7 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllSeoChecksJob())
             ->name('seo-checks')
             ->dailyAt('07:00')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(180)
             ->onOneServer();
 
@@ -78,7 +80,7 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllBrandsLeadsJob())
             ->name('lead-processing')
             ->everyFifteenMinutes()
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(25)
             ->onOneServer();
 
@@ -88,7 +90,7 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllBrandsCampaignsJob())
             ->name('campaign-performance')
             ->dailyAt('08:00')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(180)
             ->onOneServer();
 
@@ -98,7 +100,7 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllHealthChecksJob())
             ->name('health-checks')
             ->dailyAt('09:30')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(180)
             ->onOneServer();
 
@@ -136,7 +138,7 @@ class Kernel extends ConsoleKernel
         })
             ->name('lead-followups')
             ->dailyAt('10:00')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(180)
             ->onOneServer();
 
@@ -146,7 +148,7 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllHealthChecksJob())
             ->name('emergency-health-checks')
             ->hourly()
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(55)
             ->onOneServer()
             ->when(function () {
@@ -173,7 +175,7 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllAffiliateDataJob())
             ->name('affiliate-data-collection')
             ->dailyAt('08:30')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(180)
             ->onOneServer()
             ->onSuccess(function () {
@@ -187,7 +189,7 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllAhrefsDataJob())
             ->name('ahrefs-data-collection')
             ->dailyAt('07:30')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(180)
             ->onOneServer()
             ->onSuccess(function () {
@@ -201,14 +203,14 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllCompetitorsJob())
             ->name('competitor-scan')
             ->weeklyOn(1, '06:00')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(180)
             ->onOneServer();
 
         // 1st of the month 03:30 - Suggest competitors from the brand's own data (suggestions only; a human accepts them)
         $schedule->command('competitors:discover')
             ->monthlyOn(1, '03:30')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(60)
             ->onOneServer()
             ->runInBackground();
@@ -217,7 +219,7 @@ class Kernel extends ConsoleKernel
         $schedule->job(new \App\Jobs\ProcessAllListeningJob())
             ->name('social-listening')
             ->dailyAt('08:00')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(180)
             ->onOneServer();
 
@@ -225,35 +227,35 @@ class Kernel extends ConsoleKernel
         // Meta syncs run before the 06:00 brief so the brief sees today's results, not yesterday's.
         $schedule->command('meta:sync-results')
             ->dailyAt('05:40')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(180)
             ->onOneServer()
             ->runInBackground();
 
         $schedule->command('social:sync-site-results')
             ->dailyAt('05:45')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(60)
             ->onOneServer()
             ->runInBackground();
 
         $schedule->command('meta:sync-data --only=ads')
             ->dailyAt('05:50')
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(180)
             ->onOneServer()
             ->runInBackground();
 
         $schedule->command('meta:sync-data --only=comments,leads')
             ->everyThirtyMinutes()
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(25)
             ->onOneServer()
             ->runInBackground();
 
         $schedule->command('meta:publish-due')
             ->everyFiveMinutes()
-            ->environments(['production', 'staging'])
+            ->environments($allowedEnvironments)
             ->withoutOverlapping(10)
             ->onOneServer()
             ->runInBackground();

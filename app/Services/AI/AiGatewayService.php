@@ -421,7 +421,21 @@ class AiGatewayService
                 return $response->successful();
             }
 
-            return !empty($this->config['api_key'] ?? null);
+            $apiKey = $this->config['api_key'] ?? null;
+            if (!is_string($apiKey) || trim($apiKey) === '') {
+                return false;
+            }
+
+            $normalized = strtolower(trim($apiKey));
+            $placeholderPatterns = ['your_', 'example', 'placeholder', 'replace_me', 'changeme'];
+
+            foreach ($placeholderPatterns as $pattern) {
+                if (str_contains($normalized, $pattern)) {
+                    return false;
+                }
+            }
+
+            return true;
         } catch (\Exception $e) {
             return false;
         }

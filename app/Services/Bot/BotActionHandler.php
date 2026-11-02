@@ -9,6 +9,7 @@ use App\Models\Brand;
 use App\Models\Lead;
 use App\Services\Analytics\DashboardDataService;
 use App\Jobs\GenerateBriefJob;
+use App\Jobs\ProcessApprovedActionsJob;
 use App\Jobs\RunAiVisibilityAuditJob;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -35,14 +36,14 @@ class BotActionHandler
     {
         try {
             return match ($action) {
-                'get_analytics'         => $this->getAnalytics($brand),
-                'get_top_pages'         => $this->getTopPages($brand),
-                'get_leads'             => $this->getLeads($brand),
-                'get_pending_actions'   => $this->getPendingActions($brand),
-                'get_today_brief'       => $this->getTodayBrief($brand),
-                'get_visibility_score'  => $this->getVisibilityScore($brand),
-                'queue_content_generation' => $this->queueContentGeneration($brand),
-                'queue_visibility_audit'   => $this->queueVisibilityAudit($brand),
+                'get_analytics'            => $this->getAnalytics($brand),
+                'get_top_pages'           => $this->getTopPages($brand),
+                'get_leads'               => $this->getLeads($brand),
+                'get_pending_actions'     => $this->getPendingActions($brand),
+                'get_today_brief'         => $this->getTodayBrief($brand),
+                'get_visibility_score'    => $this->getVisibilityScore($brand),
+                'queue_content_generation' => $this->queueContentGeneration($brand, $params),
+                'queue_visibility_audit'   => $this->queueVisibilityAudit($brand, $params),
                 default => [
                     'data'        => "I don't know how to perform the action `{$action}`. Please try rephrasing your request.",
                     'action_type' => 'unknown',
@@ -210,28 +211,41 @@ class BotActionHandler
         return ['data' => $formatted, 'action_type' => 'get_visibility_score', 'raw' => $audit->toArray()];
     }
 
-    private function queueContentGeneration(Brand $brand): array
+    private function queueContentGeneration(Brand $brand, array $params = []): array
     {
-        // Dispatch the job
-        if (class_exists(\App\Jobs\GenerateContentJob::class)) {
-            dispatch(new \App\Jobs\GenerateContentJob($brand));
-            $data = "✅ Content generation has been queued. Check /content/drafts in a few minutes for new draft posts.";
-        } else {
-            $data = "Content generation queued. Check /content/drafts shortly.";
+        if (!($params['confirm'] ?? false)) {
+            return [
+                'data'        => 'To queue a content generation run, please confirm you want me to proceed. Reply “confirm content generation” and I will start it.',
+                'action_type' => 'queue_content_generation',
+                'raw'        => ['requires_confirmation' => true],
+            ];
         }
 
-        return ['data' => $data, 'action_type' => 'queue_content_generation', 'raw' => []];
+        ProcessApprovedActionsJob::dispatch($brand);
+
+        return [
+            'data' => '✅ Content generation has been queued. Check /content/drafts in a few minutes for new draft posts.',
+            'action_type' => 'queue_content_generation',
+            'raw' => ['brand_id' => $brand->id],
+        ];
     }
 
-    private function queueVisibilityAudit(Brand $brand): array
+    private function queueVisibilityAudit(Brand $brand, array $params = []): array
     {
-        if (class_exists(\App\Jobs\RunAiVisibilityAuditJob::class)) {
-            dispatch(new \App\Jobs\RunAiVisibilityAuditJob($brand->id));
-            $data = "✅ AI visibility audit queued. Results will appear at /visibility once complete (usually takes 1–2 minutes).";
-        } else {
-            $data = "Visibility audit queued. Results will appear at /visibility shortly.";
+        if (!($params['confirm'] ?? false)) {
+            return [
+                'data'        => 'To run a fresh AI visibility audit, please confirm you want me to proceed. Reply “confirm visibility audit” and I will start it.',
+                'action_type' => 'queue_visibility_audit',
+                'raw'        => ['requires_confirmation' => true],
+            ];
         }
 
-        return ['data' => $data, 'action_type' => 'queue_visibility_audit', 'raw' => []];
+        RunAiVisibilityAuditJob::dispatch($brand);
+
+        return [
+            'data' => '✅ AI visibility audit queued. Results will appear at /visibility once complete (usually takes 1–2 minutes).',
+            'action_type' => 'queue_visibility_audit',
+            'raw' => ['brand_id' => $brand->id],
+        ];
     }
 }

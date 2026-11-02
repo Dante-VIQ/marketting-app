@@ -2,13 +2,88 @@
 
 namespace Tests\Unit;
 
+use App\Jobs\ProcessApprovedActionsJob;
+use App\Jobs\RunAiVisibilityAuditJob;
+use App\Models\Brand;
 use App\Services\AI\AiGatewayService;
 use App\Services\AI\BriefGeneratorService;
+use App\Services\Analytics\DashboardDataService;
+use App\Services\Bot\BotActionHandler;
 use App\Services\Scanner\SiteProfileService;
+use Illuminate\Support\Facades\Bus;
 use Tests\TestCase;
 
 class BriefGeneratorServiceTest extends TestCase
 {
+    public function test_ai_gateway_rejects_placeholder_api_keys(): void
+    {
+        putenv('AI_PROVIDER=gemini');
+        putenv('GEMINI_API_KEY=your_gemini_api_key_here');
+
+        $service = new AiGatewayService();
+
+        $this->assertFalse($service->isAvailable());
+    }
+
+    public function test_bot_action_handler_queues_the_real_content_generation_job(): void
+    {
+        Bus::fake();
+
+        $brand = new Brand([
+            'id' => 99,
+            'name' => 'Test Brand',
+            'is_active' => true,
+        ]);
+
+        $handler = new BotActionHandler($this->createMock(DashboardDataService::class));
+        $result = $handler->handle('queue_content_generation', ['confirm' => true], $brand);
+
+        $this->assertSame('queue_content_generation', $result['action_type']);
+        Bus::assertDispatched(ProcessApprovedActionsJob::class, function ($job) use ($brand) {
+            $brandId = \Closure::bind(function () {
+                return $this->brand->id;
+            }, $job, $job)();
+
+            return $brandId === $brand->id;
+        });
+    }
+
+    public function test_bot_action_handler_requires_confirmation_before_queueing_actions(): void
+    {
+        Bus::fake();
+
+        $brand = new Brand([
+            'id' => 100,
+            'name' => 'Audit Brand',
+            'is_active' => true,
+        ]);
+
+        $handler = new BotActionHandler($this->createMock(DashboardDataService::class));
+        $result = $handler->handle('queue_visibility_audit', [], $brand);
+
+        $this->assertStringContainsString('confirm', strtolower($result['data']));
+        Bus::assertNothingDispatched();
+    }
+
+    public function test_bot_action_handler_queues_visibility_audit_with_a_brand_object(): void
+    {
+        Bus::fake();
+
+        $brand = new Brand([
+            'id' => 101,
+            'name' => 'Audit Brand',
+            'is_active' => true,
+        ]);
+
+        $handler = new BotActionHandler($this->createMock(DashboardDataService::class));
+        $result = $handler->handle('queue_visibility_audit', ['confirm' => true], $brand);
+
+        $this->assertSame('queue_visibility_audit', $result['action_type']);
+        Bus::assertDispatched(RunAiVisibilityAuditJob::class, function ($job) use ($brand) {
+            return $job->brand->id === $brand->id;
+        });
+    }
+
     public function test_parse_ai_response_removes_invalid_control_characters(): void
     {
         $service = new BriefGeneratorService(
