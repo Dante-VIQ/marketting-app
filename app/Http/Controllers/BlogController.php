@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\GenerateContentForActionJob;
 use App\Models\Brand;
 use App\Models\BlogPost;
 use App\Models\AiAction;
@@ -429,41 +430,19 @@ class BlogController extends Controller
             return redirect()->route('blog.index')->with('message', 'No approved actions waiting for content generation.');
         }
 
-        $generated = 0;
-        $failed = 0;
-        $errors = [];
-
+        // Dispatch async jobs — don't block the web request
         foreach ($actions as $action) {
-            try {
-                $draft = $this->contentGenerator->generateForAction($action);
-                if ($draft) {
-                    $generated++;
-                } else {
-                    $failed++;
-                    $errors[] = "Failed to generate content for: " . $action->title;
-                }
-            } catch (\Exception $e) {
-                $failed++;
-                $errors[] = "Error generating content for '" . $action->title . "': " . $e->getMessage();
-                Log::error('Content generation failed', [
-                    'action_id' => $action->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
+            GenerateContentForActionJob::dispatch($action);
         }
+        $generated = $count;
 
-        $message = "Generated {$generated} content drafts.";
-        if ($failed > 0) {
-            $message .= " Failed: {$failed}. Check logs for details.";
-        }
+        $message = "Queued {$generated} action(s) for content generation. Drafts will appear shortly.";
 
         if ($request->ajax() || $request->wantsJson()) {
             return response()->json([
-                'success' => $generated > 0,
-                'message' => $message,
-                'generated' => $generated,
-                'failed' => $failed,
-                'errors' => $errors,
+                'success'    => true,
+                'message'    => $message,
+                'dispatched' => $generated,
             ]);
         }
 

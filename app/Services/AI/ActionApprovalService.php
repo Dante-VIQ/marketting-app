@@ -2,6 +2,7 @@
 
 namespace App\Services\AI;
 
+use App\Jobs\GenerateContentForActionJob;
 use App\Jobs\ScanPageJob;
 use App\Models\AiAction;
 use App\Models\Brand;
@@ -57,6 +58,20 @@ class ActionApprovalService
                 'title' => $action->title,
             ]);
         });
+
+        // Dispatch content generation immediately after the transaction commits.
+        // Previously this only ran via the scheduler (every 5 min) which doesn't
+        // work on shared hosting and caused drafts never to be created.
+        // Content-type actions only — seo actions generate meta descriptions, not full drafts.
+        $contentCategories = ['content', 'social', 'email', 'web_copy', 'seo'];
+        if (in_array($action->category, $contentCategories)) {
+            GenerateContentForActionJob::dispatch($action);
+
+            Log::info('GenerateContentForActionJob dispatched on approval', [
+                'action_id' => $action->id,
+                'category'  => $action->category,
+            ]);
+        }
     }
 
     /**
