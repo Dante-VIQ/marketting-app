@@ -50,13 +50,13 @@ class AiGatewayService
                 'model'    => env('FIREWORKS_MODEL', 'accounts/fireworks/models/llama-v3p3-70b-instruct'),
                 'endpoint' => 'https://api.fireworks.ai/inference/v1/chat/completions',
             ],
-            // Baseten — OpenAI-compatible dedicated deployments (e.g. Kimi K1.5)
-            // Endpoint pattern: https://model-{BASETEN_MODEL_ID}.api.baseten.co/environments/production/sync/v1/chat/completions
-            // Get your model ID from the Baseten dashboard (8-char deployment ID, e.g. kzk5m983)
+            // Baseten — OpenAI-compatible inference gateway
+            // Endpoint: https://inference.baseten.co/v1/chat/completions
+            // Model: name string from Baseten catalog, e.g. meta-models/muse-spark-open
             'baseten' => [
                 'api_key'  => env('BASETEN_API_KEY'),
-                'model'    => env('BASETEN_MODEL_ID'),
-                'endpoint' => 'https://model-' . env('BASETEN_MODEL_ID') . '.api.baseten.co/environments/production/sync/v1/chat/completions',
+                'model'    => env('BASETEN_MODEL', 'meta-models/muse-spark-open'),
+                'endpoint' => 'https://inference.baseten.co/v1/chat/completions',
             ],
             default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
         };
