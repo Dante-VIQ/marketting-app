@@ -1,6 +1,8 @@
 #!/bin/sh
+set -eu
 
-cd /home/u988184134/domains/vumbidna.com/public_html/marketting || exit 1
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
 
 LOG="storage/logs/queue-cron.log"
 
@@ -36,6 +38,13 @@ if [ -z "$PHP_BIN" ]; then
 fi
 
 echo "CRON: Using PHP binary: $PHP_BIN  ($(\"$PHP_BIN\" -r 'echo PHP_VERSION;'))  $(date '+%Y-%m-%d %H:%M:%S %Z')" >> "$LOG"
+mkdir -p storage/logs
+
+PHP_BIN="${PHP_BIN:-$(command -v php8.4 2>/dev/null || command -v php 2>/dev/null || true)}"
+if [ -z "$PHP_BIN" ]; then
+    echo "php executable not found" >&2
+    exit 1
+fi
 
 # --timeout=300  : content generation + Tavily can take ~90s; give jobs up to 5 min
 # --tries=1      : AI jobs are expensive — never retry automatically on failure
