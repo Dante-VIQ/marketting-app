@@ -196,7 +196,18 @@ class CompetitorDiscoveryTest extends MetaTestCase
         $this->expectExceptionMessage('rejected the API key');
         (new TavilySearch($bad, 'tvly-k'))->search('q');
     }
+    public function test_app_service_provider_reads_tavily_key_from_env_file_when_runtime_env_is_missing(): void
+    {
+        $provider = new \App\Providers\AppServiceProvider(app());
+        $method = new \ReflectionMethod($provider, 'resolveEnvValue');
+        $method->setAccessible(true);
 
+        $value = $method->invoke($provider, 'TAVILY_API_KEY');
+
+        $this->assertIsString($value);
+        $this->assertNotSame('', $value);
+        $this->assertStringStartsWith('tvly-', $value);
+    }
     // ---- full run ----
 
     public function test_run_finds_checks_and_explains_candidates(): void
