@@ -13,8 +13,26 @@ class AiGatewayService
 
     public function __construct()
     {
-        $this->provider = env('AI_PROVIDER', 'gemini');
+        $this->provider = strtolower((string) $this->readEnv('AI_PROVIDER', 'gemini'));
         $this->config = $this->getProviderConfig();
+    }
+
+    protected function readEnv(string $key, mixed $default = null): mixed
+    {
+        $value = getenv($key);
+        if ($value !== false) {
+            return $value;
+        }
+
+        if (array_key_exists($key, $_ENV)) {
+            return $_ENV[$key];
+        }
+
+        if (array_key_exists($key, $_SERVER)) {
+            return $_SERVER[$key];
+        }
+
+        return $default;
     }
 
     /**
@@ -24,38 +42,38 @@ class AiGatewayService
     {
         return match ($this->provider) {
             'openai' => [
-                'api_key' => env('OPENAI_API_KEY'),
-                'model' => env('OPENAI_MODEL', 'gpt-4'),
+                'api_key' => $this->readEnv('OPENAI_API_KEY'),
+                'model' => $this->readEnv('OPENAI_MODEL', 'gpt-4'),
                 'endpoint' => 'https://api.openai.com/v1/chat/completions',
             ],
             'anthropic' => [
-                'api_key' => env('ANTHROPIC_API_KEY'),
-                'model' => env('ANTHROPIC_MODEL', 'claude-3-opus-20240229'),
+                'api_key' => $this->readEnv('ANTHROPIC_API_KEY'),
+                'model' => $this->readEnv('ANTHROPIC_MODEL', 'claude-3-opus-20240229'),
                 'endpoint' => 'https://api.anthropic.com/v1/messages',
             ],
             'gemini' => [
-                'api_key' => env('GEMINI_API_KEY'),
-                'model' => env('GEMINI_MODEL', 'gemini-2.0-flash'),
+                'api_key' => $this->readEnv('GEMINI_API_KEY'),
+                'model' => $this->readEnv('GEMINI_MODEL', 'gemini-2.0-flash'),
                 'endpoint' => 'https://generativelanguage.googleapis.com/v1beta/models',
             ],
             'ollama' => [
-                'model' => env('OLLAMA_MODEL', 'llama3.1'),
-                'endpoint' => env('OLLAMA_ENDPOINT', 'http://localhost:11434/api/generate'),
+                'model' => $this->readEnv('OLLAMA_MODEL', 'llama3.1'),
+                'endpoint' => $this->readEnv('OLLAMA_ENDPOINT', 'http://localhost:11434/api/generate'),
             ],
             // Fireworks AI — OpenAI-compatible, runs Meta Llama open-weights models
             // Model IDs: accounts/fireworks/models/llama-v3p3-70b-instruct (recommended)
             //            accounts/fireworks/models/llama-v3p1-8b-instruct  (fast/cheap)
             'fireworks' => [
-                'api_key'  => env('FIREWORKS_API_KEY'),
-                'model'    => env('FIREWORKS_MODEL', 'accounts/fireworks/models/llama-v3p3-70b-instruct'),
+                'api_key'  => $this->readEnv('FIREWORKS_API_KEY'),
+                'model'    => $this->readEnv('FIREWORKS_MODEL', 'accounts/fireworks/models/llama-v3p3-70b-instruct'),
                 'endpoint' => 'https://api.fireworks.ai/inference/v1/chat/completions',
             ],
             // Baseten — OpenAI-compatible inference gateway
             // Endpoint: https://inference.baseten.co/v1/chat/completions
             // Model: name string from Baseten catalog, e.g. meta-models/muse-spark-open
             'baseten' => [
-                'api_key'  => env('BASETEN_API_KEY'),
-                'model'    => env('BASETEN_MODEL', 'meta-models/muse-spark-open'),
+                'api_key'  => $this->readEnv('BASETEN_API_KEY'),
+                'model'    => $this->readEnv('BASETEN_MODEL', 'meta-models/muse-spark-open'),
                 'endpoint' => 'https://inference.baseten.co/v1/chat/completions',
             ],
             default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
@@ -421,13 +439,13 @@ class AiGatewayService
                 return $response->successful();
             }
 
-            $apiKey = $this->config['api_key'] ?? null;
+            $apiKey = $this->config['api_key'] ?? $this->readEnv(strtoupper($this->provider) . '_API_KEY');
             if (!is_string($apiKey) || trim($apiKey) === '') {
                 return false;
             }
 
             $normalized = strtolower(trim($apiKey));
-            $placeholderPatterns = ['your_', 'example', 'placeholder', 'replace_me', 'changeme'];
+            $placeholderPatterns = ['your_', 'example', 'placeholder', 'replace_me', 'changeme', 'change_me'];
 
             foreach ($placeholderPatterns as $pattern) {
                 if (str_contains($normalized, $pattern)) {
