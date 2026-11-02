@@ -50,6 +50,14 @@ class AiGatewayService
                 'model'    => env('FIREWORKS_MODEL', 'accounts/fireworks/models/llama-v3p3-70b-instruct'),
                 'endpoint' => 'https://api.fireworks.ai/inference/v1/chat/completions',
             ],
+            // Baseten — OpenAI-compatible dedicated deployments (e.g. Kimi K1.5)
+            // Endpoint pattern: https://model-{BASETEN_MODEL_ID}.api.baseten.co/environments/production/sync/v1/chat/completions
+            // Get your model ID from the Baseten dashboard (8-char deployment ID, e.g. kzk5m983)
+            'baseten' => [
+                'api_key'  => env('BASETEN_API_KEY'),
+                'model'    => env('BASETEN_MODEL_ID'),
+                'endpoint' => 'https://model-' . env('BASETEN_MODEL_ID') . '.api.baseten.co/environments/production/sync/v1/chat/completions',
+            ],
             default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
         };
     }
@@ -68,6 +76,7 @@ class AiGatewayService
                 'gemini'     => $this->callGeminiWithRetry($promptData),
                 'ollama'     => $this->callOllama($promptData),
                 'fireworks'  => $this->callFireworks($promptData),
+                'baseten'    => $this->callBaseten($promptData),
                 default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
             };
 
@@ -165,6 +174,40 @@ class AiGatewayService
 
         if (!$response->successful()) {
             throw new \Exception('Fireworks API error: ' . $response->body());
+        }
+
+        $data = $response->json();
+
+        return [
+            'content'     => $data['choices'][0]['message']['content'] ?? '',
+            'tokens_used' => $data['usage']['total_tokens'] ?? 0,
+            'raw'         => $data,
+        ];
+    }
+
+    /**
+     * Call Baseten API (OpenAI-compatible dedicated deployments, e.g. Kimi K1.5).
+     *
+     * Endpoint: https://model-{BASETEN_MODEL_ID}.api.baseten.co/environments/production/sync/v1/chat/completions
+     * Set BASETEN_API_KEY and BASETEN_MODEL_ID in .env (model ID is the 8-char deployment ID from the dashboard).
+     */
+    protected function callBaseten(array $promptData): array
+    {
+        $messages = $this->buildMessages($promptData);
+        array_unshift($messages, ['role' => 'system', 'content' => $promptData['system_prompt'] ?? '']);
+
+        $response = Http::timeout(120)->withHeaders([
+            'Authorization' => 'Api-Key ' . $this->config['api_key'],
+            'Content-Type'  => 'application/json',
+        ])->post($this->config['endpoint'], [
+            'model'       => $this->config['model'],
+            'messages'    => $messages,
+            'temperature' => $promptData['temperature'] ?? 0.7,
+            'max_tokens'  => $promptData['max_tokens'] ?? 4096,
+        ]);
+
+        if (!$response->successful()) {
+            throw new \Exception('Baseten API error: ' . $response->body());
         }
 
         $data = $response->json();
