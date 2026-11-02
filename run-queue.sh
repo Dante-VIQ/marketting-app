@@ -12,6 +12,9 @@ if [ -z "$PHP_BIN" ]; then
     exit 1
 fi
 
-"$PHP_BIN" artisan queue:work --stop-when-empty --tries=3 --timeout=90 >> storage/logs/queue-cron.log 2>&1
+# --timeout=300  : content generation + Tavily can take ~90s; give jobs up to 5 min
+# --tries=1      : AI jobs are expensive — never retry automatically on failure
+# --max-jobs=20  : exit cleanly after 20 jobs to avoid memory creep on shared hosting
+"$PHP_BIN" artisan queue:work --stop-when-empty --tries=1 --timeout=300 --max-jobs=20 >> storage/logs/queue-cron.log 2>&1
 
 echo "CRON HEARTBEAT: $(date '+%Y-%m-%d %H:%M:%S %Z')" >> storage/logs/queue-cron.log
