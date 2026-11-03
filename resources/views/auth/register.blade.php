@@ -17,7 +17,7 @@
         <div class="text-center mb-8">
             <div class="inline-flex items-center gap-x-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400 ring-1 ring-inset ring-emerald-500/20 mb-4">
                 <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                Join Vumbi AI
+                Join Revora
             </div>
             <h1 class="text-3xl font-extrabold text-white tracking-tight">Create your account</h1>
             <p class="mt-2 text-sm text-slate-400">Your AI marketing co-pilot awaits.</p>
