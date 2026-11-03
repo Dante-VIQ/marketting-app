@@ -76,6 +76,11 @@ class AiGatewayService
                 'model'    => $this->readEnv('BASETEN_MODEL', 'meta-models/muse-spark-open'),
                 'endpoint' => 'https://inference.baseten.co/v1/chat/completions',
             ],
+            'groq' => [
+                'api_key'  => $this->readEnv('GROQ_API_KEY'),
+                'model'    => $this->readEnv('GROQ_MODEL', 'groq-1.0'),
+                'endpoint' => 'https://api.groq.com/v1/chat/completions',
+            ],
             default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
         };
     }
