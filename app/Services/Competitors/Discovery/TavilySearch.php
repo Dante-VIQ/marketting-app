@@ -7,9 +7,7 @@ use Illuminate\Http\Client\Factory as Http;
 /** Tavily web search (free tier: 1,000 credits a month, no card). One basic search = 1 credit. Key from .env only. */
 class TavilySearch implements SearchProvider
 {
-    public function __construct(private Http $http, private ?string $key)
-    {
-    }
+    public function __construct(private Http $http, private ?string $key) {}
 
     public function configured(): bool
     {
@@ -21,18 +19,12 @@ class TavilySearch implements SearchProvider
         if (!$this->configured()) {
             return [];
         }
-
-        // Tavily accepts the key either as Authorization: Bearer header OR as
-        // api_key in the JSON body. Send both for maximum compatibility.
-        $r = $this->http
-            ->withToken($this->key)
-            ->timeout(20)
-            ->acceptJson()
+        $r = $this->http->withToken($this->key)->timeout(20)->acceptJson()
             ->post('https://api.tavily.com/search', [
-                'api_key'      => $this->key,
-                'query'        => $query,
+                'api_key' => $this->key,
+                'query' => $query,
                 'search_depth' => 'basic',
-                'max_results'  => min(max($max, 1), 20),
+                'max_results' => min(max($max, 1), 20),
             ]);
 
         if ($r->status() === 401 || $r->status() === 403) {

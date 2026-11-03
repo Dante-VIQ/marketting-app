@@ -27,15 +27,72 @@ class CompetitorDiscoveryTest extends MetaTestCase
         parent::setUp();
         Container::getInstance()->instance('cache', new Repository(new ArrayStore()));
         $s = DB::schema();
-        $s->create('knowledge_base', function ($t) { $t->id(); $t->unsignedBigInteger('brand_id'); $t->string('key'); $t->string('category')->default('general'); $t->longText('content'); $t->text('metadata')->nullable(); $t->boolean('is_active')->default(true); $t->timestamps(); });
-        $s->create('page_snapshots', function ($t) { $t->id(); $t->unsignedBigInteger('brand_id'); $t->string('url')->nullable(); $t->string('page_type')->nullable(); $t->string('title')->nullable(); $t->text('headings')->nullable(); $t->text('topics_covered')->nullable(); $t->text('content')->nullable(); $t->string('status')->default('completed'); $t->timestamp('scraped_at')->nullable(); $t->timestamps(); });
-        $s->create('keyword_rankings', function ($t) { $t->id(); $t->unsignedBigInteger('brand_id'); $t->string('keyword'); $t->string('page_url')->nullable(); $t->integer('position')->nullable(); $t->integer('previous_position')->nullable(); $t->integer('search_volume')->nullable(); $t->integer('difficulty')->nullable(); $t->text('metadata')->nullable(); $t->date('tracked_date')->nullable(); $t->timestamps(); });
-        $s->create('personas', function ($t) { $t->id(); $t->unsignedBigInteger('brand_id'); $t->string('name'); $t->boolean('is_active')->default(true); $t->timestamps(); });
-        $s->create('competitors', function ($t) { $t->id(); $t->unsignedBigInteger('brand_id'); $t->string('name')->nullable(); $t->string('domain'); $t->boolean('is_active')->default(true); $t->text('notes')->nullable(); $t->timestamps(); });
+        $s->create('knowledge_base', function ($t) {
+            $t->id();
+            $t->unsignedBigInteger('brand_id');
+            $t->string('key');
+            $t->string('category')->default('general');
+            $t->longText('content');
+            $t->text('metadata')->nullable();
+            $t->boolean('is_active')->default(true);
+            $t->timestamps();
+        });
+        $s->create('page_snapshots', function ($t) {
+            $t->id();
+            $t->unsignedBigInteger('brand_id');
+            $t->string('url')->nullable();
+            $t->string('page_type')->nullable();
+            $t->string('title')->nullable();
+            $t->text('headings')->nullable();
+            $t->text('topics_covered')->nullable();
+            $t->text('content')->nullable();
+            $t->string('status')->default('completed');
+            $t->timestamp('scraped_at')->nullable();
+            $t->timestamps();
+        });
+        $s->create('keyword_rankings', function ($t) {
+            $t->id();
+            $t->unsignedBigInteger('brand_id');
+            $t->string('keyword');
+            $t->string('page_url')->nullable();
+            $t->integer('position')->nullable();
+            $t->integer('previous_position')->nullable();
+            $t->integer('search_volume')->nullable();
+            $t->integer('difficulty')->nullable();
+            $t->text('metadata')->nullable();
+            $t->date('tracked_date')->nullable();
+            $t->timestamps();
+        });
+        $s->create('personas', function ($t) {
+            $t->id();
+            $t->unsignedBigInteger('brand_id');
+            $t->string('name');
+            $t->boolean('is_active')->default(true);
+            $t->timestamps();
+        });
+        $s->create('competitors', function ($t) {
+            $t->id();
+            $t->unsignedBigInteger('brand_id');
+            $t->string('name')->nullable();
+            $t->string('domain');
+            $t->boolean('is_active')->default(true);
+            $t->text('notes')->nullable();
+            $t->timestamps();
+        });
         $s->create('competitor_suggestions', function ($t) {
-            $t->id(); $t->unsignedBigInteger('brand_id'); $t->string('domain'); $t->string('name')->nullable(); $t->text('sources'); $t->string('classification', 20);
-            $t->unsignedTinyInteger('score')->nullable(); $t->text('shared_terms')->nullable(); $t->unsignedTinyInteger('query_hits')->default(0); $t->text('reason')->nullable();
-            $t->string('homepage_title')->nullable(); $t->string('status', 12)->default('suggested'); $t->timestamps();
+            $t->id();
+            $t->unsignedBigInteger('brand_id');
+            $t->string('domain');
+            $t->string('name')->nullable();
+            $t->text('sources');
+            $t->string('classification', 20);
+            $t->unsignedTinyInteger('score')->nullable();
+            $t->text('shared_terms')->nullable();
+            $t->unsignedTinyInteger('query_hits')->default(0);
+            $t->text('reason')->nullable();
+            $t->string('homepage_title')->nullable();
+            $t->string('status', 12)->default('suggested');
+            $t->timestamps();
         });
         Container::getInstance()['config']->set('competitors', ['big_platforms' => ['tripadvisor.com'], 'max_candidates_to_check' => 20, 'max_new_suggestions' => 12, 'max_big_platforms' => 5, 'max_search_queries' => 6]);
     }
@@ -45,9 +102,13 @@ class CompetitorDiscoveryTest extends MetaTestCase
         $b = new Brand();
         $b->forceFill(['id' => 1, 'name' => 'Vumbi Ventures', 'website_url' => 'https://vumbiventures.com'])->exists = true;
         if ($withFacts) {
-            foreach (['business_description' => 'Safari travel guides and trip planning for East Africa: Kenya, Tanzania and Uganda national parks, wildlife and culture.',
-                'content_pillars' => 'East Africa destination guides, Maasai Mara wildlife, Kenya culture and history',
-                'competitors' => '1. SafariBookings.com - direct competitor'] as $k => $v) {
+            foreach (
+                [
+                    'business_description' => 'Safari travel guides and trip planning for East Africa: Kenya, Tanzania and Uganda national parks, wildlife and culture.',
+                    'content_pillars' => 'East Africa destination guides, Maasai Mara wildlife, Kenya culture and history',
+                    'competitors' => '1. SafariBookings.com - direct competitor'
+                ] as $k => $v
+            ) {
                 DB::table('knowledge_base')->insert(['brand_id' => 1, 'key' => $k, 'content' => $v, 'is_active' => 1]);
             }
         }
@@ -57,7 +118,7 @@ class CompetitorDiscoveryTest extends MetaTestCase
 
     private function sites(Factory $http, array $extra = []): void
     {
-        $page = fn ($title, $body) => $http->response("<html><head><title>{$title}</title></head><body><h1>{$title}</h1><p>{$body}</p></body></html>");
+        $page = fn($title, $body) => $http->response("<html><head><title>{$title}</title></head><body><h1>{$title}</h1><p>{$body}</p></body></html>");
         $http->fake($extra + [
             'https://rival-safaris.com/' => $page('Rival Safaris', 'Book a Kenya safari. Maasai Mara wildlife tours, Tanzania and Uganda national parks, East Africa trip planning. Travel guides and blog.'),
             'https://safaribookings.com/' => $page('SafariBookings', 'Compare tours and prices.'),
@@ -71,7 +132,7 @@ class CompetitorDiscoveryTest extends MetaTestCase
     {
         $ai = $this->createMock(AiGatewayService::class);
         $ai->method('generate')->willReturn($aiJson === null ? ['success' => false] : ['success' => true, 'content' => json_encode($aiJson)]);
-        $scanner = new CompetitorScanner($http, fn () => ['93.184.216.34']);
+        $scanner = new CompetitorScanner($http, fn() => ['93.184.216.34']);
 
         return new CompetitorDiscovery(new CandidateFinder($ai, $search), $scanner);
     }
@@ -80,11 +141,16 @@ class CompetitorDiscoveryTest extends MetaTestCase
     {
         return new class($byQuery) implements SearchProvider {
             public function __construct(private array|string $by) {}
-            public function configured(): bool { return true; }
+            public function configured(): bool
+            {
+                return true;
+            }
             public function search(string $query, int $max = 10): array
             {
-                if ($this->by === 'fail') { throw new \RuntimeException('Tavily search limit reached for now.'); }
-                return array_map(fn ($u) => ['title' => 't', 'url' => $u, 'snippet' => 'Kenya safari wildlife'], $this->by[$query] ?? []);
+                if ($this->by === 'fail') {
+                    throw new \RuntimeException('Tavily search limit reached for now.');
+                }
+                return array_map(fn($u) => ['title' => 't', 'url' => $u, 'snippet' => 'Kenya safari wildlife'], $this->by[$query] ?? []);
             }
         };
     }
@@ -121,7 +187,7 @@ class CompetitorDiscoveryTest extends MetaTestCase
         $http = new Factory();
         $http->fake(['api.tavily.com/*' => $http->response(['results' => [['title' => 'A', 'url' => 'https://a.com/x', 'content' => 'snip', 'score' => 0.9]]])]);
         $this->assertSame('https://a.com/x', (new TavilySearch($http, 'tvly-k'))->search('q')[0]['url']);
-        $http->assertSent(fn ($r) => $r->hasHeader('Authorization', 'Bearer tvly-k') && $r['search_depth'] === 'basic');
+        $http->assertSent(fn($r) => $r['api_key'] === 'tvly-k' && $r['query'] === 'q' && $r['search_depth'] === 'basic');
         $this->assertFalse((new TavilySearch($http, ''))->configured());
         $this->assertSame([], (new TavilySearch($http, null))->search('q'));
 
@@ -130,21 +196,37 @@ class CompetitorDiscoveryTest extends MetaTestCase
         $this->expectExceptionMessage('rejected the API key');
         (new TavilySearch($bad, 'tvly-k'))->search('q');
     }
+    public function test_app_service_provider_reads_tavily_key_from_env_file_when_runtime_env_is_missing(): void
+    {
+        $provider = new \App\Providers\AppServiceProvider(app());
+        $method = new \ReflectionMethod($provider, 'resolveEnvValue');
+        $method->setAccessible(true);
 
+        $value = $method->invoke($provider, 'TAVILY_API_KEY');
+
+        $this->assertIsString($value);
+        $this->assertNotSame('', $value);
+        $this->assertStringStartsWith('tvly-', $value);
+    }
     // ---- full run ----
 
     public function test_run_finds_checks_and_explains_candidates(): void
     {
         $http = new Factory();
         $this->sites($http);
-        $ai = ['competitors' => [['domain' => 'rival-safaris.com', 'name' => 'Rival Safaris', 'why' => 'sells East Africa safaris'], ['domain' => 'dead.com'],
-            ['domain' => 'unrelated.com'], ['domain' => 'tripadvisor.com'], ['domain' => 'vumbiventures.com']], 'queries' => ['kenya safari planning', 'east africa wildlife guide']];
+        $ai = ['competitors' => [
+            ['domain' => 'rival-safaris.com', 'name' => 'Rival Safaris', 'why' => 'sells East Africa safaris'],
+            ['domain' => 'dead.com'],
+            ['domain' => 'unrelated.com'],
+            ['domain' => 'tripadvisor.com'],
+            ['domain' => 'vumbiventures.com']
+        ], 'queries' => ['kenya safari planning', 'east africa wildlife guide']];
         $search = $this->search(['kenya safari planning' => ['https://rival-safaris.com/a', 'https://newsite.com/b'], 'east africa wildlife guide' => ['https://rival-safaris.com/c']]);
 
         $r = $this->discovery($http, $ai, $search)->run($this->brand());
 
         $rows = CompetitorSuggestion::all()->keyBy('domain');
-        $this->assertSame(['rival-safaris.com', 'newsite.com', 'safaribookings.com', 'tripadvisor.com'], $rows->keys()->sortBy(fn ($d) => ['rival-safaris.com' => 0, 'newsite.com' => 1, 'safaribookings.com' => 2, 'tripadvisor.com' => 3][$d])->values()->all());
+        $this->assertSame(['rival-safaris.com', 'newsite.com', 'safaribookings.com', 'tripadvisor.com'], $rows->keys()->sortBy(fn($d) => ['rival-safaris.com' => 0, 'newsite.com' => 1, 'safaribookings.com' => 2, 'tripadvisor.com' => 3][$d])->values()->all());
         $this->assertSame(4, $r['found']);
         $this->assertTrue($r['used_search']);
 
