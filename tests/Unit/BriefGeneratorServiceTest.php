@@ -11,6 +11,7 @@ use App\Services\Analytics\DashboardDataService;
 use App\Services\Bot\BotActionHandler;
 use App\Services\Scanner\SiteProfileService;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class BriefGeneratorServiceTest extends TestCase
@@ -82,6 +83,40 @@ class BriefGeneratorServiceTest extends TestCase
         Bus::assertDispatched(RunAiVisibilityAuditJob::class, function ($job) use ($brand) {
             return $job->brand->id === $brand->id;
         });
+    }
+
+    public function test_gemini_json_requests_use_json_response_mime_type(): void
+    {
+        Http::fake([
+            'https://generativelanguage.googleapis.com/v1beta/models/*' => Http::response([
+                'candidates' => [[
+                    'content' => ['parts' => [['text' => '{"status":"ok","brief":"ready"}']], 'role' => 'model'],
+                    'finishReason' => 'STOP',
+                    'index' => 0,
+                ]],
+                'usageMetadata' => ['totalTokenCount' => 18],
+            ], 200),
+        ]);
+
+        putenv('AI_PROVIDER=gemini');
+        putenv('GEMINI_API_KEY=test-key');
+
+        $service = new AiGatewayService();
+        $result = $service->generate([
+            'system_prompt' => 'Return valid JSON only.',
+            'user_prompt' => 'Generate a brief response.',
+            'response_format' => 'json',
+            'max_tokens' => 256,
+        ]);
+
+        Http::assertSent(function ($request) {
+            $payload = $request->data();
+
+            return ($payload['generationConfig']['responseMimeType'] ?? null) === 'application/json';
+        });
+
+        $this->assertTrue($result['success']);
+        $this->assertSame(['status' => 'ok', 'brief' => 'ready'], json_decode($result['content'], true));
     }
 
     public function test_parse_ai_response_removes_invalid_control_characters(): void
