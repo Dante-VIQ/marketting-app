@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Http\Controllers\PublicScannerController;
 use App\Services\AI\AiGatewayService;
 use App\Services\Intelligence\AcquisitionIntelligenceService;
 use App\Services\Scanner\PageScannerService;
@@ -47,6 +48,10 @@ class RunPublicScanJob implements ShouldQueue
         AiGatewayService               $ai,
         AcquisitionIntelligenceService $intelligence,
     ): void {
+        // Status/display keys use the file store so the polling page can always
+        // read them regardless of default DB cache health.
+        $store = PublicScannerController::statusStore();
+
         try {
             // Deduplicated cache: same URL within 2 hours returns the stored result
             $dedupeKey = 'public_scan_result_v2:' . md5($this->url);
@@ -56,18 +61,18 @@ class RunPublicScanJob implements ShouldQueue
             });
 
             if (isset($result['error'])) {
-                Cache::put("public_scan_status:{$this->resultKey}", 'error',   now()->addHours(2));
-                Cache::put("public_scan_display:{$this->resultKey}", $result,  now()->addHours(2));
+                $store->put("public_scan_status:{$this->resultKey}", 'error',  now()->addHours(2));
+                $store->put("public_scan_display:{$this->resultKey}", $result, now()->addHours(2));
                 return;
             }
 
-            Cache::put("public_scan_display:{$this->resultKey}", $result,         now()->addHours(2));
-            Cache::put("public_scan_status:{$this->resultKey}",  'done',          now()->addHours(2));
+            $store->put("public_scan_display:{$this->resultKey}", $result, now()->addHours(2));
+            $store->put("public_scan_status:{$this->resultKey}",  'done',  now()->addHours(2));
 
         } catch (\Throwable $e) {
             Log::error('RunPublicScanJob: failed', ['url' => $this->url, 'error' => $e->getMessage()]);
-            Cache::put("public_scan_status:{$this->resultKey}",  'error',          now()->addHour());
-            Cache::put("public_scan_display:{$this->resultKey}", ['error' => 'Scan failed. Please try again.'], now()->addHour());
+            $store->put("public_scan_status:{$this->resultKey}",  'error',                                    now()->addHour());
+            $store->put("public_scan_display:{$this->resultKey}", ['error' => 'Scan failed. Please try again.'], now()->addHour());
         }
     }
 

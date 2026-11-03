@@ -163,7 +163,12 @@ class PageScannerService
         $parsed   = $this->parseHtml($pageData['html'], $normalizedUrl);
         $analysis = $this->analyzeContent($parsed);
 
+        // Flatten headings so callers can use $result['h1'] directly
+        // (parseHtml stores them as $parsed['headings']['h1'])
+        $h1 = $parsed['headings']['h1'] ?? null;
+
         return array_merge($parsed, [
+            'h1'            => $h1,
             'topics'        => $analysis['topics_covered'] ?? [],
             'load_time_ms'  => $pageData['load_time_ms'] ?? null,
             'status_code'   => $pageData['status_code'] ?? 200,

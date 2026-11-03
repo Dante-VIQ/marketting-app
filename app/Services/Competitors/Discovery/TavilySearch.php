@@ -21,17 +21,28 @@ class TavilySearch implements SearchProvider
         if (!$this->configured()) {
             return [];
         }
-        $r = $this->http->withToken($this->key)->timeout(20)->acceptJson()
-            ->post('https://api.tavily.com/search', ['query' => $query, 'search_depth' => 'basic', 'max_results' => min(max($max, 1), 20)]);
+
+        // Tavily accepts the key either as Authorization: Bearer header OR as
+        // api_key in the JSON body. Send both for maximum compatibility.
+        $r = $this->http
+            ->withToken($this->key)
+            ->timeout(20)
+            ->acceptJson()
+            ->post('https://api.tavily.com/search', [
+                'api_key'      => $this->key,
+                'query'        => $query,
+                'search_depth' => 'basic',
+                'max_results'  => min(max($max, 1), 20),
+            ]);
 
         if ($r->status() === 401 || $r->status() === 403) {
-            throw new \RuntimeException('Tavily rejected the API key. Check TAVILY_API_KEY.');
+            throw new \RuntimeException('Tavily rejected the API key (HTTP ' . $r->status() . '). Check TAVILY_API_KEY in .env.');
         }
         if ($r->status() === 429 || $r->status() === 432 || $r->status() === 433) {
             throw new \RuntimeException('Tavily search limit reached for now.');
         }
         if (!$r->successful()) {
-            throw new \RuntimeException('Tavily search failed (HTTP ' . $r->status() . ').');
+            throw new \RuntimeException('Tavily search failed (HTTP ' . $r->status() . '): ' . substr($r->body(), 0, 200));
         }
 
         $out = [];
