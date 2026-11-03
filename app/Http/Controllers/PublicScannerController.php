@@ -54,14 +54,16 @@ class PublicScannerController extends Controller
         $cached = Cache::get($dedupeKey);
         if ($cached && !isset($cached['error'])) {
             // Already have a fresh result — serve instantly, no job needed
-            Cache::put("public_scan_display:{$resultKey}", $cached, now()->addHours(2));
-            Cache::put("public_scan_status:{$resultKey}", 'done', now()->addHours(2));
+            static::statusStore()->put("public_scan_display:{$resultKey}", $cached, now()->addHours(2));
+            static::statusStore()->put("public_scan_status:{$resultKey}", 'done', now()->addHours(2));
             return redirect()->route('public.scanner.result', ['key' => $resultKey]);
         }
 
         // ── Dispatch async job and show polling page ──────────────────────────
-        Cache::put("public_scan_status:{$resultKey}", 'pending', now()->addHours(2));
-        Cache::put("public_scan_url:{$resultKey}", $url, now()->addHours(2));
+        // Use file store for status/url keys so polling works even when the
+        // default cache store (database) has table issues.
+        static::statusStore()->put("public_scan_status:{$resultKey}", 'pending', now()->addHours(2));
+        static::statusStore()->put("public_scan_url:{$resultKey}", $url, now()->addHours(2));
 
         RunPublicScanJob::dispatch($url, $resultKey);
 
@@ -73,7 +75,7 @@ class PublicScannerController extends Controller
 
     public function status(string $key)
     {
-        $status = Cache::get("public_scan_status:{$key}");
+        $status = static::statusStore()->get("public_scan_status:{$key}");
 
         if (!$status) {
             return response()->json(['status' => 'expired']);
@@ -91,7 +93,8 @@ class PublicScannerController extends Controller
 
     public function result(Request $request, string $key)
     {
-        $status = Cache::get("public_scan_status:{$key}");
+        $store  = static::statusStore();
+        $status = $store->get("public_scan_status:{$key}");
 
         if (!$status) {
             return redirect()->route('public.scanner.index')
@@ -100,7 +103,7 @@ class PublicScannerController extends Controller
 
         // Still processing — show the polling/loading page
         if ($status === 'pending') {
-            $url = Cache::get("public_scan_url:{$key}", '');
+            $url = $store->get("public_scan_url:{$key}", '');
             return view('public.scanner.loading', [
                 'resultKey' => $key,
                 'url'       => $url,
@@ -108,7 +111,7 @@ class PublicScannerController extends Controller
         }
 
         // Error state
-        $result = Cache::get("public_scan_display:{$key}");
+        $result = $store->get("public_scan_display:{$key}");
         if ($status === 'error' || isset($result['error'])) {
             $errorMsg = $result['error'] ?? 'Something went wrong. Please try again.';
             return redirect()->route('public.scanner.index')
@@ -124,6 +127,17 @@ class PublicScannerController extends Controller
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Cache store for scan status/display keys.
+     *
+     * Uses 'file' explicitly so polling works even when the default store
+     * (database) has issues. The job writes to the same store via this helper.
+     */
+    public static function statusStore(): \Illuminate\Cache\Repository
+    {
+        return Cache::store('file');
+    }
 
     private function normalizeUrl(string $url): string
     {

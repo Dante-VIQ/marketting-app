@@ -28,13 +28,13 @@ class TavilySearch implements SearchProvider
             ]);
 
         if ($r->status() === 401 || $r->status() === 403) {
-            throw new \RuntimeException('Tavily rejected the API key. Check TAVILY_API_KEY.');
+            throw new \RuntimeException('Tavily rejected the API key (HTTP ' . $r->status() . '). Check TAVILY_API_KEY in .env.');
         }
         if ($r->status() === 429 || $r->status() === 432 || $r->status() === 433) {
             throw new \RuntimeException('Tavily search limit reached for now.');
         }
         if (!$r->successful()) {
-            throw new \RuntimeException('Tavily search failed (HTTP ' . $r->status() . ').');
+            throw new \RuntimeException('Tavily search failed (HTTP ' . $r->status() . '): ' . substr($r->body(), 0, 200));
         }
 
         $out = [];
