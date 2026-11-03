@@ -3,8 +3,8 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Growth Strategy Report — {{ $result['domain'] ?? 'Your site' }} — Vumbi AI</title>
-    <meta name="description" content="Your free AI visibility and customer acquisition strategy report from Vumbi AI.">
+    <title>AI Visibility Report — {{ $result['domain'] ?? 'Your site' }} — Revora</title>
+    <meta name="description" content="Your free AI visibility and customer acquisition strategy report from Revora.">
     @include('layouts.partials.theme-init')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
@@ -20,8 +20,7 @@
         {{-- Nav --}}
         <nav class="px-6 py-4 flex items-center justify-between max-w-5xl mx-auto w-full">
             <a href="{{ route('landing') }}" class="flex items-center space-x-1.5">
-                <span class="text-xl font-bold text-emerald-400 tracking-tight">Vumbi</span>
-                <span class="text-xl font-bold text-white">AI</span>
+                <span class="text-xl font-bold text-emerald-400 tracking-tight">Re</span><span class="text-xl font-bold text-white tracking-tight">vora</span>
             </a>
             <div class="flex items-center space-x-4 text-sm">
                 <a href="{{ route('public.scanner.index') }}" class="text-slate-400 hover:text-slate-200 transition-colors">← Scan another</a>
@@ -415,7 +414,7 @@
                         </li>
                     @endforeach
                 </ul>
-                <p class="text-xs text-slate-700 mt-3">Connect GA4, social media and ad accounts in Vumbi to replace inferences with your real data.</p>
+                <p class="text-xs text-slate-700 mt-3">Connect GA4, social media and ad accounts in Revora to replace inferences with your real data.</p>
             </div>
             @endif
 
@@ -493,7 +492,7 @@
         </main>
 
         <footer class="py-6 text-center text-xs text-slate-700 border-t border-slate-900">
-            Built by <a href="https://vumbidna.com" class="text-slate-600 hover:text-slate-400 transition-colors">Vumbi AI</a>
+            Built by <a href="{{ route('landing') }}" class="text-slate-600 hover:text-slate-400 transition-colors">Revora</a>
             · <a href="{{ route('public.scanner.index') }}" class="text-slate-600 hover:text-slate-400 transition-colors">Scan another URL</a>
         </footer>
     </div>

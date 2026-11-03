@@ -6,7 +6,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Vumbi AI - @yield('title', 'Admin Dashboard')</title>
+    <title>Revora — @yield('title', 'Admin Dashboard')</title>
 
     @include('layouts.partials.theme-init')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -35,8 +35,7 @@
                             </button>
                         @endauth
                         <a href="{{ route('dashboard') }}" class="flex items-center space-x-1.5 sm:space-x-2">
-                            <span class="text-xl sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">Vumbi</span>
-                            <span class="text-lg sm:text-xl font-bold text-slate-800 dark:text-white">AI</span>
+                            <span class="text-xl sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">Re</span><span class="text-xl sm:text-2xl font-bold text-slate-800 dark:text-white tracking-tight">vora</span>
                         </a>
                         <span class="hidden sm:inline-flex ml-3 px-2.5 py-0.5 text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 rounded-full shadow-2xs">
                             Console

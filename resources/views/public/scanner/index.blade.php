@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Free AI Visibility Check — Vumbi AI</title>
-    <meta name="description" content="Paste your website URL and find out how visible your business is to AI search engines. Free, instant, no sign-up required.">
+    <title>Free AI Visibility Check — Revora</title>
+    <meta name="description" content="Paste your website URL and find out how visible your business is to AI search engines like ChatGPT and Gemini. Free, instant, no sign-up required.">
     @include('layouts.partials.theme-init')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
@@ -22,9 +22,8 @@
 
         {{-- Nav --}}
         <nav class="px-6 py-4 flex items-center justify-between max-w-5xl mx-auto w-full">
-            <a href="{{ route('landing') }}" class="flex items-center space-x-1.5">
-                <span class="text-xl font-bold text-emerald-400 tracking-tight">Vumbi</span>
-                <span class="text-xl font-bold text-white">AI</span>
+            <a href="{{ route('landing') }}" class="flex items-center space-x-1">
+                <span class="text-xl font-bold text-emerald-400 tracking-tight">Re</span><span class="text-xl font-bold text-white tracking-tight">vora</span>
             </a>
             <div class="flex items-center space-x-4 text-sm">
                 @auth
@@ -119,8 +118,9 @@
 
         {{-- Footer --}}
         <footer class="py-6 text-center text-xs text-slate-700">
-            Built by <a href="https://vumbidna.com" class="text-slate-600 hover:text-slate-400 transition-colors">Vumbi AI</a>
-            · <a href="{{ route('landing') }}" class="text-slate-600 hover:text-slate-400 transition-colors">Back to home</a>
+            <a href="{{ route('landing') }}" class="text-slate-600 hover:text-slate-400 transition-colors">Revora</a>
+            · <a href="{{ url('about') }}" class="text-slate-600 hover:text-slate-400 transition-colors">About</a>
+            · <a href="{{ url('contact') }}" class="text-slate-600 hover:text-slate-400 transition-colors">Contact</a>
         </footer>
     </div>
 

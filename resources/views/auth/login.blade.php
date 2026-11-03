@@ -19,7 +19,7 @@
                 <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
                 Welcome back
             </div>
-            <h1 class="text-3xl font-extrabold text-white tracking-tight">Sign in to Vumbi AI</h1>
+            <h1 class="text-3xl font-extrabold text-white tracking-tight">Sign in to Revora</h1>
             <p class="mt-2 text-sm text-slate-400">Your autonomous marketing system is ready.</p>
         </div>
 
