@@ -28,10 +28,15 @@ class AcquisitionIntelligenceService
     /** Max Tavily credits to spend per scan (basic = 1 credit each). */
     private const MAX_SEARCHES = 5;
 
+    private AiGatewayService $ai;
+
     public function __construct(
-        private AiGatewayService $ai,
-        private TavilySearch     $tavily,
-    ) {}
+        private TavilySearch $tavily,
+    ) {
+        // Intel uses AI_PROVIDER_INTEL (falls back to AI_PROVIDER).
+        // Separates acquisition research quota from scan / brief / chat quotas.
+        $this->ai = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_INTEL);
+    }
 
     /**
      * Run the full intelligence pipeline.

@@ -45,9 +45,12 @@ class RunPublicScanJob implements ShouldQueue
 
     public function handle(
         PageScannerService             $scanner,
-        AiGatewayService               $ai,
         AcquisitionIntelligenceService $intelligence,
     ): void {
+        // Use the scan-specific provider so this job doesn't exhaust the quota
+        // used by brief generation or chat. Set AI_PROVIDER_SCAN in .env.
+        $ai = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_SCAN);
+
         // Status/display keys use the file store so the polling page can always
         // read them regardless of default DB cache health.
         $store = PublicScannerController::statusStore();

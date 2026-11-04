@@ -91,7 +91,7 @@ TXT;
             'title' => $i->title, 'platform' => $i->platform, 'format' => $i->format, 'topic' => $i->topic,
             'posted_at' => $i->posted_at?->toDateTimeString(), 'impressions' => $i->impressions, 'engagements' => $i->engagements])->all());
 
-        $res = ($this->ai ?? new AiGatewayService())->generate(self::buildPrompt($brand->name, $facts, $personaArr, $idea->only(['title', 'topic', 'platform', 'format', 'source_detail']), $top));
+        $res = ($this->ai ?? AiGatewayService::forPurpose(AiGatewayService::PURPOSE_CONTENT))->generate(self::buildPrompt($brand->name, $facts, $personaArr, $idea->only(['title', 'topic', 'platform', 'format', 'source_detail']), $top));
         if (empty($res['success'])) {
             throw new DomainException('The AI provider did not answer. Nothing was changed; try again shortly.');
         }

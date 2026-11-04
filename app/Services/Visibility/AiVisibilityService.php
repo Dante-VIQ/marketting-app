@@ -32,10 +32,13 @@ class AiVisibilityService
     private string $resolvedRegion  = 'East Africa';
     private string $resolvedProduct = 'travel';
 
+    private AiGatewayService $ai;
+
     public function __construct(
-        private AiGatewayService    $ai,
         private BrandContextService $brandContext,
-    ) {}
+    ) {
+        $this->ai = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_CONTENT);
+    }
 
     /**
      * Run a full audit for a brand and persist the result.

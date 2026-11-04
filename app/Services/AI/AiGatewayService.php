@@ -11,10 +11,55 @@ class AiGatewayService
     protected string $provider;
     protected array $config;
 
-    public function __construct()
+    // ── Purposes ──────────────────────────────────────────────────────────────
+    // Each maps to an env var: AI_PROVIDER_<PURPOSE> (falls back to AI_PROVIDER).
+    // Set these in .env to route different workloads to different providers/keys,
+    // preventing one noisy task (e.g. a URL scan with 4 AI calls) from exhausting
+    // the quota used by briefs or the real-time chat bot.
+    //
+    // AI_PROVIDER_SCAN=gemini        # fast, cheap — 4 calls per public scan
+    // AI_PROVIDER_BRIEF=fireworks    # quality — brief generation
+    // AI_PROVIDER_CONTENT=fireworks  # quality — content drafts
+    // AI_PROVIDER_CHAT=gemini        # low-latency — bot responses
+    // AI_PROVIDER_INTEL=gemini       # acquisition intelligence (Tavily-heavy)
+    public const PURPOSE_SCAN    = 'scan';
+    public const PURPOSE_BRIEF   = 'brief';
+    public const PURPOSE_CONTENT = 'content';
+    public const PURPOSE_CHAT    = 'chat';
+    public const PURPOSE_INTEL   = 'intel';
+
+    public function __construct(?string $provider = null)
     {
-        $this->provider = strtolower((string) $this->readEnv('AI_PROVIDER', 'gemini'));
+        $this->provider = $provider
+            ?? strtolower((string) $this->readEnv('AI_PROVIDER', 'gemini'));
         $this->config = $this->getProviderConfig();
+    }
+
+    /**
+     * Return a gateway instance configured for a specific workload purpose.
+     *
+     * Looks up AI_PROVIDER_<PURPOSE> first, falls back to AI_PROVIDER.
+     *
+     * Usage:
+     *   AiGatewayService::forPurpose(AiGatewayService::PURPOSE_SCAN)
+     *   AiGatewayService::forPurpose(AiGatewayService::PURPOSE_BRIEF)
+     */
+    public static function forPurpose(string $purpose): static
+    {
+        $instance = new static();
+        $envKey   = 'AI_PROVIDER_' . strtoupper($purpose);
+        $resolved = strtolower((string) $instance->readEnv($envKey, ''));
+
+        if ($resolved !== '') {
+            $instance->provider = $resolved;
+            $instance->config   = $instance->getProviderConfig();
+
+            Log::debug("AiGateway: purpose={$purpose} → provider={$resolved}");
+        } else {
+            Log::debug("AiGateway: purpose={$purpose} → fallback provider={$instance->provider}");
+        }
+
+        return $instance;
     }
 
     protected function readEnv(string $key, mixed $default = null): mixed

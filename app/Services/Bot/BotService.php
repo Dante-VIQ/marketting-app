@@ -32,11 +32,16 @@ use Illuminate\Support\Facades\Log;
  */
 class BotService
 {
+    private AiGatewayService $aiGateway;
+
     public function __construct(
         private BotContextBuilder $contextBuilder,
         private BotActionHandler  $actionHandler,
-        private AiGatewayService  $aiGateway,
-    ) {}
+    ) {
+        // Chat uses AI_PROVIDER_CHAT (falls back to AI_PROVIDER).
+        // Keeps real-time bot responses on a separate quota from background jobs.
+        $this->aiGateway = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_CHAT);
+    }
 
     /**
      * Send a message from a user and receive the bot's reply.
