@@ -28,12 +28,13 @@ class ContentGeneratorService
     protected SiteProfileService $siteProfileService;
 
     public function __construct(
-        AiGatewayService $aiGateway,
         PageScannerService $scanner,
         ContentServicePolicy $contentPolicy,
         SiteProfileService $siteProfileService
     ) {
-        $this->aiGateway = $aiGateway;
+        // Content drafts use AI_PROVIDER_CONTENT (falls back to AI_PROVIDER).
+        // Keeps content quota separate from scan and chat calls.
+        $this->aiGateway = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_CONTENT);
         $this->scanner = $scanner;
         $this->contentPolicy = $contentPolicy;
         $this->siteProfileService = $siteProfileService;

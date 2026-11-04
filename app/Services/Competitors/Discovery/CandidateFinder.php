@@ -84,7 +84,7 @@ TXT;
         // 2) AI: candidates plus the searches a customer would make.
         $queries = [];
         try {
-            $res = ($this->ai ?? new AiGatewayService())->generate(self::aiPrompt($profile));
+            $res = ($this->ai ?? AiGatewayService::forPurpose(AiGatewayService::PURPOSE_CONTENT))->generate(self::aiPrompt($profile));
             $parsed = !empty($res['success']) ? self::parseAi((string) $res['content'], $own) : null;
             if ($parsed) {
                 foreach ($parsed['competitors'] as $c) {

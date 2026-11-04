@@ -15,10 +15,9 @@ class LeadQualifierService
     protected LeadManagerService $leadManager;
 
     public function __construct(
-        AiGatewayService $aiGateway,
         LeadManagerService $leadManager
     ) {
-        $this->aiGateway = $aiGateway;
+        $this->aiGateway   = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_CONTENT);
         $this->leadManager = $leadManager;
     }
 

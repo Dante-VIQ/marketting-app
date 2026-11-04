@@ -22,10 +22,11 @@ class BriefGeneratorService
     protected SiteProfileService $siteProfileService;
 
     public function __construct(
-        AiGatewayService $aiGateway,
         SiteProfileService $siteProfileService
     ) {
-        $this->aiGateway = $aiGateway;
+        // Brief generation uses AI_PROVIDER_BRIEF (falls back to AI_PROVIDER).
+        // Keeps brief quota separate from real-time scan and chat calls.
+        $this->aiGateway = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_BRIEF);
         $this->siteProfileService = $siteProfileService;
     }
 
