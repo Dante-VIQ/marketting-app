@@ -5,7 +5,9 @@ namespace App\Providers;
 use App\Models\AiAction;
 use App\Models\Brand;
 use App\Models\ContentDraft;
+use App\Models\KnowledgeBase;
 use App\Models\User;
+use App\Observers\BrandContextObserver;
 use App\Policies\AiActionPolicy;
 use App\Policies\BrandPolicy;
 use App\Policies\ContentDraftPolicy;
@@ -78,6 +80,11 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Brand::class, BrandPolicy::class);
         Gate::policy(ContentDraft::class, ContentDraftPolicy::class);
         Gate::policy(AiAction::class, AiActionPolicy::class);
+
+        // Auto-flush BrandContextAssembler cache when brand data changes.
+        // This ensures the AI always gets fresh context after edits.
+        Brand::observe(BrandContextObserver::class);
+        KnowledgeBase::observe(BrandContextObserver::class);
 
         // Define custom abilities that don't map 1:1 to model methods
         Gate::define('publish-content', function (User $user, $brandId) {
