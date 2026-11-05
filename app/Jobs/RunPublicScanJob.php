@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Http\Controllers\PublicScannerController;
+use App\Models\PageSnapshot;
 use App\Services\AI\AiGatewayService;
 use App\Services\Intelligence\AcquisitionIntelligenceService;
 use App\Services\Scanner\PageScannerService;
@@ -90,11 +91,42 @@ class RunPublicScanJob implements ShouldQueue
             return ['error' => "We couldn't reach that URL. Check it's publicly accessible and try again."];
         }
 
-        // Run visibility report and acquisition intelligence
-        $aiAnalysis   = $this->buildVisibilityReport($ai, $parsed);
-        $intel        = $intelligence->analyse($parsed, $this->url);
+        // ── Content-hash guard: skip all AI calls when the page hasn't changed ──
+        //
+        // scanPublicUrl() now returns `content_hash` (SHA-256 of raw HTML).
+        // We look up the latest completed snapshot for this URL and compare.
+        // If the hash matches, the page is byte-for-byte identical to the last
+        // scan; we return the stored AI result immediately — 0 AI calls, 0 Tavily
+        // credits, response in milliseconds instead of ~90 seconds.
+        $newHash = $parsed['content_hash'] ?? null;
+        if ($newHash) {
+            $store       = PublicScannerController::statusStore();
+            $storedHash  = $store->get('public_scan_hash:' . md5($this->url));
 
-        return [
+            if ($storedHash === $newHash) {
+                // Page is byte-for-byte identical to the last scan — skip all AI.
+                Log::info('RunPublicScanJob: page unchanged (hash match), skipping AI', [
+                    'url'  => $this->url,
+                    'hash' => $newHash,
+                ]);
+
+                // Return the last full result if still in the dedup cache.
+                $lastResult = Cache::get('public_scan_result_v2:' . md5($this->url));
+                if ($lastResult && empty($lastResult['error'])) {
+                    return array_merge($lastResult, [
+                        'scanned_at'   => now()->toISOString(),
+                        'cache_hit'    => true,
+                        'hash_matched' => true,
+                    ]);
+                }
+            }
+        }
+
+        // ── Full pipeline: visibility report + acquisition intelligence ──
+        $aiAnalysis = $this->buildVisibilityReport($ai, $parsed);
+        $intel      = $intelligence->analyse($parsed, $this->url);
+
+        $result = [
             'url'              => $this->url,
             'domain'           => parse_url($this->url, PHP_URL_HOST),
             'scanned_at'       => now()->toISOString(),
@@ -104,7 +136,20 @@ class RunPublicScanJob implements ShouldQueue
             'tier'             => $this->scoreTier($aiAnalysis['score'] ?? 0),
             'tier_color'       => $this->tierColor($aiAnalysis['score'] ?? 0),
             'intelligence'     => $intel,
+            'cache_hit'        => false,
+            'hash_matched'     => false,
         ];
+
+        // Persist the hash so the next run can compare without touching the DB.
+        // Public scans have no brand_id so we can't write a PageSnapshot row;
+        // instead we store the hash in the file cache (same store as status/display
+        // keys) keyed by URL, TTL 7 days — longer than the dedup window.
+        if ($newHash) {
+            $store = PublicScannerController::statusStore();
+            $store->put('public_scan_hash:' . md5($this->url), $newHash, now()->addDays(7));
+        }
+
+        return $result;
     }
 
     private function buildVisibilityReport(AiGatewayService $ai, array $parsed): array
