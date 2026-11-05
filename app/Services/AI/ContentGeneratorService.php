@@ -10,6 +10,7 @@ use App\Models\KnowledgeBase;
 use App\Models\PageSnapshot;
 use App\Models\User;
 use App\Services\AI\AiGatewayService;
+use App\Services\AI\BrandContextAssembler;
 use App\Services\AI\ContentServicePolicy;
 use App\Services\ContentTourMatcher;
 use App\Services\Scanner\PageScannerService;
@@ -26,11 +27,13 @@ class ContentGeneratorService
     protected AiGatewayService $aiGateway;
     protected ContentServicePolicy $contentPolicy;
     protected SiteProfileService $siteProfileService;
+    protected BrandContextAssembler $contextAssembler;
 
     public function __construct(
         PageScannerService $scanner,
         ContentServicePolicy $contentPolicy,
-        SiteProfileService $siteProfileService
+        SiteProfileService $siteProfileService,
+        BrandContextAssembler $contextAssembler
     ) {
         // Content drafts use AI_PROVIDER_CONTENT (falls back to AI_PROVIDER).
         // Keeps content quota separate from scan and chat calls.
@@ -38,6 +41,7 @@ class ContentGeneratorService
         $this->scanner = $scanner;
         $this->contentPolicy = $contentPolicy;
         $this->siteProfileService = $siteProfileService;
+        $this->contextAssembler = $contextAssembler;
     }
 
     /**
@@ -93,14 +97,14 @@ class ContentGeneratorService
             return ContentDraft::where('action_id', $action->id)->first();
         }
 
+        // ── Brand context (cached): knowledge, competitors, queue, policy ──
+        // Single assembly call replaces per-service DB queries and eliminates
+        // AI back-and-forth for missing context.
+        $brandCtx    = $this->contextAssembler->assemble($brand, BrandContextAssembler::PURPOSE_CONTENT);
+        $knowledge   = $brandCtx['knowledge']['raw'] ?? [];
+
         // ── Site profile: dominant topics + page inventory ──
         $siteProfile = $this->siteProfileService->build($brand->id);
-
-        // ── KnowledgeBase: business description, audience, pillars, forbidden topics ──
-        $knowledge = KnowledgeBase::where('brand_id', $brand->id)
-            ->where('is_active', true)
-            ->pluck('content', 'key')
-            ->toArray();
 
         // ── On-brand pre-check ──
         $topic = $action->target_keyword ?: $action->title ?: '';

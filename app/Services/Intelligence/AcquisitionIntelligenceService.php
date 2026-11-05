@@ -3,6 +3,7 @@
 namespace App\Services\Intelligence;
 
 use App\Services\AI\AiGatewayService;
+use App\Services\AI\BrandContextAssembler;
 use App\Services\Competitors\Discovery\TavilySearch;
 use Illuminate\Support\Facades\Log;
 
@@ -29,30 +30,43 @@ class AcquisitionIntelligenceService
     private const MAX_SEARCHES = 5;
 
     private AiGatewayService $ai;
+    private BrandContextAssembler $contextAssembler;
 
     public function __construct(
         private TavilySearch $tavily,
+        BrandContextAssembler $contextAssembler,
     ) {
         // Intel uses AI_PROVIDER_INTEL (falls back to AI_PROVIDER).
         // Separates acquisition research quota from scan / brief / chat quotas.
         $this->ai = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_INTEL);
+        $this->contextAssembler = $contextAssembler;
     }
 
     /**
      * Run the full intelligence pipeline.
      *
-     * @param  array  $scannedPage  Output of PageScannerService::scanPublicUrl()
-     * @param  string $url
+     * @param  array       $scannedPage  Output of PageScannerService::scanPublicUrl()
+     * @param  string      $url
+     * @param  \App\Models\Brand|null  $brand  When supplied, pre-assembled brand context
+     *                                         is injected into the strategy step so the
+     *                                         AI never needs to ask for it separately.
      * @return array{
      *   business_profile: array,
      *   market_research: array,
      *   acquisition_strategy: array,
      *   research_available: bool,
+     *   brand_context_used: bool,
      *   error: string|null
      * }
      */
-    public function analyse(array $scannedPage, string $url): array
+    public function analyse(array $scannedPage, string $url, ?\App\Models\Brand $brand = null): array
     {
+        // Pre-assemble brand context once so the strategy step has everything
+        // it needs without a separate AI round-trip.
+        $brandCtx = $brand
+            ? $this->contextAssembler->assemble($brand, BrandContextAssembler::PURPOSE_INTEL)
+            : null;
+
         try {
             // Step 1 — profile the business
             $profile = $this->buildBusinessProfile($scannedPage, $url);
@@ -60,15 +74,16 @@ class AcquisitionIntelligenceService
             // Step 2 — research the market (requires Tavily)
             $research = $this->researchMarket($profile);
 
-            // Step 3 — build the acquisition strategy
-            $strategy = $this->buildStrategy($scannedPage, $profile, $research);
+            // Step 3 — build the acquisition strategy (with pre-assembled brand context)
+            $strategy = $this->buildStrategy($scannedPage, $profile, $research, $brandCtx);
 
             return [
-                'business_profile'    => $profile,
-                'market_research'     => $research,
-                'acquisition_strategy'=> $strategy,
-                'research_available'  => !empty($research['sources']),
-                'error'               => null,
+                'business_profile'     => $profile,
+                'market_research'      => $research,
+                'acquisition_strategy' => $strategy,
+                'research_available'   => !empty($research['sources']),
+                'brand_context_used'   => $brandCtx !== null,
+                'error'                => null,
             ];
 
         } catch (\Throwable $e) {
@@ -78,11 +93,12 @@ class AcquisitionIntelligenceService
             ]);
 
             return [
-                'business_profile'    => [],
-                'market_research'     => [],
-                'acquisition_strategy'=> [],
-                'research_available'  => false,
-                'error'               => $e->getMessage(),
+                'business_profile'     => [],
+                'market_research'      => [],
+                'acquisition_strategy' => [],
+                'research_available'   => false,
+                'brand_context_used'   => false,
+                'error'                => $e->getMessage(),
             ];
         }
     }
@@ -288,7 +304,7 @@ PROMPT,
 
     // ── Step 3: Strategy builder ──────────────────────────────────────────────
 
-    private function buildStrategy(array $page, array $profile, array $research): array
+    private function buildStrategy(array $page, array $profile, array $research, ?array $brandCtx = null): array
     {
         $type       = $profile['business_type'] ?? 'business';
         $customer   = $profile['target_customer'] ?? '';
@@ -303,6 +319,34 @@ PROMPT,
         $topics      = implode(', ', array_slice($page['topics'] ?? [], 0, 8));
         $pageStrengths = $page['word_count'] ?? 0 > 500 ? 'substantial content' : 'thin content';
 
+        // Brand context block — injected when available so the AI tailors the
+        // strategy to the actual brand rather than giving generic advice.
+        $brandBlock = '';
+        if ($brandCtx) {
+            $k = $brandCtx['knowledge'] ?? [];
+            $brandName    = $brandCtx['brand_name'] ?? '';
+            $voice        = $k['voice'] ?? '';
+            $audience     = $k['target_audience'] ?? '';
+            $pillars      = $k['content_pillars'] ?? '';
+            $competitors  = collect($brandCtx['competitors'] ?? [])
+                ->pluck('domain')->implode(', ');
+            $recentTopics = collect($brandCtx['history'] ?? [])
+                ->pluck('topic')->filter()->implode(', ');
+            $briefDigest  = $brandCtx['brief_digest']['diagnosis'] ?? '';
+
+            $brandBlock = <<<BRAND_CTX
+
+BRAND CONTEXT (pre-assembled — use this to make the strategy specific to this brand):
+Brand name: {$brandName}
+Brand voice: {$voice}
+Target audience: {$audience}
+Content pillars: {$pillars}
+Known competitors: {$competitors}
+Recent content topics: {$recentTopics}
+Latest strategic diagnosis: {$briefDigest}
+BRAND_CTX;
+        }
+
         $response = $this->ai->generate([
             'system_prompt' => 'You are a growth strategist. Build a specific, actionable customer acquisition plan. Return JSON only. No markdown.',
             'user_prompt'   => <<<PROMPT
@@ -316,7 +360,7 @@ Page content: {$pageStrengths}, topics: {$topics}
 
 How customers discover: {$howDiscover}
 How customers decide: {$howDecide}
-Relevant channels from research: {$channels}
+Relevant channels from research: {$channels}{$brandBlock}
 
 Return this exact JSON:
 {
