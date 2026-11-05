@@ -36,6 +36,7 @@ class PageSnapshot extends Model
         'content_gaps',
         'recommendations',
         'metadata',
+        'content_hash',
         'status',
         'error_message',
         'scraped_at',
@@ -104,29 +105,45 @@ class PageSnapshot extends Model
     }
 
     /**
-     * Check if content has changed significantly.
+     * Compute the canonical content hash for a raw HTML string.
+     *
+     * SHA-256 of the raw response body — deterministic, cheap, collision-safe.
+     * Used by RunPublicScanJob and PageScannerService to skip AI analysis when
+     * the page hasn't actually changed between scans.
+     */
+    public static function computeHash(string $rawHtml): string
+    {
+        return hash('sha256', $rawHtml);
+    }
+
+    /**
+     * Check whether a new raw HTML hash differs from the stored one.
+     *
+     * Returns true  → content changed, run the full AI pipeline.
+     * Returns false → content identical, skip AI, reuse existing analysis.
+     *
+     * Falls back to the legacy fuzzy check when no hash is stored (old snapshots
+     * that pre-date the content_hash column) so nothing breaks on upgrade.
      */
     public function hasContentChanged(array $newData): bool
     {
-        // Check if title changed
+        // ── Fast path: exact hash comparison ────────────────────────────────
+        $newHash = $newData['content_hash'] ?? null;
+        if ($newHash !== null && $this->content_hash !== null) {
+            return $newHash !== $this->content_hash;
+        }
+
+        // ── Legacy fallback: fuzzy heuristics for pre-hash snapshots ─────────
         if (($this->title ?? '') !== ($newData['title'] ?? '')) {
             return true;
         }
 
-        // Check if content length changed significantly (> 20% change)
-        $oldContent = $this->content ?? '';
-        $newContent = $newData['content'] ?? '';
-        $oldLength = strlen($oldContent);
-        $newLength = strlen($newContent);
-
-        if ($oldLength > 0 && $newLength > 0) {
-            $changeRatio = abs($newLength - $oldLength) / $oldLength;
-            if ($changeRatio > 0.20) { // 20% change threshold
-                return true;
-            }
+        $oldLen = strlen($this->content ?? '');
+        $newLen = strlen($newData['content'] ?? '');
+        if ($oldLen > 0 && $newLen > 0 && abs($newLen - $oldLen) / $oldLen > 0.20) {
+            return true;
         }
 
-        // Check if meta title or description changed
         if (($this->meta_title ?? '') !== ($newData['meta_title'] ?? '')) {
             return true;
         }
