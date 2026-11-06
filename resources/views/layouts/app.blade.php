@@ -13,7 +13,7 @@
     @livewireStyles
 </head>
 
-<body x-data="{ navOpen: false }" @keydown.escape.window="navOpen = false" :class="navOpen ? 'overflow-hidden lg:overflow-auto' : ''" class="antialiased bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 selection:bg-emerald-500 selection:text-white transition-colors duration-200 min-h-full">
+<body x-data="{ navOpen: false }" @keydown.escape.window="navOpen = false" :class="navOpen ? 'overflow-hidden lg:overflow-auto' : ''" class="antialiased bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 selection:bg-emerald-500 selection:text-white transition-colors duration-200 min-h-full" x-cloak>
     <!-- Ambient Backdrop Accent Blurs -->
     <div class="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         <div class="absolute -top-24 -left-20 w-96 h-96 bg-emerald-400/20 dark:bg-emerald-500/10 rounded-full blur-3xl"></div>

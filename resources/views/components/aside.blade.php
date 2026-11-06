@@ -321,22 +321,21 @@
         <div
             class="mt-6 p-3 bg-white/40 dark:bg-slate-800/40
                    backdrop-blur-xs rounded-xl border border-slate-200/60 dark:border-slate-800">
-
-            <div class="flex items-center justify-between text-xs">
-                <span class="text-slate-500 dark:text-slate-400">AI Provider</span>
-                <span class="font-medium text-slate-700 dark:text-slate-200">
-                    {{ config('ai.provider', 'ollama') }}
-                </span>
-            </div>
-
             <div class="flex items-center justify-between text-xs mt-1.5">
-                <span class="text-slate-500 dark:text-slate-400">Status</span>
-
-                <span class="inline-flex items-center font-medium text-emerald-600 dark:text-emerald-400">
-                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
-                    Connected
-                </span>
+                            <span
+                                class="w-2 h-2 rounded-full {{ isset($aiStatus['available']) && $aiStatus['available'] ? 'bg-green-500' : 'bg-red-500' }}"></span>
+                            <span class="text-sm text-gray-700">
+                                {{ isset($aiStatus['available']) && $aiStatus['available'] ? 'Connected' : 'Offline' }}
+                            </span>
             </div>
+            <div class="flex items-center justify-between text-xs">
+                        <p class="text-xs text-gray-500 mt-1">Provider: {{ $aiStatus['provider'] ?? 'Not configured' }}</p>
+                        <p class="text-xs text-gray-500">Model: {{ $aiStatus['model'] ?? 'N/A' }}</p>
+                        <p class="text-xs text-gray-500 mt-2">
+                            Last Brief: {{ $aiStatus['last_brief'] ?? 'Never' }}
+                        </p>
+            </div>
+
         </div>
 
     </nav>

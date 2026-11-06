@@ -11,6 +11,9 @@
         'Segoe UI Symbol', 'Noto Color Emoji';
 }
 
+x-cloak {
+    display: none !important;
+}
 /*
  * Dark companions for pages written with light-only colours. Any element that
  * already carries its own dark: utility is left alone (:not([class*="dark:"])).
