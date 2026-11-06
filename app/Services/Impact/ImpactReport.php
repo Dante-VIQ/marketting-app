@@ -4,12 +4,14 @@ namespace App\Services\Impact;
 
 use App\Models\ActionVerification;
 use App\Models\AiAction;
+use App\Models\AiVisibility;
 use App\Models\AnalyticsSnapshot;
 use App\Models\ContentIdea;
 use App\Models\Lead;
 use App\Models\RevenueEntry;
 use App\Services\ContentPlan\SocialSiteResults;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Is the system helping? Compares the same number of days before and after it started doing real work.
@@ -61,7 +63,9 @@ class ImpactReport
         $today ??= now()->toDateString();
         $start = self::startDate($brandId);
         $out = ['start' => $start, 'caveat' => self::CAVEAT, 'actions' => $this->actions($brandId), 'social' => SocialSiteResults::summary($brandId),
-            'revenue' => $this->revenue($brandId, $start)];
+            'revenue' => $this->revenue($brandId, $start),
+            'affiliate' => $this->affiliateClicks($brandId, $start),
+            'visibility' => $this->visibilityTrend($brandId)];
 
         if (!$start) {
             return ['state' => 'not_started', 'note' => 'The system has not carried out an action or published an approved post yet, so there is nothing to compare.'] + $out;
@@ -132,6 +136,93 @@ class ImpactReport
         return ['executed' => $executed, 'checked' => $checked->count(), 'improved' => $checked->where('was_successful', true)->count(),
             'not_improved' => $checked->where('was_successful', false)->count(), 'rolled_back' => $checked->where('rollback_triggered', true)->count(),
             'not_checked_yet' => max(0, $executed - $checked->count())];
+    }
+
+    /**
+     * Affiliate clicks and bookings from affiliate_data, split before/after start date.
+     * Covers all networks (GetYourGuide, Awin, TravelPayouts, etc.).
+     */
+    public function affiliateClicks(int $brandId, ?string $start): array
+    {
+        $rows = DB::table('affiliate_data')
+            ->where('brand_id', $brandId)
+            ->orderBy('date')
+            ->get(['date', 'network', 'clicks', 'bookings', 'commission_earned']);
+
+        if ($rows->isEmpty()) {
+            return ['state' => 'no_data', 'note' => 'No affiliate click data recorded yet. Data flows in once your affiliate links are tracked.'];
+        }
+
+        $totalClicks   = $rows->sum('clicks');
+        $totalBookings = $rows->sum('bookings');
+        $totalEarned   = $rows->sum('commission_earned');
+
+        $byNetwork = $rows->groupBy('network')->map(fn ($g) => [
+            'clicks'   => $g->sum('clicks'),
+            'bookings' => $g->sum('bookings'),
+            'earned'   => round($g->sum('commission_earned'), 2),
+        ])->toArray();
+
+        // Before/after split when a start date is known
+        $before = $after = null;
+        if ($start) {
+            $beforeRows = $rows->filter(fn ($r) => $r->date < $start);
+            $afterRows  = $rows->filter(fn ($r) => $r->date >= $start);
+            if ($beforeRows->isNotEmpty() && $afterRows->isNotEmpty()) {
+                $before = ['clicks' => $beforeRows->sum('clicks'), 'bookings' => $beforeRows->sum('bookings')];
+                $after  = ['clicks' => $afterRows->sum('clicks'),  'bookings' => $afterRows->sum('bookings')];
+                $before['change_clicks']   = self::change($before['clicks'],   $after['clicks']);
+                $before['change_bookings'] = self::change($before['bookings'], $after['bookings']);
+            }
+        }
+
+        return [
+            'state'          => 'ok',
+            'total_clicks'   => (int) $totalClicks,
+            'total_bookings' => (int) $totalBookings,
+            'total_earned'   => round($totalEarned, 2),
+            'by_network'     => $byNetwork,
+            'before'         => $before,
+            'after'          => $after,
+        ];
+    }
+
+    /**
+     * Latest visibility score and trend over the last 5 audits.
+     * Reads from the ai_visibility table (one row per audit run).
+     */
+    public function visibilityTrend(int $brandId): array
+    {
+        // Guard: table may not exist if migration hasn't run
+        if (!DB::getSchemaBuilder()->hasTable('ai_visibility')) {
+            return ['state' => 'no_table'];
+        }
+
+        $audits = DB::table('ai_visibility')
+            ->where('brand_id', $brandId)
+            ->where('status', 'done')
+            ->orderByDesc('audited_at')
+            ->limit(5)
+            ->get(['score', 'probes_sent', 'probes_hit', 'audited_at']);
+
+        if ($audits->isEmpty()) {
+            return ['state' => 'no_data', 'note' => 'No visibility audits completed yet. Run one from the Visibility page.'];
+        }
+
+        $latest   = $audits->first();
+        $oldest   = $audits->last();
+        $trend    = $audits->count() >= 2 ? self::change($oldest->score, $latest->score) : null;
+
+        return [
+            'state'       => 'ok',
+            'latest'      => (int) $latest->score,
+            'audited_at'  => $latest->audited_at,
+            'trend_pct'   => $trend,
+            'history'     => $audits->map(fn ($a) => [
+                'score'      => (int) $a->score,
+                'audited_at' => $a->audited_at,
+            ])->values()->toArray(),
+        ];
     }
 
     /**
