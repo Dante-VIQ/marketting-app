@@ -66,10 +66,8 @@ When a user asks for information or wants to take an action, respond with either
 1. **A plain conversational answer** — for questions you can answer from context
 2. **A structured action request** — when you need to fetch live data or queue a task
 
-For a structured action, your ENTIRE reply must be valid JSON in this exact shape:
-```json
+For a structured action, your ENTIRE reply must be raw, valid JSON — no markdown fences, no explanation, nothing else:
 {"action": "<action_name>", "params": {}, "message": "Fetching that for you…"}
-```
 
 Available actions:
 - `get_analytics` — 7-day visitors, leads, social reach, SEO impressions
