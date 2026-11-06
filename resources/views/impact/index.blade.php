@@ -5,9 +5,11 @@
 @section('content')
 @php
     $states = ['not_started' => 'Not started', 'too_early' => 'Too early to tell', 'no_baseline' => 'Missing history', 'ok' => 'Comparison'];
-    $a = $r['actions'];
+    $a   = $r['actions'];
     $soc = $r['social'];
     $rev = $r['revenue'];
+    $aff = $r['affiliate'] ?? ['state' => 'no_data'];
+    $vis = $r['visibility'] ?? ['state' => 'no_data'];
 @endphp
 <div class="py-6 px-4 sm:px-6 lg:px-8 space-y-6 max-w-5xl">
     <div>
@@ -84,7 +86,87 @@
         @endif
     </section>
 
-    {{-- 4. Money --}}
+    {{-- 4. Affiliate clicks --}}
+    <section class="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-700 p-5 space-y-3">
+        <h2 class="font-semibold text-gray-900 dark:text-slate-100">Affiliate clicks & bookings</h2>
+        @if(($aff['state'] ?? '') !== 'ok')
+            <p class="text-sm text-gray-500">{{ $aff['note'] ?? 'No affiliate data yet.' }}</p>
+        @else
+            <div class="grid grid-cols-3 gap-4 text-center">
+                <div class="p-3 rounded-lg bg-sky-50 dark:bg-sky-900/20">
+                    <p class="text-2xl font-bold text-sky-700 dark:text-sky-300">{{ number_format($aff['total_clicks']) }}</p>
+                    <p class="text-xs text-gray-500 mt-1">Total clicks</p>
+                </div>
+                <div class="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
+                    <p class="text-2xl font-bold text-emerald-700 dark:text-emerald-300">{{ number_format($aff['total_bookings']) }}</p>
+                    <p class="text-xs text-gray-500 mt-1">Bookings</p>
+                </div>
+                <div class="p-3 rounded-lg bg-violet-50 dark:bg-violet-900/20">
+                    <p class="text-2xl font-bold text-violet-700 dark:text-violet-300">{{ number_format($aff['total_earned'], 2) }}</p>
+                    <p class="text-xs text-gray-500 mt-1">Commission earned</p>
+                </div>
+            </div>
+            @if($aff['before'] && $aff['after'])
+                <p class="text-sm text-gray-700 dark:text-slate-300">
+                    Clicks: <strong>{{ number_format($aff['before']['clicks']) }}</strong> before the system started →
+                    <strong>{{ number_format($aff['after']['clicks']) }}</strong> after
+                    @if($aff['before']['change_clicks'] !== null)
+                        <span class="{{ $aff['before']['change_clicks'] >= 0 ? 'text-emerald-700' : 'text-red-700' }} font-medium">({{ $aff['before']['change_clicks'] > 0 ? '+' : '' }}{{ $aff['before']['change_clicks'] }}%)</span>
+                    @endif
+                    &mdash; Bookings:
+                    <strong>{{ number_format($aff['before']['bookings']) }}</strong> → <strong>{{ number_format($aff['after']['bookings']) }}</strong>
+                    @if($aff['before']['change_bookings'] !== null)
+                        <span class="{{ $aff['before']['change_bookings'] >= 0 ? 'text-emerald-700' : 'text-red-700' }} font-medium">({{ $aff['before']['change_bookings'] > 0 ? '+' : '' }}{{ $aff['before']['change_bookings'] }}%)</span>
+                    @endif
+                </p>
+            @endif
+            @if(!empty($aff['by_network']))
+                <details class="text-sm"><summary class="cursor-pointer text-gray-600">By network</summary>
+                    <table class="mt-2 text-xs w-full max-w-sm"><thead><tr class="text-left text-gray-500"><th class="py-1">Network</th><th>Clicks</th><th>Bookings</th><th>Earned</th></tr></thead><tbody>
+                        @foreach($aff['by_network'] as $net => $d)
+                            <tr class="border-t border-gray-100 dark:border-slate-800"><td class="py-1 capitalize">{{ $net }}</td><td>{{ number_format($d['clicks']) }}</td><td>{{ number_format($d['bookings']) }}</td><td>{{ number_format($d['earned'], 2) }}</td></tr>
+                        @endforeach
+                    </tbody></table>
+                </details>
+            @endif
+        @endif
+    </section>
+
+    {{-- 5. AI Visibility score --}}
+    <section class="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-700 p-5 space-y-3">
+        <h2 class="font-semibold text-gray-900 dark:text-slate-100">AI visibility score</h2>
+        @if(($vis['state'] ?? '') !== 'ok')
+            <p class="text-sm text-gray-500">{{ $vis['note'] ?? 'Run a visibility audit to see your score here.' }}</p>
+        @else
+            <div class="flex items-center gap-6">
+                <div class="text-center">
+                    @php $score = $vis['latest']; $color = $score >= 70 ? 'emerald' : ($score >= 40 ? 'sky' : ($score >= 15 ? 'amber' : 'rose')); @endphp
+                    <p class="text-5xl font-bold text-{{ $color }}-600 dark:text-{{ $color }}-400">{{ $score }}</p>
+                    <p class="text-xs text-gray-500 mt-1">/ 100 latest</p>
+                </div>
+                @if($vis['trend_pct'] !== null)
+                    <div>
+                        <p class="text-sm text-gray-700 dark:text-slate-300">
+                            Trend across {{ count($vis['history']) }} audits:
+                            <span class="{{ $vis['trend_pct'] >= 0 ? 'text-emerald-700' : 'text-red-700' }} font-medium text-lg">{{ $vis['trend_pct'] > 0 ? '+' : '' }}{{ $vis['trend_pct'] }}%</span>
+                        </p>
+                        <p class="text-xs text-gray-500">Last audit: {{ \Carbon\Carbon::parse($vis['audited_at'])->diffForHumans() }}</p>
+                    </div>
+                @endif
+            </div>
+            @if(count($vis['history']) > 1)
+                <details class="text-sm"><summary class="cursor-pointer text-gray-600">Audit history</summary>
+                    <table class="mt-2 text-xs w-full max-w-xs"><thead><tr class="text-left text-gray-500"><th class="py-1">Date</th><th>Score</th></tr></thead><tbody>
+                        @foreach($vis['history'] as $h)
+                            <tr class="border-t border-gray-100 dark:border-slate-800"><td class="py-1">{{ \Carbon\Carbon::parse($h['audited_at'])->format('M j, Y') }}</td><td class="font-medium">{{ $h['score'] }}</td></tr>
+                        @endforeach
+                    </tbody></table>
+                </details>
+            @endif
+        @endif
+    </section>
+
+    {{-- 6. Money --}}
     <section class="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-700 p-5 space-y-3">
         <h2 class="font-semibold text-gray-900 dark:text-slate-100">Money earned</h2>
         <p class="text-xs text-gray-500">The system cannot see affiliate or partner earnings, so this is what you type in from your real statements (GetYourGuide, Awin, Orange Adventures…). Nothing here is estimated. Each currency is kept separate.</p>

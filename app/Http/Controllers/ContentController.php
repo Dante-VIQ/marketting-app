@@ -6,6 +6,7 @@ use App\Jobs\GenerateContentForActionJob;
 use App\Models\AiAction;
 use App\Models\ContentDraft;
 use App\Services\AI\ContentGeneratorService;
+use App\Services\Content\ContentRouter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -130,20 +131,34 @@ class ContentController extends Controller
         ]);
     }
 
-    public function publish(ContentDraft $draft)
-{
-    // 🔒 Authorization check
-    if (!Gate::allows('publish-content', $draft->brand_id)) {
-        abort(403, 'You are not allowed to publish this content.');
+    public function publish(ContentDraft $draft, ContentRouter $router)
+    {
+        // 🔒 Authorization check
+        if (!Gate::allows('publish-content', $draft->brand_id)) {
+            abort(403, 'You are not allowed to publish this content.');
+        }
+
+        // Mark as published first so the router sees the final state
+        $draft->update([
+            'status'       => 'published',
+            'published_at' => now(),
+        ]);
+
+        // Route to the appropriate site section based on content type
+        try {
+            $result = $router->route($draft);
+            $message = $result['note'];
+        } catch (\Throwable $e) {
+            Log::error('ContentRouter: routing failed after publish', [
+                'draft_id' => $draft->id,
+                'type'     => $draft->type,
+                'error'    => $e->getMessage(),
+            ]);
+            $message = 'Published, but could not route to its section. Check logs.';
+        }
+
+        return back()->with('message', $message);
     }
-
-    $draft->update([
-        'status' => 'published',
-        'published_at' => now(),
-    ]);
-
-    return back()->with('message', 'Content published successfully.');
-}
 
 public function destroy(ContentDraft $draft)
 {
