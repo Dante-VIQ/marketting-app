@@ -6,6 +6,7 @@ use App\Models\Brand;
 use App\Models\ContentIdea;
 use App\Models\KnowledgeBase;
 use App\Models\Persona;
+use App\Services\AI\AiCallGuard;
 use App\Services\AI\AiGatewayService;
 use DomainException;
 
@@ -16,7 +17,10 @@ use DomainException;
  */
 class PostDrafter
 {
-    public function __construct(private ?AiGatewayService $ai = null) {}
+    public function __construct(
+        private ?AiGatewayService $ai = null,
+        private ?AiCallGuard $guard = null,
+    ) {}
 
     /** Facts the system really holds about the brand. Empty = we do not understand the brand yet. */
     public static function brandFacts(Brand $brand, int $max = 15): array
@@ -81,6 +85,13 @@ TXT;
     /** Fills the idea's text and image prompt (draft only). Throws DomainException with a plain reason on failure. */
     public function draft(ContentIdea $idea, Brand $brand): ContentIdea
     {
+        // ── Pre-flight guard: skip AI for decisions answerable without it ──────
+        $guard  = $this->guard ?? new AiCallGuard();
+        $result = $guard->check($brand, $idea);
+        if (!$result['allowed']) {
+            throw new DomainException($result['reason'] ?? 'AI call skipped by pre-flight guard.');
+        }
+
         $facts = self::brandFacts($brand);
         if (!$facts) {
             throw new DomainException('Tell the system about the brand first (brand voice or knowledge base entries), so it does not have to guess.');

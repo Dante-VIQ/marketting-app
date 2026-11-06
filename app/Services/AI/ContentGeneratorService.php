@@ -9,6 +9,7 @@ use App\Models\GuardianAuditLog;
 use App\Models\KnowledgeBase;
 use App\Models\PageSnapshot;
 use App\Models\User;
+use App\Services\AI\AiCallGuard;
 use App\Services\AI\AiGatewayService;
 use App\Services\AI\BrandContextAssembler;
 use App\Services\AI\ContentServicePolicy;
@@ -28,12 +29,14 @@ class ContentGeneratorService
     protected ContentServicePolicy $contentPolicy;
     protected SiteProfileService $siteProfileService;
     protected BrandContextAssembler $contextAssembler;
+    protected AiCallGuard $aiCallGuard;
 
     public function __construct(
         PageScannerService $scanner,
         ContentServicePolicy $contentPolicy,
         SiteProfileService $siteProfileService,
-        BrandContextAssembler $contextAssembler
+        BrandContextAssembler $contextAssembler,
+        AiCallGuard $aiCallGuard
     ) {
         // Content drafts use AI_PROVIDER_CONTENT (falls back to AI_PROVIDER).
         // Keeps content quota separate from scan and chat calls.
@@ -42,6 +45,7 @@ class ContentGeneratorService
         $this->contentPolicy = $contentPolicy;
         $this->siteProfileService = $siteProfileService;
         $this->contextAssembler = $contextAssembler;
+        $this->aiCallGuard = $aiCallGuard;
     }
 
     /**
@@ -89,6 +93,21 @@ class ContentGeneratorService
             Log::warning('Content generation denied by service policy', [
                 'action_id' => $action->id,
                 'reason'    => $policyCheck['reason'],
+            ]);
+            return null;
+        }
+
+        // 🔒 Pre-flight guard: deterministic checks before the AI is invoked.
+        // Catches duplicates, platform caps, and schedule conflicts without
+        // spending an AI call to discover them.
+        $platform = $action->target_platform ?? '';
+        $topic    = $action->target_keyword ?: $action->title ?: '';
+        $guardResult = $this->aiCallGuard->checkDraft($brand, $topic, $platform);
+        if (!$guardResult['allowed']) {
+            Log::info('Content generation skipped by pre-flight guard', [
+                'action_id' => $action->id,
+                'code'      => $guardResult['code'],
+                'reason'    => $guardResult['reason'],
             ]);
             return null;
         }
