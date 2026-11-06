@@ -146,8 +146,12 @@ return [
     */
 
     'passkeys' => [
-        'relying_party_id' => parse_url(config('app.url'), PHP_URL_HOST),
-        'allowed_origins' => [config('app.url')],
+        'relying_party_id' => preg_replace('/^www\./i', '', parse_url(config('app.url'), PHP_URL_HOST) ?: 'localhost'),
+        'allowed_origins' => array_values(array_unique([
+            config('app.url'),
+            'https://' . (parse_url(config('app.url'), PHP_URL_HOST) ?: 'localhost'),
+            'https://www.' . preg_replace('/^www\./i', '', parse_url(config('app.url'), PHP_URL_HOST) ?: 'localhost'),
+        ])),
         'timeout' => 60000,
     ],
 
