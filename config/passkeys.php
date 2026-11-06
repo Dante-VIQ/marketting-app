@@ -2,7 +2,27 @@
 
 $passkeyAppUrl = config('app.url');
 $passkeyHost = parse_url($passkeyAppUrl, PHP_URL_HOST) ?: 'localhost';
+$passkeyScheme = parse_url($passkeyAppUrl, PHP_URL_SCHEME) ?: 'http';
 $passkeyRpId = preg_replace('/^www\./i', '', $passkeyHost);
+
+$passkeyOrigins = array_values(array_unique([
+    $passkeyAppUrl,
+    $passkeyScheme . '://' . $passkeyHost,
+    'http://' . $passkeyHost,
+    'https://' . $passkeyHost,
+    'http://localhost',
+    'http://localhost:8000',
+    'http://127.0.0.1',
+    'http://127.0.0.1:8000',
+    'https://localhost',
+    'https://localhost:8000',
+    'https://127.0.0.1',
+    'https://127.0.0.1:8000',
+    'https://www.' . $passkeyRpId,
+    'https://' . $passkeyRpId,
+    'http://www.' . $passkeyRpId,
+    'http://' . $passkeyRpId,
+]));
 
 return [
 
@@ -30,12 +50,7 @@ return [
     |
     */
 
-    'allowed_origins' => array_values(array_unique([
-        $passkeyAppUrl,
-        'https://' . $passkeyHost,
-        'https://www.' . $passkeyRpId,
-        'http://' . $passkeyHost,
-    ])),
+    'allowed_origins' => $passkeyOrigins,
 
     /*
     |--------------------------------------------------------------------------
