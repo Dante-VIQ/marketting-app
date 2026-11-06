@@ -72,8 +72,13 @@ class BotService
         $actionType = null;
         $trimmed    = trim($rawReply);
 
-        if (str_starts_with($trimmed, '{') && $this->isActionResponse($trimmed)) {
-            [$reply, $actionType, $tokensUsed] = $this->handleAction($trimmed, $brand, $history, $systemPrompt, $tokensUsed);
+        // Strip markdown code fences — the AI sometimes wraps JSON in ```json … ```
+        // even when instructed not to, causing the action detector to miss it.
+        $stripped = preg_replace('/^```(?:json)?\s*|\s*```$/s', '', $trimmed);
+        $stripped = trim($stripped);
+
+        if (str_starts_with($stripped, '{') && $this->isActionResponse($stripped)) {
+            [$reply, $actionType, $tokensUsed] = $this->handleAction($stripped, $brand, $history, $systemPrompt, $tokensUsed);
         } else {
             $reply = $rawReply;
         }
