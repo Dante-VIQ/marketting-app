@@ -157,7 +157,7 @@ class ContentGeneratorService
         $promptData = $this->buildPrompt($action, $brand, $pageSnapshot, $siteProfile, $knowledge);
 
         $response = $this->aiGateway->generate([
-            'system_prompt'   => $this->getSystemPrompt($brand, $action->category, $pageSnapshot, $siteProfile, $knowledge),
+            'system_prompt'   => $this->getSystemPrompt($brand, $action->category, $pageSnapshot, $siteProfile, $knowledge, $action),
             'user_prompt'     => json_encode($promptData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES),
             'temperature'     => 0.7,
             'max_tokens'      => 4096,
@@ -404,6 +404,7 @@ class ContentGeneratorService
         ];
 
         if ($snapshot) {
+            $isRevision = $this->isRevisionAction($action, $snapshot);
             $prompt['page_snapshot'] = [
                 'url'              => $snapshot->url,
                 'title'            => $snapshot->title,
@@ -414,9 +415,11 @@ class ContentGeneratorService
                 'meta_title'       => $snapshot->meta_title,
                 'meta_description' => $snapshot->meta_description,
                 'recommendations'  => $snapshot->recommendations,
-                'has_content'      => !empty($snapshot->content),
-                'content_preview'  => substr(strip_tags($snapshot->content ?? ''), 0, 500),
+                // For revisions: inject the full existing content so the AI edits it, not rewrites it
+                'existing_content' => $isRevision ? ($snapshot->content ?? '') : null,
+                'mode'             => $isRevision ? 'revision' : 'new',
             ];
+            $prompt['action']['mode'] = $isRevision ? 'revision' : 'new';
         }
 
         return $prompt;
@@ -452,7 +455,8 @@ class ContentGeneratorService
         string $category,
         ?PageSnapshot $snapshot = null,
         array $siteProfile = [],
-        array $knowledge = []
+        array $knowledge = [],
+        ?AiAction $action = null
     ): string {
         // KnowledgeBase is the source of truth for brand_voice (that's what the
         // seeder populates); the Brand column is a legacy fallback for brands
@@ -555,11 +559,32 @@ PROMPT;
             );
         }
 
+        // Detect revision vs new content
+        $isRevision   = $snapshot && $action && $this->isRevisionAction($action, $snapshot);
+        $existingHtml = $snapshot?->content ?? '';
+        $actionDesc   = $action ? "\nACTION: {$action->title}\nDETAILS: {$action->description}\n" : '';
+
         $categoryInstructions = match ($category) {
-            'content' => sprintf(
-                "You are generating a full blog post.\n\nREQUIREMENTS:\n- 1200-2000 words\n- Clear structure with H2, H3 headings\n- Strong introduction and conclusion\n- Use bullet points and lists where appropriate\n- Only reference pages listed in SITE INVENTORY\n%s",
-                $pageContext
-            ),
+            'content' => $isRevision
+                ? sprintf(
+                    "You are REVISING an existing blog post, not creating a new one.\n\n" .
+                    "%s\n" .
+                    "EXISTING POST CONTENT (the full HTML you must edit):\n%s\n\n" .
+                    "REVISION REQUIREMENTS:\n" .
+                    "- Keep the existing structure, headings, and factual content intact\n" .
+                    "- Apply ONLY the changes the action requests (e.g. add booking CTAs, update an intro, fix SEO gaps)\n" .
+                    "- Do NOT rewrite sections that are not relevant to the action\n" .
+                    "- Match the existing writing style and tone exactly\n" .
+                    "- Return the COMPLETE revised post HTML in the `body` field — not just the changed sections\n" .
+                    "- In the `revision_notes` field, list every change you made as a bullet point\n%s",
+                    $actionDesc,
+                    $existingHtml,
+                    $pageContext
+                )
+                : sprintf(
+                    "You are generating a full blog post.\n\nREQUIREMENTS:\n- 1200-2000 words\n- Clear structure with H2, H3 headings\n- Strong introduction and conclusion\n- Use bullet points and lists where appropriate\n- Only reference pages listed in SITE INVENTORY\n%s",
+                    $pageContext
+                ),
             'social' => sprintf(
                 "You are generating a social media post.\n\nREQUIREMENTS:\n- 100-200 words\n- Engaging and conversational\n- Relevant hashtags\n- Strong call-to-action\n%s",
                 $pageContext
@@ -596,6 +621,7 @@ Output Schema:
     "target_keyword": "Primary target keyword",
     "meta_title": "SEO meta title (50-60 characters)",
     "meta_description": "SEO meta description (140-160 characters)",
+    "revision_notes": "For revisions only: bullet-point list of every change made to the original post. Leave null for new content.",
     "seo_data": {
         "readability_score": 75,
         "keyword_density": 2.0,
@@ -847,6 +873,41 @@ Return ONLY valid JSON:
     "estimated_word_count": 1200
 }
 PROMPT;
+    }
+
+    /**
+     * Determine whether an action should REVISE an existing page or CREATE new content.
+     *
+     * Revision signals:
+     *  - action has a target_url pointing to an existing scanned page (snapshot present)
+     *  - action title/description contains revision keywords (optimize, revise, update,
+     *    add CTA, improve, fix, refresh, rewrite)
+     *
+     * Both conditions must be true: having a snapshot alone isn't enough
+     * (some "new content" actions reference an existing page as context).
+     */
+    protected function isRevisionAction(AiAction $action, PageSnapshot $snapshot): bool
+    {
+        // Must have a target_url that matched a real snapshot
+        if (empty($action->target_url)) {
+            return false;
+        }
+
+        $revisionKeywords = [
+            'optimiz', 'revis', 'updat', 'refresh', 'improv', 'rewrite',
+            'fix', 'add cta', 'add call', 'booking cta', 'direct booking',
+            'update intro', 'edit', 'enhance', 'rework',
+        ];
+
+        $haystack = strtolower($action->title . ' ' . $action->description);
+
+        foreach ($revisionKeywords as $kw) {
+            if (str_contains($haystack, $kw)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     protected function getFallbackOutline(string $topic, string $template): array
