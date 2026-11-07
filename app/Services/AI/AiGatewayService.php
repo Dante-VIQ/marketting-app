@@ -11,10 +11,73 @@ class AiGatewayService
     protected string $provider;
     protected array $config;
 
-    public function __construct()
+    // ── Purposes ──────────────────────────────────────────────────────────────
+    // Each maps to an env var: AI_PROVIDER_<PURPOSE> (falls back to AI_PROVIDER).
+    // Set these in .env to route different workloads to different providers/keys,
+    // preventing one noisy task (e.g. a URL scan with 4 AI calls) from exhausting
+    // the quota used by briefs or the real-time chat bot.
+    //
+    // AI_PROVIDER_SCAN=gemini        # fast, cheap — 4 calls per public scan
+    // AI_PROVIDER_BRIEF=fireworks    # quality — brief generation
+    // AI_PROVIDER_CONTENT=fireworks  # quality — content drafts
+    // AI_PROVIDER_CHAT=gemini        # low-latency — bot responses
+    // AI_PROVIDER_INTEL=gemini       # acquisition intelligence (Tavily-heavy)
+    public const PURPOSE_SCAN    = 'scan';
+    public const PURPOSE_BRIEF   = 'brief';
+    public const PURPOSE_CONTENT = 'content';
+    public const PURPOSE_CHAT    = 'chat';
+    public const PURPOSE_INTEL   = 'intel';
+
+    public function __construct(?string $provider = null)
     {
-        $this->provider = env('AI_PROVIDER', 'gemini');
+        $this->provider = $provider
+            ?? strtolower((string) $this->readEnv('AI_PROVIDER', 'gemini'));
         $this->config = $this->getProviderConfig();
+    }
+
+    /**
+     * Return a gateway instance configured for a specific workload purpose.
+     *
+     * Looks up AI_PROVIDER_<PURPOSE> first, falls back to AI_PROVIDER.
+     *
+     * Usage:
+     *   AiGatewayService::forPurpose(AiGatewayService::PURPOSE_SCAN)
+     *   AiGatewayService::forPurpose(AiGatewayService::PURPOSE_BRIEF)
+     */
+    public static function forPurpose(string $purpose): static
+    {
+        $instance = new static();
+        $envKey   = 'AI_PROVIDER_' . strtoupper($purpose);
+        $resolved = strtolower((string) $instance->readEnv($envKey, ''));
+
+        if ($resolved !== '') {
+            $instance->provider = $resolved;
+            $instance->config   = $instance->getProviderConfig();
+
+            Log::debug("AiGateway: purpose={$purpose} → provider={$resolved}");
+        } else {
+            Log::debug("AiGateway: purpose={$purpose} → fallback provider={$instance->provider}");
+        }
+
+        return $instance;
+    }
+
+    protected function readEnv(string $key, mixed $default = null): mixed
+    {
+        $value = getenv($key);
+        if ($value !== false) {
+            return $value;
+        }
+
+        if (array_key_exists($key, $_ENV)) {
+            return $_ENV[$key];
+        }
+
+        if (array_key_exists($key, $_SERVER)) {
+            return $_SERVER[$key];
+        }
+
+        return $default;
     }
 
     /**
@@ -24,23 +87,47 @@ class AiGatewayService
     {
         return match ($this->provider) {
             'openai' => [
-                'api_key' => env('OPENAI_API_KEY'),
-                'model' => env('OPENAI_MODEL', 'gpt-4'),
+                'api_key' => $this->readEnv('OPENAI_API_KEY'),
+                'model' => $this->readEnv('OPENAI_MODEL', 'gpt-4'),
                 'endpoint' => 'https://api.openai.com/v1/chat/completions',
             ],
             'anthropic' => [
-                'api_key' => env('ANTHROPIC_API_KEY'),
-                'model' => env('ANTHROPIC_MODEL', 'claude-3-opus-20240229'),
+                'api_key' => $this->readEnv('ANTHROPIC_API_KEY'),
+                'model' => $this->readEnv('ANTHROPIC_MODEL', 'claude-3-opus-20240229'),
                 'endpoint' => 'https://api.anthropic.com/v1/messages',
             ],
             'gemini' => [
-                'api_key' => env('GEMINI_API_KEY'),
-                'model' => env('GEMINI_MODEL', 'gemini-2.0-flash'),
+                'api_key' => $this->readEnv('GEMINI_API_KEY'),
+                'model' => $this->readEnv('GEMINI_MODEL', 'gemini-2.0-flash'),
                 'endpoint' => 'https://generativelanguage.googleapis.com/v1beta/models',
             ],
             'ollama' => [
-                'model' => env('OLLAMA_MODEL', 'llama3.1'),
-                'endpoint' => env('OLLAMA_ENDPOINT', 'http://localhost:11434/api/generate'),
+                'model' => $this->readEnv('OLLAMA_MODEL', 'llama3.1'),
+                'endpoint' => $this->readEnv('OLLAMA_ENDPOINT', 'http://localhost:11434/api/generate'),
+            ],
+            // Fireworks AI — OpenAI-compatible, runs Meta Llama open-weights models
+            // Model IDs: accounts/fireworks/models/llama-v3p3-70b-instruct (recommended)
+            //            accounts/fireworks/models/llama-v3p1-8b-instruct  (fast/cheap)
+            'fireworks' => [
+                'api_key'  => $this->readEnv('FIREWORKS_API_KEY'),
+                'model'    => $this->readEnv('FIREWORKS_MODEL', 'accounts/fireworks/models/llama-v3p3-70b-instruct'),
+                'endpoint' => 'https://api.fireworks.ai/inference/v1/chat/completions',
+            ],
+            // Baseten — OpenAI-compatible inference gateway
+            // Endpoint: https://inference.baseten.co/v1/chat/completions
+            // Model: name string from Baseten catalog, e.g. meta-models/muse-spark-open
+            'baseten' => [
+                'api_key'  => $this->readEnv('BASETEN_API_KEY'),
+                'model'    => $this->readEnv('BASETEN_MODEL', 'meta-models/muse-spark-open'),
+                'endpoint' => 'https://inference.baseten.co/v1/chat/completions',
+            ],
+            'groq' => [
+                'api_key'  => $this->readEnv('GROQ_API_KEY'),
+                'model'    => $this->readEnv('GROQ_MODEL', 'groq-2.0'),
+                'temperature' => $this->readEnv('GROQ_TEMPERATURE', 0.7),
+                'max_tokens' => $this->readEnv('GROQ_MAX_TOKENS', 4096),
+                'timeout' => $this->readEnv('GROQ_API_TIMEOUT', 30),
+                'endpoint' => 'https://api.groq.com/v1/chat/completions',
             ],
             default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
         };
@@ -55,10 +142,12 @@ class AiGatewayService
 
         try {
             $response = match ($this->provider) {
-                'openai' => $this->callOpenAI($promptData),
-                'anthropic' => $this->callAnthropic($promptData),
-                'gemini' => $this->callGeminiWithRetry($promptData), // Use retry version
-                'ollama' => $this->callOllama($promptData),
+                'openai'     => $this->callOpenAI($promptData),
+                'anthropic'  => $this->callAnthropic($promptData),
+                'gemini'     => $this->callGeminiWithRetry($promptData),
+                'ollama'     => $this->callOllama($promptData),
+                'fireworks'  => $this->callFireworks($promptData),
+                'baseten'    => $this->callBaseten($promptData),
                 default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
             };
 
@@ -88,22 +177,35 @@ class AiGatewayService
     }
 
     /**
+     * Build a messages array from history + current user prompt.
+     * History entries are [{role: 'user'|'assistant', content: '...'}].
+     */
+    protected function buildMessages(array $promptData): array
+    {
+        $messages = [];
+        foreach ($promptData['history'] ?? [] as $entry) {
+            $messages[] = ['role' => $entry['role'], 'content' => $entry['content']];
+        }
+        $messages[] = ['role' => 'user', 'content' => $promptData['user_prompt']];
+        return $messages;
+    }
+
+    /**
      * Call OpenAI API.
      */
     protected function callOpenAI(array $promptData): array
     {
+        $messages = $this->buildMessages($promptData);
+        array_unshift($messages, ['role' => 'system', 'content' => $promptData['system_prompt'] ?? '']);
+
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $this->config['api_key'],
             'Content-Type' => 'application/json',
         ])->post($this->config['endpoint'], [
             'model' => $this->config['model'],
-            'messages' => [
-                ['role' => 'system', 'content' => $promptData['system_prompt'] ?? ''],
-                ['role' => 'user', 'content' => $promptData['user_prompt']],
-            ],
+            'messages' => $messages,
             'temperature' => $promptData['temperature'] ?? 0.7,
             'max_tokens' => $promptData['max_tokens'] ?? 4096,
-            'response_format' => ['type' => 'json_object'],
         ]);
 
         if (!$response->successful()) {
@@ -120,6 +222,75 @@ class AiGatewayService
     }
 
     /**
+     * Call Fireworks AI API (OpenAI-compatible, runs Meta Llama models).
+     *
+     * Endpoint: https://api.fireworks.ai/inference/v1/chat/completions
+     * Default model: accounts/fireworks/models/llama-v3p3-70b-instruct
+     */
+    protected function callFireworks(array $promptData): array
+    {
+        $messages = $this->buildMessages($promptData);
+        array_unshift($messages, ['role' => 'system', 'content' => $promptData['system_prompt'] ?? '']);
+
+        $response = Http::timeout(120)->withHeaders([
+            'Authorization' => 'Bearer ' . $this->config['api_key'],
+            'Content-Type'  => 'application/json',
+        ])->post($this->config['endpoint'], [
+            'model'       => $this->config['model'],
+            'messages'    => $messages,
+            'temperature' => $promptData['temperature'] ?? 0.7,
+            'max_tokens'  => $promptData['max_tokens'] ?? 4096,
+            'top_p'       => 0.95,
+        ]);
+
+        if (!$response->successful()) {
+            throw new \Exception('Fireworks API error: ' . $response->body());
+        }
+
+        $data = $response->json();
+
+        return [
+            'content'     => $data['choices'][0]['message']['content'] ?? '',
+            'tokens_used' => $data['usage']['total_tokens'] ?? 0,
+            'raw'         => $data,
+        ];
+    }
+
+    /**
+     * Call Baseten API (OpenAI-compatible dedicated deployments, e.g. Kimi K1.5).
+     *
+     * Endpoint: https://model-{BASETEN_MODEL_ID}.api.baseten.co/environments/production/sync/v1/chat/completions
+     * Set BASETEN_API_KEY and BASETEN_MODEL_ID in .env (model ID is the 8-char deployment ID from the dashboard).
+     */
+    protected function callBaseten(array $promptData): array
+    {
+        $messages = $this->buildMessages($promptData);
+        array_unshift($messages, ['role' => 'system', 'content' => $promptData['system_prompt'] ?? '']);
+
+        $response = Http::timeout(120)->withHeaders([
+            'Authorization' => 'Api-Key ' . $this->config['api_key'],
+            'Content-Type'  => 'application/json',
+        ])->post($this->config['endpoint'], [
+            'model'       => $this->config['model'],
+            'messages'    => $messages,
+            'temperature' => $promptData['temperature'] ?? 0.7,
+            'max_tokens'  => $promptData['max_tokens'] ?? 4096,
+        ]);
+
+        if (!$response->successful()) {
+            throw new \Exception('Baseten API error: ' . $response->body());
+        }
+
+        $data = $response->json();
+
+        return [
+            'content'     => $data['choices'][0]['message']['content'] ?? '',
+            'tokens_used' => $data['usage']['total_tokens'] ?? 0,
+            'raw'         => $data,
+        ];
+    }
+
+    /**
      * Call Anthropic API.
      */
     protected function callAnthropic(array $promptData): array
@@ -131,9 +302,7 @@ class AiGatewayService
         ])->post($this->config['endpoint'], [
             'model' => $this->config['model'],
             'system' => $promptData['system_prompt'] ?? '',
-            'messages' => [
-                ['role' => 'user', 'content' => $promptData['user_prompt']],
-            ],
+            'messages' => $this->buildMessages($promptData),
             'temperature' => $promptData['temperature'] ?? 0.7,
             'max_tokens' => $promptData['max_tokens'] ?? 4096,
         ]);
@@ -165,17 +334,22 @@ class AiGatewayService
         $systemPrompt = $promptData['system_prompt'] ?? '';
         $userPrompt = $promptData['user_prompt'] ?? '';
 
-        // Combine system and user prompts for Gemini
-        $fullPrompt = $systemPrompt ? $systemPrompt . "\n\n" . $userPrompt : $userPrompt;
+        // Combine system prompt into user turn (Gemini doesn't have a system role)
+        $fullFirstPrompt = $systemPrompt ? $systemPrompt . "\n\n" . $userPrompt : $userPrompt;
+
+        // Build contents array — history first, then current turn.
+        // Keep the system and user prompt together in the current turn so
+        // Gemini treats the instruction as a single request instead of dropping it.
+        $contents = [];
+        foreach ($promptData['history'] ?? [] as $entry) {
+            $role = $entry['role'] === 'assistant' ? 'model' : 'user';
+            $contents[] = ['role' => $role, 'parts' => [['text' => $entry['content']]]];
+        }
+
+        $contents[] = ['role' => 'user', 'parts' => [['text' => $fullFirstPrompt]]];
 
         $payload = [
-            'contents' => [
-                [
-                    'parts' => [
-                        ['text' => $fullPrompt]
-                    ]
-                ]
-            ],
+            'contents' => $contents,
             'generationConfig' => [
                 'temperature' => $promptData['temperature'] ?? 0.7,
                 'maxOutputTokens' => $promptData['max_tokens'] ?? 4096,
@@ -184,9 +358,10 @@ class AiGatewayService
             ],
         ];
 
-        // If we need JSON response, add it to the prompt
+        // Gemini only enforces JSON mode when the API flag is set.
         if (isset($promptData['response_format']) && $promptData['response_format'] === 'json') {
-            $payload['contents'][0]['parts'][0]['text'] .= "\n\nReturn ONLY valid JSON. No markdown, no explanations outside JSON.";
+            $payload['generationConfig']['responseMimeType'] = 'application/json';
+            $payload['contents'][count($payload['contents']) - 1]['parts'][0]['text'] .= "\n\nReturn ONLY valid JSON. No markdown, no explanations outside JSON.";
         }
 
         $response = Http::timeout(120)->post($endpoint, $payload);
@@ -274,7 +449,7 @@ class AiGatewayService
     }
 
     /**
-     * Build prompt for Ollama (system + user combined).
+     * Build prompt for Ollama (system + history + user combined).
      */
     protected function buildOllamaPrompt(array $promptData): string
     {
@@ -282,6 +457,11 @@ class AiGatewayService
 
         if (!empty($promptData['system_prompt'])) {
             $prompt .= "System: " . $promptData['system_prompt'] . "\n\n";
+        }
+
+        foreach ($promptData['history'] ?? [] as $entry) {
+            $label   = $entry['role'] === 'assistant' ? 'Assistant' : 'User';
+            $prompt .= "{$label}: " . $entry['content'] . "\n\n";
         }
 
         $prompt .= "User: " . $promptData['user_prompt'] . "\n\n";
@@ -304,17 +484,26 @@ class AiGatewayService
     public function isAvailable(): bool
     {
         try {
-            if ($this->provider === 'gemini') {
-                $apiKey = $this->config['api_key'] ?? null;
-                return !empty($apiKey);
-            }
-
             if ($this->provider === 'ollama') {
                 $response = Http::timeout(5)->get('http://localhost:11434/api/tags');
                 return $response->successful();
             }
 
-            return !empty($this->config['api_key']);
+            $apiKey = $this->config['api_key'] ?? $this->readEnv(strtoupper($this->provider) . '_API_KEY');
+            if (!is_string($apiKey) || trim($apiKey) === '') {
+                return false;
+            }
+
+            $normalized = strtolower(trim($apiKey));
+            $placeholderPatterns = ['your_', 'example', 'placeholder', 'replace_me', 'changeme', 'change_me'];
+
+            foreach ($placeholderPatterns as $pattern) {
+                if (str_contains($normalized, $pattern)) {
+                    return false;
+                }
+            }
+
+            return true;
         } catch (\Exception $e) {
             return false;
         }

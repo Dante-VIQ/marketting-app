@@ -6,6 +6,7 @@ use App\Models\AiAction;
 use App\Models\ContentDraft;
 use App\Services\AI\ContentGeneratorService;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -15,6 +16,14 @@ use Illuminate\Support\Facades\Log;
 class GenerateContentForActionJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    public int $timeout = 300;
+    public int $tries = 1;   // AI cost: never retried automatically
+
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping('content-action:' . $this->action->id))->releaseAfter(30)->expireAfter(360)];
+    }
 
     protected AiAction $action;
 

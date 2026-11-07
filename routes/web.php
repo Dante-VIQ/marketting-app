@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\AiVisibilityController;
 use App\Http\Controllers\BlogController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\DashboardController;
@@ -15,6 +16,15 @@ Route::get('/about', [PageController::class, 'about'])->name('about');
 Route::get('/contact', [PageController::class, 'contact'])->name('contact');
 Route::post('/contact', [PageController::class, 'submitContact'])->name('contact.submit');
 
+// ── Public URL scanner (no auth) ──────────────────────────────────────────
+// Free-tier entry point: paste a URL → async job → polling page → report.
+Route::prefix('scan')->name('public.scanner.')->group(function () {
+    Route::get('/',               [\App\Http\Controllers\PublicScannerController::class, 'index'])->name('index');
+    Route::post('/',              [\App\Http\Controllers\PublicScannerController::class, 'scan'])->name('scan');
+    Route::get('/result/{key}',   [\App\Http\Controllers\PublicScannerController::class, 'result'])->name('result');
+    Route::get('/status/{key}',   [\App\Http\Controllers\PublicScannerController::class, 'status'])->name('status');
+});
+
 Route::get('/dashboard', function () {
     if (auth()->check()) {
         return redirect()->route('dashboard');
@@ -22,7 +32,19 @@ Route::get('/dashboard', function () {
     return redirect()->route('login');
 });
 
-Route::middleware(['auth:sanctum', 'verified'])->group(function () {
+// Signed in but not yet approved by the platform administrator
+// Passkeys: any signed-in user (even one still waiting for approval) can manage their own sign-in methods.
+// password.confirm makes them re-enter the password before adding or removing a passkey.
+Route::middleware(['auth:sanctum', 'password.confirm'])->get('/account/security', [\App\Http\Controllers\AccountSecurityController::class, 'index'])->name('account.security');
+
+Route::middleware('auth:sanctum')->get('/pending-approval', function () {
+    if (auth()->user()->isApproved()) {
+        return redirect()->route('dashboard');
+    }
+    return view('auth.pending-approval', ['user' => auth()->user()]);
+})->name('approval.pending');
+
+Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
     // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
@@ -37,6 +59,12 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     Route::get('/calibration', function () {
         return view('calibration');
     })->name('calibration');
+
+    // AI Visibility
+    Route::prefix('visibility')->name('visibility.')->group(function () {
+        Route::get('/', [AiVisibilityController::class, 'index'])->name('index');
+        Route::post('/run', [AiVisibilityController::class, 'run'])->name('run');
+    });
 
     // // Analytics
     // Route::prefix('analytics')->name('analytics.')->group(function () {
@@ -128,10 +156,37 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::delete('/{persona}/evidence/{evidence}', [App\Http\Controllers\PersonaController::class, 'removeEvidence'])->name('evidence.destroy')->whereNumber(['persona', 'evidence']);
     });
 
+    // Content plan (humans post; the system plans and learns)
+    Route::prefix('content-plan')->name('content-plan.')->group(function () {
+        $c = App\Http\Controllers\ContentPlanController::class;
+        Route::get('/', [$c, 'index'])->name('index');
+        Route::post('/', [$c, 'store'])->name('store');
+        Route::put('/{idea}', [$c, 'update'])->name('update')->whereNumber('idea');
+        Route::post('/{idea}/draft', [$c, 'draft'])->name('draft')->whereNumber('idea')->middleware('throttle:10,1');
+        Route::post('/{idea}/posted', [$c, 'posted'])->name('posted')->whereNumber('idea');
+        Route::post('/{idea}/results', [$c, 'results'])->name('results')->whereNumber('idea');
+        Route::post('/{idea}/schedule', [$c, 'schedule'])->name('schedule')->whereNumber('idea');
+        Route::post('/{idea}/cancel-schedule', [$c, 'cancelSchedule'])->name('cancel-schedule')->whereNumber('idea');
+        Route::delete('/{idea}', [$c, 'destroy'])->name('destroy')->whereNumber('idea');
+    });
+
+    // Impact: is the system helping? (before/after, actions, posts, money logged by a person)
+    Route::get('/impact', [App\Http\Controllers\ImpactController::class, 'index'])->name('impact.index');
+    Route::post('/impact/revenue', [App\Http\Controllers\ImpactController::class, 'storeRevenue'])->name('impact.revenue.store');
+    Route::delete('/impact/revenue/{entry}', [App\Http\Controllers\ImpactController::class, 'destroyRevenue'])->name('impact.revenue.destroy')->whereNumber('entry');
+
+    // Meta connection: token scopes, capabilities, Pages; results sync
+    Route::get('/meta', [App\Http\Controllers\MetaController::class, 'index'])->name('meta.index');
+    Route::post('/meta/sync', [App\Http\Controllers\MetaController::class, 'sync'])->name('meta.sync');
+    Route::post('/meta/sync-data', [App\Http\Controllers\MetaController::class, 'syncData'])->name('meta.sync-data');
+
     // Competitors (free scan of public pages)
     Route::prefix('competitors')->name('competitors.')->group(function () {
         Route::get('/', [App\Http\Controllers\CompetitorController::class, 'index'])->name('index');
         Route::post('/', [App\Http\Controllers\CompetitorController::class, 'store'])->name('store');
+        Route::post('/discover', [App\Http\Controllers\CompetitorController::class, 'discover'])->name('discover')->middleware('throttle:3,60');
+        Route::post('/suggestions/{suggestion}/accept', [App\Http\Controllers\CompetitorController::class, 'accept'])->name('suggestions.accept')->whereNumber('suggestion');
+        Route::post('/suggestions/{suggestion}/dismiss', [App\Http\Controllers\CompetitorController::class, 'dismiss'])->name('suggestions.dismiss')->whereNumber('suggestion');
         Route::post('/{competitor}/scan', [App\Http\Controllers\CompetitorController::class, 'scan'])->name('scan')->whereNumber('competitor');
         Route::delete('/{competitor}', [App\Http\Controllers\CompetitorController::class, 'destroy'])->name('destroy')->whereNumber('competitor');
     });
@@ -252,7 +307,8 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         })->name('index');
     });
 
-    Route::prefix('schedule')->name('schedule.')->group(function () {
+    // Platform-wide jobs: super admin only (the page can trigger jobs for every brand).
+    Route::prefix('schedule')->name('schedule.')->middleware('superadmin')->group(function () {
         Route::get('/', function () {
             return view('schedule.index');
         })->name('index');
@@ -270,17 +326,23 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     //         ->name('import.post');
     // });
 
-    Route::prefix('blog')->name('blog.')->group(function () {
-        Route::get('/', [BlogController::class, 'index'])->name('index');
-        Route::get('/{id}', [BlogController::class, 'show'])->name('show')->whereNumber('id'); // numeric only, so /blog/import is reachable
-        Route::get('/import', [BlogController::class, 'import'])->name('import'); // Make sure this exists
-        Route::post('/generate-all', [BlogController::class, 'generateAll'])->name('generate-all');
+    Route::middleware(['auth:sanctum'])
+        ->withoutMiddleware([
+            \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
+            \App\Http\Middleware\EnsureUserApproved::class,
+            \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
+        ])
+        ->prefix('blog')->name('blog.')->group(function () {
+            Route::get('/', [BlogController::class, 'index'])->name('index');
+            Route::get('/{id}', [BlogController::class, 'show'])->name('show')->whereNumber('id'); // numeric only, so /blog/import is reachable
+            Route::get('/import', [BlogController::class, 'import'])->name('import'); // Make sure this exists
+            Route::post('/generate-all', [BlogController::class, 'generateAll'])->name('generate-all');
 
-        // Import routes
-        Route::post('/import/wordpress', [BlogController::class, 'importWordPress'])->name('import.wordpress');
-        Route::post('/import/csv', [BlogController::class, 'importCsv'])->name('import.csv');
-        Route::post('/import/manual', [BlogController::class, 'importManual'])->name('import.manual');
-    });
+            // Import routes
+            Route::post('/import/wordpress', [BlogController::class, 'importWordPress'])->name('import.wordpress');
+            Route::post('/import/csv', [BlogController::class, 'importCsv'])->name('import.csv');
+            Route::post('/import/manual', [BlogController::class, 'importManual'])->name('import.manual');
+        });
 
     // Travel Guides
     Route::prefix('guides')->name('guides.')->group(function () {
@@ -344,11 +406,35 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::post('/{id}/rescan', [App\Http\Controllers\PageScannerController::class, 'rescan'])->name('rescan');
     });
 
+    // User approval: approvers (super-admin, or someone they appoint) review sign-ups;
+    // only the super-admin appoints approvers.
+    Route::prefix('admin/users')->name('admin.users.')->group(function () {
+        $c = App\Http\Controllers\UserApprovalController::class;
+        Route::middleware('approver')->group(function () use ($c) {
+            Route::get('/', [$c, 'index'])->name('index');
+            Route::post('/{user}/approve', [$c, 'approve'])->name('approve')->whereNumber('user');
+            Route::post('/{user}/reject', [$c, 'reject'])->name('reject')->whereNumber('user');
+        });
+        Route::middleware('superadmin')->group(function () use ($c) {
+            Route::post('/{user}/make-approver', [$c, 'makeApprover'])->name('make-approver')->whereNumber('user');
+            Route::post('/{user}/remove-approver', [$c, 'removeApprover'])->name('remove-approver')->whereNumber('user');
+        });
+    });
+
+    // System documentation: super-admins only (404 for everyone else, so the page's existence is not disclosed)
+    Route::get('/admin/docs', fn() => view('admin.docs'))->middleware('superadmin')->name('admin.docs');
+
     // routes/web.php
     Route::get('/admin/contacts', function () {
         $contacts = \App\Models\Contact::latest()->paginate(20);
         return view('admin.contacts', compact('contacts'));
-    })->name('admin.contacts');
+    })->middleware('superadmin')->name('admin.contacts');
 
     Route::view('/recurring-issues', 'recurring-issues')->name('recurring-issues');
+
+    // ── Conversational Bot ───────────────────────────────────────────────────
+    Route::prefix('chat')->name('chat.')->group(function () {
+        Route::post('/message', [App\Http\Controllers\BotController::class, 'message'])->name('message');
+        Route::delete('/session', [App\Http\Controllers\BotController::class, 'clearSession'])->name('clear');
+    });
 });

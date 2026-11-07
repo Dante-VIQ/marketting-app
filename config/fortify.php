@@ -2,6 +2,29 @@
 
 use Laravel\Fortify\Features;
 
+$fortifyPasskeyHost = parse_url(config('app.url'), PHP_URL_HOST) ?: 'localhost';
+$fortifyPasskeyScheme = parse_url(config('app.url'), PHP_URL_SCHEME) ?: 'http';
+$fortifyPasskeyRpId = preg_replace('/^www\./i', '', $fortifyPasskeyHost);
+
+$fortifyPasskeyOrigins = array_values(array_unique([
+    config('app.url'),
+    $fortifyPasskeyScheme . '://' . $fortifyPasskeyHost,
+    'http://' . $fortifyPasskeyHost,
+    'https://' . $fortifyPasskeyHost,
+    'http://localhost',
+    'http://localhost:8000',
+    'http://127.0.0.1',
+    'http://127.0.0.1:8000',
+    'https://localhost',
+    'https://localhost:8000',
+    'https://127.0.0.1',
+    'https://127.0.0.1:8000',
+    'https://www.' . $fortifyPasskeyRpId,
+    'https://' . $fortifyPasskeyRpId,
+    'http://www.' . $fortifyPasskeyRpId,
+    'http://' . $fortifyPasskeyRpId,
+]));
+
 return [
 
     /*
@@ -146,8 +169,8 @@ return [
     */
 
     'passkeys' => [
-        'relying_party_id' => parse_url(config('app.url'), PHP_URL_HOST),
-        'allowed_origins' => [config('app.url')],
+        'relying_party_id' => $fortifyPasskeyRpId,
+        'allowed_origins' => $fortifyPasskeyOrigins,
         'timeout' => 60000,
     ],
 
@@ -165,7 +188,7 @@ return [
     'features' => [
         Features::registration(),
         Features::resetPasswords(),
-        // Features::emailVerification(),
+        Features::emailVerification(),
         Features::updateProfileInformation(),
         Features::updatePasswords(),
         Features::twoFactorAuthentication([

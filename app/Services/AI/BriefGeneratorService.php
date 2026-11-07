@@ -22,10 +22,11 @@ class BriefGeneratorService
     protected SiteProfileService $siteProfileService;
 
     public function __construct(
-        AiGatewayService $aiGateway,
         SiteProfileService $siteProfileService
     ) {
-        $this->aiGateway = $aiGateway;
+        // Brief generation uses AI_PROVIDER_BRIEF (falls back to AI_PROVIDER).
+        // Keeps brief quota separate from real-time scan and chat calls.
+        $this->aiGateway = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_BRIEF);
         $this->siteProfileService = $siteProfileService;
     }
 
@@ -36,6 +37,21 @@ class BriefGeneratorService
         if (!$brand->is_active) {
             Log::info('BriefGenerator: Brand is not active', ['brand_id' => $brand->id]);
             return null;
+        }
+
+        $recentBrief = AiBrief::where('brand_id', $brand->id)
+            ->where('created_at', '>=', now()->subHours(24))
+            ->latest('created_at')
+            ->first();
+
+        if ($recentBrief) {
+            Log::info('BriefGenerator: Brief already generated within the last 24 hours', [
+                'brand_id' => $brand->id,
+                'brief_id' => $recentBrief->id,
+                'created_at' => $recentBrief->created_at?->toDateTimeString(),
+            ]);
+
+            return $recentBrief;
         }
 
         if (!$this->aiGateway->isAvailable()) {
@@ -59,10 +75,10 @@ class BriefGeneratorService
         $promptData = $this->buildPromptData($brand);
         $fingerprint = $this->generateFingerprint($promptData);
 
-        // Deduplication check: return existing brief if data hasn't changed today
+        // Deduplication check: avoid regenerating the same dataset more than once per 24-hour window.
         $existingBrief = AiBrief::where('brand_id', $brand->id)
             ->where('fingerprint', $fingerprint)
-            ->where('created_at', '>=', now()->subHours(20))
+            ->where('created_at', '>=', now()->subHours(24))
             ->first();
 
         if ($existingBrief) {
@@ -206,6 +222,14 @@ class BriefGeneratorService
         // Site-wide profile — dominant topics + full page inventory
         $siteProfile = $this->siteProfileService->build($brand->id);
 
+        // Social and audience signals (Meta results, ad audiences, comments, personas, content plan). Optional.
+        try {
+            $social = app(\App\Services\Analytics\AgentEvidenceService::class)->socialContext($brand->id);
+        } catch (\Throwable $e) {
+            report($e);
+            $social = [];
+        }
+
         return [
             'brand' => [
                 'name'        => $brand->name,
@@ -215,13 +239,14 @@ class BriefGeneratorService
                 'website_url' => $brand->website_url ?? '',
             ],
             'analytics'      => $analytics,
+            'social'         => $social ?: null,
             'revenue_leaks'  => $revenueLeaks,
             'knowledge_base' => $knowledge,
             'business_goals' => $goals,
             'page_snapshots' => $pageSnapshots,
             'site_inventory' => [
                 'dominant_topics' => $siteProfile['dominant_topics'] ?? [],
-                'pages'           => array_map(fn ($p) => [
+                'pages'           => array_map(fn($p) => [
                     'url'   => $p['url'],
                     'title' => $p['title'],
                     'type'  => $p['page_type'],
@@ -233,12 +258,26 @@ class BriefGeneratorService
 
     /**
      * Get page snapshots for pages mentioned in analytics.
+     *
+     * Previously fired one LIKE query per top-page URL (N+1).
+     * Now fetches all recent snapshots for this brand in a single query,
+     * then matches locally — 1 query instead of N.
      */
     protected function getPageSnapshotsForAnalytics(Brand $brand, array $analytics): array
     {
         $snapshots = [];
+        $topPages  = $analytics['top_pages'] ?? [];
 
-        $topPages = $analytics['top_pages'] ?? [];
+        if (empty($topPages)) {
+            return $snapshots;
+        }
+
+        // Fetch the 50 most-recent snapshots once, match locally
+        $allSnapshots = PageSnapshot::where('brand_id', $brand->id)
+            ->orderBy('created_at', 'desc')
+            ->limit(50)
+            ->get()
+            ->keyBy('url');
 
         foreach ($topPages as $page) {
             $url = $page['dimension'] ?? '';
@@ -246,10 +285,9 @@ class BriefGeneratorService
                 continue;
             }
 
-            $snapshot = PageSnapshot::where('brand_id', $brand->id)
-                ->where('url', 'like', '%' . $url . '%')
-                ->orderBy('created_at', 'desc')
-                ->first();
+            // First try exact match, then substring match within already-loaded collection
+            $snapshot = $allSnapshots->get($url)
+                ?? $allSnapshots->first(fn($s) => str_contains($s->url, $url) || str_contains($url, $s->url));
 
             if ($snapshot) {
                 $snapshots[] = [
@@ -367,6 +405,16 @@ Guiding Principles:
 3. Formulate 3-5 distinct, prioritized action items.
 4. Voice guidelines: "{$brandVoice}"
 
+USING THE `social` BLOCK (Meta results, audience and content plan; may be null):
+- Social actions (category "social") must be built from this evidence, and the description must say which signal each one comes from: a real audience question (`audience.comments.recent_questions`), one of our own best posts (`content.performance.top_posts`), an audience segment (`audience.ads.groups`) or a persona pain (`personas`).
+- `audience.ads.state` and `content.performance.state`: only "ok" supports a conclusion. "too_early", "no_data" or "no_results" mean there is not enough data yet. They are NOT evidence of poor performance. Never present them as a result or as zero.
+- Never name a winning format, platform, topic or weekday unless `content.performance.state` is "ok" and it appears in `leaders`. `top_posts` are individual results, not proof that a format works.
+- Do not repeat anything listed in `content.planned_topics`.
+- `content.site_impact` is what our posts did on the website (visits and key events such as sign-ups). Judge posts by it, not by likes alone: a post with modest engagement that sends visitors is worth more than a popular one that sends none. It is traffic and sign-up signals, never revenue: do not state or estimate money earned. Only "ok" supports a conclusion; "too_early" and "no_tracked_posts" are not evidence of failure.
+- Write the post itself in `suggested_content` in the brand voice, aimed at the persona. Do not promise outcomes.
+- Posts are published by a human, or scheduled for automatic publishing with human approval. Do not claim anything was posted.
+- If `social` is null, do not invent audience insights: base social ideas only on the analytics and site inventory, and say the Meta data is not available yet.
+
 CRITICAL RULES FOR target_url:
 - The user prompt contains a `site_inventory.pages` array listing every page that actually exists on {$website}.
 - `target_url` MUST be one of those pages exactly as listed, or null.
@@ -388,7 +436,7 @@ Output Schema:
             "description": "Step-by-step guidance on execution.",
             "suggested_content": "Short text for emails or social posts.",
             "content_draft": "Complete copy draft for blogs, web pages, or newsletters.",
-            "target_platform": "facebook|linkedin|twitter|blog|email",
+            "target_platform": "facebook|instagram|tiktok|linkedin|twitter|blog|email",
             "target_url": "/page-path-from-site_inventory-or-null",
             "estimated_impact": 500.00,
             "priority": 1
@@ -401,18 +449,41 @@ PROMPT;
     protected function parseAiResponse(string $response): array
     {
         try {
-            $cleaned = preg_replace('/^```(?:json)?\s*|\s*```$/i', '', trim($response));
-            $data = json_decode($cleaned, true);
+            $cleaned = trim($response);
+            $cleaned = preg_replace('/^```(?:json)?\s*|\s*```$/i', '', $cleaned) ?? $cleaned;
+            $cleaned = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $cleaned);
+
+            $data = json_decode($cleaned, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
 
             if (json_last_error() !== JSON_ERROR_NONE) {
+                $firstBrace = strpos($cleaned, '{');
+                $lastBrace  = strrpos($cleaned, '}');
+
+                if ($firstBrace !== false && $lastBrace !== false && $lastBrace > $firstBrace) {
+                    $candidate = substr($cleaned, $firstBrace, ($lastBrace - $firstBrace) + 1);
+                    $data = json_decode($candidate, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+                }
+
+                if (json_last_error() !== JSON_ERROR_NONE && $firstBrace !== false) {
+                    $candidate = substr($cleaned, $firstBrace);
+                    $lastComma = strrpos($candidate, ',');
+
+                    if ($lastComma !== false && $lastComma > 0) {
+                        $candidate = substr($candidate, 0, $lastComma) . '}';
+                        $data = json_decode($candidate, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+                    }
+                }
+            }
+
+            if (json_last_error() !== JSON_ERROR_NONE || !is_array($data)) {
                 Log::error('BriefGenerator: JSON decode failed', [
                     'error' => json_last_error_msg(),
-                    'raw'   => $response
+                    'raw'   => $response,
                 ]);
                 return [];
             }
 
-            return is_array($data) ? $data : [];
+            return $data;
         } catch (\Exception $e) {
             Log::error('BriefGenerator: Exception while parsing response', ['error' => $e->getMessage()]);
             return [];
@@ -482,15 +553,32 @@ PROMPT;
     protected function titleSignature(string $title): string
     {
         $stop = [
-            'the', 'a', 'an', 'and', 'or', 'for', 'to', 'of', 'in', 'on',
-            'with', 'our', 'your', 'launch', 'optimize', 'create', 'publish',
-            'implement', 'revise', 'improve',
+            'the',
+            'a',
+            'an',
+            'and',
+            'or',
+            'for',
+            'to',
+            'of',
+            'in',
+            'on',
+            'with',
+            'our',
+            'your',
+            'launch',
+            'optimize',
+            'create',
+            'publish',
+            'implement',
+            'revise',
+            'improve',
         ];
 
         $clean  = strtolower($title);
         $clean  = preg_replace('/[^a-z0-9 ]+/', ' ', $clean);
         $tokens = preg_split('/\s+/', trim($clean));
-        $tokens = array_filter($tokens, fn ($t) => $t !== '' && !in_array($t, $stop, true));
+        $tokens = array_filter($tokens, fn($t) => $t !== '' && !in_array($t, $stop, true));
         sort($tokens);
 
         return implode(' ', $tokens);

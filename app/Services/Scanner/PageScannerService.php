@@ -6,6 +6,7 @@ use App\Models\Brand;
 use App\Models\AiAction;
 use App\Models\PageSnapshot;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 use DOMDocument;
 use DOMXPath;
 use Illuminate\Support\Facades\Http;
@@ -23,7 +24,7 @@ class PageScannerService
         $this->config = [
             'timeout' => 30,
             'max_links' => 100,
-            'user_agent' => 'VumbiAI-Scanner/1.0 (+https://vumbi-ai.com)',
+            'user_agent' => 'VumbiAI-Scanner/1.0 (+https://vumbidna.com)',
         ];
     }
 
@@ -71,15 +72,20 @@ class PageScannerService
                 throw new \Exception('Failed to fetch page content');
             }
 
+            // Hash before parsing — exact change detection, no fuzzy heuristics.
+            $contentHash = PageSnapshot::computeHash($pageData['html']);
+
             $parsedData = $this->parseHtml($pageData['html'], $normalizedUrl);
             $analysis = $this->analyzeContent($parsedData);
             $gaps = $this->identifyGaps($analysis, $action);
             $recommendations = $this->generateRecommendations($analysis, $gaps, $action);
 
-            // Check if content has changed significantly
+            // Check if content has changed (hash-first, fuzzy fallback for old rows)
             $contentChanged = false;
             if ($existing) {
-                $contentChanged = $existing->hasContentChanged(array_merge($parsedData, $analysis));
+                $contentChanged = $existing->hasContentChanged(
+                    array_merge($parsedData, $analysis, ['content_hash' => $contentHash])
+                );
             } else {
                 $contentChanged = true; // New page
             }
@@ -99,21 +105,22 @@ class PageScannerService
                 return $snapshot;
             }
 
-            // Update with new data
+            // Update with new data (always store the latest hash)
             $snapshot->update(array_merge(
                 $parsedData,
                 $analysis,
                 [
-                    'content_gaps' => $gaps,
+                    'content_gaps'  => $gaps,
                     'recommendations' => $recommendations,
-                    'load_time_ms' => $pageData['load_time_ms'] ?? null,
-                    'status' => 'completed',
-                    'scraped_at' => now(),
-                                          'metadata' => [
-                                              'content_changed' => $contentChanged,
-                                              'previous_snapshot_id' => $existing?->id,
-                                              'scanned_at' => now()->toDateTimeString(),
-                                          ],
+                    'load_time_ms'  => $pageData['load_time_ms'] ?? null,
+                    'content_hash'  => $contentHash,
+                    'status'        => 'completed',
+                    'scraped_at'    => now(),
+                    'metadata'      => [
+                        'content_changed'       => $contentChanged,
+                        'previous_snapshot_id'  => $existing?->id,
+                        'scanned_at'            => now()->toDateTimeString(),
+                    ],
                 ]
             ));
 
@@ -139,6 +146,50 @@ class PageScannerService
 
             throw $e;
         }
+    }
+
+    /**
+     * Public scanner — fetch and parse a URL without requiring a Brand or DB writes.
+     *
+     * Used by PublicScannerController (no-auth free-tier entry point).
+     * Returns parsed page data array or null if the page can't be reached.
+     *
+     * Includes `content_hash` (SHA-256 of raw HTML) so RunPublicScanJob can
+     * compare against the last stored hash and skip the AI pipeline entirely
+     * when the page hasn't changed.
+     *
+     * @return array{title: string, h1: string, meta_description: string, word_count: int,
+     *               page_type: string, topics: string[], content: string,
+     *               content_hash: string}|null
+     */
+    public function scanPublicUrl(string $url): ?array
+    {
+        $normalizedUrl = $this->normalizeUrl($url);
+
+        $pageData = $this->fetchPage($normalizedUrl);
+
+        if (!$pageData) {
+            return null;
+        }
+
+        // Hash the raw HTML before parsing — catches any change, including
+        // whitespace tweaks that wouldn't affect word count or length checks.
+        $contentHash = PageSnapshot::computeHash($pageData['html']);
+
+        $parsed   = $this->parseHtml($pageData['html'], $normalizedUrl);
+        $analysis = $this->analyzeContent($parsed);
+
+        // Flatten headings so callers can use $result['h1'] directly
+        // (parseHtml stores them as $parsed['headings']['h1'])
+        $h1 = $parsed['headings']['h1'] ?? null;
+
+        return array_merge($parsed, [
+            'h1'           => $h1,
+            'topics'       => $analysis['topics_covered'] ?? [],
+            'load_time_ms' => $pageData['load_time_ms'] ?? null,
+            'status_code'  => $pageData['status_code'] ?? 200,
+            'content_hash' => $contentHash,
+        ]);
     }
 
     /**

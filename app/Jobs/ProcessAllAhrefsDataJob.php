@@ -15,6 +15,9 @@ class ProcessAllAhrefsDataJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public int $timeout = 1800;
+    public int $tries = 1;
+
     public function handle(AhrefsService $ahrefs): void
     {
         $brands = Brand::where('is_active', true)->get();

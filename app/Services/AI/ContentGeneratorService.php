@@ -9,7 +9,9 @@ use App\Models\GuardianAuditLog;
 use App\Models\KnowledgeBase;
 use App\Models\PageSnapshot;
 use App\Models\User;
+use App\Services\AI\AiCallGuard;
 use App\Services\AI\AiGatewayService;
+use App\Services\AI\BrandContextAssembler;
 use App\Services\AI\ContentServicePolicy;
 use App\Services\ContentTourMatcher;
 use App\Services\Scanner\PageScannerService;
@@ -26,17 +28,24 @@ class ContentGeneratorService
     protected AiGatewayService $aiGateway;
     protected ContentServicePolicy $contentPolicy;
     protected SiteProfileService $siteProfileService;
+    protected BrandContextAssembler $contextAssembler;
+    protected AiCallGuard $aiCallGuard;
 
     public function __construct(
-        AiGatewayService $aiGateway,
         PageScannerService $scanner,
         ContentServicePolicy $contentPolicy,
-        SiteProfileService $siteProfileService
+        SiteProfileService $siteProfileService,
+        BrandContextAssembler $contextAssembler,
+        AiCallGuard $aiCallGuard
     ) {
-        $this->aiGateway = $aiGateway;
+        // Content drafts use AI_PROVIDER_CONTENT (falls back to AI_PROVIDER).
+        // Keeps content quota separate from scan and chat calls.
+        $this->aiGateway = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_CONTENT);
         $this->scanner = $scanner;
         $this->contentPolicy = $contentPolicy;
         $this->siteProfileService = $siteProfileService;
+        $this->contextAssembler = $contextAssembler;
+        $this->aiCallGuard = $aiCallGuard;
     }
 
     /**
@@ -88,18 +97,33 @@ class ContentGeneratorService
             return null;
         }
 
+        // 🔒 Pre-flight guard: deterministic checks before the AI is invoked.
+        // Catches duplicates, platform caps, and schedule conflicts without
+        // spending an AI call to discover them.
+        $platform = $action->target_platform ?? '';
+        $topic    = $action->target_keyword ?: $action->title ?: '';
+        $guardResult = $this->aiCallGuard->checkDraft($brand, $topic, $platform);
+        if (!$guardResult['allowed']) {
+            Log::info('Content generation skipped by pre-flight guard', [
+                'action_id' => $action->id,
+                'code'      => $guardResult['code'],
+                'reason'    => $guardResult['reason'],
+            ]);
+            return null;
+        }
+
         if (ContentDraft::where('action_id', $action->id)->exists()) {
             return ContentDraft::where('action_id', $action->id)->first();
         }
 
+        // ── Brand context (cached): knowledge, competitors, queue, policy ──
+        // Single assembly call replaces per-service DB queries and eliminates
+        // AI back-and-forth for missing context.
+        $brandCtx    = $this->contextAssembler->assemble($brand, BrandContextAssembler::PURPOSE_CONTENT);
+        $knowledge   = $brandCtx['knowledge']['raw'] ?? [];
+
         // ── Site profile: dominant topics + page inventory ──
         $siteProfile = $this->siteProfileService->build($brand->id);
-
-        // ── KnowledgeBase: business description, audience, pillars, forbidden topics ──
-        $knowledge = KnowledgeBase::where('brand_id', $brand->id)
-            ->where('is_active', true)
-            ->pluck('content', 'key')
-            ->toArray();
 
         // ── On-brand pre-check ──
         $topic = $action->target_keyword ?: $action->title ?: '';
@@ -165,7 +189,13 @@ class ContentGeneratorService
         // ── Persist atomically ──
         try {
             return DB::transaction(function () use (
-                $action, $brand, $contentData, $promptData, $response, $pageSnapshot, $siteProfile
+                $action,
+                $brand,
+                $contentData,
+                $promptData,
+                $response,
+                $pageSnapshot,
+                $siteProfile
             ) {
                 $draft = ContentDraft::create([
                     'brand_id'         => $brand->id,
@@ -184,7 +214,7 @@ class ContentGeneratorService
                         'model'             => $response['model_used'] ?? null,
                         'tokens_used'       => $response['tokens_used'] ?? 0,
                         'page_snapshot_id'  => $pageSnapshot?->id,
-                        'site_profile_pages'=> $siteProfile['page_count'] ?? 0,
+                        'site_profile_pages' => $siteProfile['page_count'] ?? 0,
                     ],
                 ]);
 

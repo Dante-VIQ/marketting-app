@@ -38,6 +38,8 @@ class AgentEvidenceService
             'competitors'  => $this->competitors($brandId),
             'listening'    => $this->listening($brandId),
             'personas'     => $this->personas($brandId),
+            'content'      => $this->content($brandId),
+            'audience'     => $this->audience($brandId),
         ];
         $evidence['data_quality'] = $this->dataQuality($summary, $evidence['seo']);
 
@@ -98,7 +100,54 @@ class AgentEvidenceService
         }
     }
 
+    /**
+     * What the daily brief needs to suggest social content from real signals: what people ask and respond to
+     * (Meta comments and ad audiences), how our own posts performed, who we are writing for, what is already planned.
+     * Each part is optional; a missing part is left out, never filled with zeros.
+     */
+    public function socialContext(int $brandId): array
+    {
+        $out = [];
+        foreach (['content' => $this->content($brandId), 'audience' => $this->audience($brandId), 'personas' => $this->personas($brandId)] as $key => $block) {
+            if (!empty($block)) {
+                $out[$key] = $block;
+            }
+        }
+
+        return $out;
+    }
+
     /** Listening is optional too; a brand with no mentions yields state=no_mentions_yet, not an error. */
+    private function content(int $brandId): ?array
+    {
+        try {
+            return app(\App\Services\ContentPlan\ContentPlanInsights::class)->summary($brandId);
+        } catch (\Throwable $e) {
+            report($e);
+            return null;
+        }
+    }
+
+    /** What Meta says about who responds (ads by audience) and what people write under our posts. Optional, like the rest. */
+    private function audience(int $brandId): ?array
+    {
+        try {
+            $ads = \App\Services\Meta\AdAudienceInsights::compact(\App\Services\Meta\AdAudienceInsights::build(
+                \App\Models\AdInsightRow::where('brand_id', $brandId)->get()));
+            $c = \App\Models\AudienceComment::where('brand_id', $brandId)->where('commented_at', '>=', now()->subDays(30));
+            $questions = (clone $c)->where('is_question', true)->orderByDesc('commented_at')->limit(5)->pluck('body')
+                ->map(fn ($b) => \Illuminate\Support\Str::limit($b, 160))->all();
+
+            return ['ads' => $ads, 'comments' => ['total_30d' => (clone $c)->count(),
+                'sentiment_30d' => (clone $c)->whereNotNull('sentiment')->selectRaw('sentiment, count(*) as n')->groupBy('sentiment')->pluck('n', 'sentiment')->all(),
+                'recent_questions' => $questions]];
+        } catch (\Throwable $e) {
+            report($e);
+
+            return null;
+        }
+    }
+
     private function personas(int $brandId): ?array
     {
         try {

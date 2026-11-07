@@ -1,0 +1,46 @@
+name: Deploy to GitLab
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: deploy-to-gitlab
+  cancel-in-progress: true
+
+jobs:
+  push-to-gitlab:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Push main to GitLab mirror branch
+        env:
+          GITLAB_REPO: ${{ secrets.GITLAB_REPO }}
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          GITLAB_TARGET_BRANCH: ${{ secrets.GITLAB_TARGET_BRANCH }}
+        run: |
+          if [ -z "$GITLAB_REPO" ] || [ -z "$GITLAB_TOKEN" ] || [ -z "$GITLAB_TARGET_BRANCH" ]; then
+            echo "Missing required secrets: GITLAB_REPO, GITLAB_TOKEN, GITLAB_TARGET_BRANCH" >&2
+            exit 1
+          fi
+
+          REMOTE="${GITLAB_REPO}"
+          if [[ "$REMOTE" != https://* ]]; then
+            REMOTE="https://$REMOTE"
+          fi
+
+          git remote add gitlab "https://oauth2:${GITLAB_TOKEN}@${REMOTE#https://}"
+          git push --force gitlab HEAD:refs/heads/$GITLAB_TARGET_BRANCH

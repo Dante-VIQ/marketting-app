@@ -13,7 +13,9 @@ use App\Models\AnalyticsSnapshot;
 use App\Models\Brand;
 use App\Models\Campaign;
 use App\Models\ConfidenceCalibration;
+use App\Models\KnowledgeBase;
 use App\Models\Lead;
+use App\Models\PageSnapshot;
 use App\Models\SeoIssue;
 use App\Models\TourPackage;
 use App\Services\AI\AiGatewayService;
@@ -339,7 +341,10 @@ class AgentController extends Controller
 
         // Latest snapshot only — previously every historical day was returned, so the
         // same keyword appeared once per day.
-        $latest = \App\Models\KeywordRanking::where('brand_id', $brandId)->max('tracked_date');
+        $latest = \App\Models\KeywordRanking::where('brand_id', $brandId)
+            ->selectRaw('DATE(tracked_date) as tracked_date')
+            ->orderByDesc('tracked_date')
+            ->value('tracked_date');
 
         if (!$latest) {
             return response()->json([]);
@@ -347,11 +352,11 @@ class AgentController extends Controller
 
         $rankings = \App\Models\KeywordRanking::where('brand_id', $brandId)
             ->whereDate('tracked_date', $latest)
-            ->when($pageUrl, fn ($q) => $q->where('page_url', $pageUrl))
+            ->when($pageUrl, fn($q) => $q->where('page_url', $pageUrl))
             ->orderBy('position')
             ->limit(50)
             ->get()
-            ->map(fn ($r) => [
+            ->map(fn($r) => [
                 'keyword'           => $r->keyword,
                 'page_url'          => $r->page_url,
                 'position'          => $r->position,
@@ -1838,7 +1843,8 @@ class AgentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'No brief available for today yet.',
-            ], 404);
+                'brief' => null,
+            ], 200);
         }
 
         $raw = $brief->raw_llm_output ?? [];

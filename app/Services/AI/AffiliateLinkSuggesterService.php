@@ -14,9 +14,9 @@ class AffiliateLinkSuggesterService
 {
     protected AiGatewayService $aiGateway;
 
-    public function __construct(AiGatewayService $aiGateway)
+    public function __construct()
     {
-        $this->aiGateway = $aiGateway;
+        $this->aiGateway = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_CONTENT);
     }
 
     /**

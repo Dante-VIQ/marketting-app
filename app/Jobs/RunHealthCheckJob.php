@@ -15,6 +15,9 @@ class RunHealthCheckJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public int $timeout = 180;
+    public int $tries = 1;
+
     protected Brand $brand;
 
     public function __construct(Brand $brand)

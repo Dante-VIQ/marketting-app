@@ -6,6 +6,7 @@ use App\Models\Brand;
 use App\Services\Analytics\AnalyticsCollectorService;
 use App\Services\Analytics\TrendCalculatorService;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -15,6 +16,15 @@ use Illuminate\Support\Facades\Log;
 class FetchAnalyticsForBrandJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    public int $timeout = 600;
+    public int $tries = 3;
+    public array $backoff = [60, 300];
+
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping('analytics:' . $this->brand->id))->releaseAfter(60)->expireAfter(660)];
+    }
 
     protected Brand $brand;
 

@@ -17,29 +17,43 @@ class BrandSeeder extends Seeder
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         // Create Vumbi Ventures brand
-        $brand = Brand::create([
-            'name' => 'Vumbi Ventures',
-            'slug' => 'vumbiventures',
+        $brand = Brand::firstOrCreate(
+            ['slug' => 'vumbiventures'],
+            [
+                'name' => 'Vumbi Ventures',
+                'domain_type' => 'marketing',
+                'config' => [
+                    'ga4_property_id' => env('GA4_PROPERTY_ID'),
+                    'ga4_measurement_id' => env('GA4_MEASUREMENT_ID'),
+                    'ga4_api_secret' => env('GA4_API_SECRET'),
+                    'travel_payouts_api_key' => env('TRAVEL_PAYOUTS_API_KEY'),
+                    'bonusarrive_api_key' => env('BONUSARRIVE_API_KEY'),
+                    'awin_api_key' => env('AWIN_API_KEY'),
+                    'awin_publisher_id' => env('AWIN_PUBLISHER_ID'),
+                    'ahrefs_api_key' => env('AHREFS_API_KEY'),
+                    'ahrefs_api_endpoint' => env(
+                        'AHREFS_API_ENDPOINT',
+                        'https://api.ahrefs.com/v3'
+                    ),
+                ],
+                'brand_voice' =>
+                'Professional, adventurous, trustworthy, and data-driven. ' .
+                    'Speak with authority about African travel, technology, and business growth.',
+                'timezone' => 'Africa/Nairobi',
+                'is_active' => true,
+                'settings' => [
+                    'default_language' => 'en',
+                    'currency' => 'KES',
+                    'country' => 'Kenya',
+                ],
+            ]
+        );
 
-            'domain_type' => 'marketing',
-            'config' => [
-                'ga4_property_id' => env('VUMBI_GA4_PROPERTY_ID', '123456789'),
-                'ga4_measurement_id' => env('VUMBI_GA4_MEASUREMENT_ID', 'G-XXXXXXXX'),
-                'ga4_api_secret' => env('VUMBI_GA4_API_SECRET', 'secret'),
-
-                'travel_payouts_api_key' => env('TRAVEL_PAYOUTS_API_KEY'),
-                'bonusarrive_api_key' => env('BONUSARRIVE_API_KEY'),
-                'awin_api_key' => env('AWIN_API_KEY'),
-            ],
-            'brand_voice' => 'Professional, adventurous, trustworthy, and data-driven. Speak with authority about African travel, technology, and business growth.',
-            'timezone' => 'Africa/Nairobi',
-            'is_active' => true,
-            'settings' => [
-                'default_language' => 'en',
-                'currency' => 'KES',
-                'country' => 'Kenya',
-            ],
-        ]);
+        $this->command->info(
+            $brand->wasRecentlyCreated
+                ? 'Vumbi Ventures brand created.'
+                : 'Existing Vumbi Ventures brand reused.'
+        );
 
         // Create default roles and permissions
         $brandService = app(BrandManagementService::class);
@@ -80,8 +94,17 @@ class BrandSeeder extends Seeder
         // Clear permission cache
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
+        // The platform administrator: approved, and holds the global (not brand-scoped) super-admin role.
+        app(PermissionRegistrar::class)->setPermissionsTeamId(null);
+        $superAdminRole = Role::firstOrCreate(['name' => 'super-admin', 'guard_name' => 'web']);
+        if (!$admin->hasGlobalRole('super-admin')) {
+            $admin->assignRole($superAdminRole);
+        }
+        $admin->forceFill(['approval_status' => 'approved', 'approved_at' => now()])->save();
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
         $this->command->info('✅ Brand created: Vumbi Ventures');
-        $this->command->info('📧 Email: admin@vumbiventures.com');
-        $this->command->info('🔑 Password: password');
+        $this->command->info("📧 Super admin: {$admin->email}");
+        $this->command->info('🔑 Password: change_this_password (change it after the first login)');
     }
 }

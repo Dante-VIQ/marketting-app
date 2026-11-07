@@ -5,6 +5,7 @@ namespace App\Services\Analytics;
 use App\Models\Brand;
 use Carbon\Carbon;
 use Google\Client as GoogleClient;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -436,13 +437,44 @@ class GA4Service
         return $result;
     }
     /**
+     * Visits and key events from social posts, by UTM campaign name (our tags look like vumbiai-123).
+     * Raw runReport response; parse with SocialSiteResults::parse().
+     *
+     * @throws \Exception when GA4 is unconfigured or the request fails.
+     */
+    public function getSocialCampaignReport(Brand $brand, string $startDate, string $endDate): array
+    {
+        $propertyId = $brand->config['ga4_property_id'] ?? $this->propertyId;
+        if (!$propertyId) {
+            throw new \Exception('GA4 Property ID is not configured. Please add it in Brand Settings.');
+        }
+        $token = $this->getAccessToken();
+        if (!$token) {
+            throw new \Exception('Could not get GA4 access token. Check your service account configuration.');
+        }
+
+        return $this->runReport($propertyId, $token, [
+            'dateRanges' => [['startDate' => $startDate, 'endDate' => $endDate]],
+            'dimensions' => [['name' => 'sessionCampaignName']],
+            'metrics'    => [['name' => 'sessions'], ['name' => 'keyEvents']],
+            'dimensionFilter' => ['filter' => ['fieldName' => 'sessionMedium', 'stringFilter' => ['matchType' => 'EXACT', 'value' => 'social']]],
+            'limit'      => 1000,
+        ], true);
+    }
+
+    /**
      * Run a GA4 runReport, following pagination up to a sane cap.
      *
      * @throws \Exception on API failure when $mandatory, otherwise rethrows too (callers decide).
      */
     protected function runReport(string $propertyId, string $accessToken, array $payload, bool $mandatory): array
     {
-        $rows = [];
+        $combined = [
+            'metricHeaders' => [],
+            'dimensionHeaders' => [],
+            'rows' => [],
+            'rowCount' => 0,
+        ];
         $offset = 0;
         $pageSize = min((int) ($payload['limit'] ?? 10000), 10000);
         $cap = (int) ($payload['limit'] ?? 10000);
@@ -460,13 +492,24 @@ class GA4Service
                 throw new \Exception('GA4 API error: ' . $message);
             }
 
-            $batch = $response->json('rows') ?? [];
-            $rows = array_merge($rows, $batch);
-            $total = (int) ($response->json('rowCount') ?? count($rows));
-            $offset += $pageSize;
-        } while (count($batch) === $pageSize && count($rows) < min($total, $cap));
+            $body = $response->json() ?? [];
+            if (empty($combined['metricHeaders']) && isset($body['metricHeaders'])) {
+                $combined['metricHeaders'] = $body['metricHeaders'];
+            }
+            if (empty($combined['dimensionHeaders']) && isset($body['dimensionHeaders'])) {
+                $combined['dimensionHeaders'] = $body['dimensionHeaders'];
+            }
+            if (($combined['rowCount'] ?? 0) === 0 && isset($body['rowCount'])) {
+                $combined['rowCount'] = (int) $body['rowCount'];
+            }
 
-        return $rows;
+            $batch = $body['rows'] ?? [];
+            $combined['rows'] = array_merge($combined['rows'], $batch);
+            $total = (int) ($body['rowCount'] ?? count($combined['rows']));
+            $offset += $pageSize;
+        } while (count($batch) === $pageSize && count($combined['rows']) < min($total, $cap));
+
+        return $combined;
     }
 
     // protected function runReport(string $propertyId, string $accessToken, array $payload): array
@@ -486,6 +529,9 @@ class GA4Service
 
     /**
      * Fetch OAuth2 access token via Service Account Credentials.
+     *
+     * Cached for 55 minutes — Google tokens expire in 60 minutes.
+     * This eliminates a round-trip to Google on every GA4 API call.
      */
     protected function getAccessToken(): ?string
     {
@@ -494,17 +540,19 @@ class GA4Service
             return null;
         }
 
-        try {
-            $client = new GoogleClient();
-            $client->setAuthConfig($this->serviceAccountJson);
-            $client->addScope('https://www.googleapis.com/auth/analytics.readonly');
-            $client->fetchAccessTokenWithAssertion();
+        return Cache::remember('ga4_oauth_token', now()->addMinutes(55), function () {
+            try {
+                $client = new GoogleClient();
+                $client->setAuthConfig($this->serviceAccountJson);
+                $client->addScope('https://www.googleapis.com/auth/analytics.readonly');
+                $client->fetchAccessTokenWithAssertion();
 
-            return $client->getAccessToken()['access_token'] ?? null;
-        } catch (\Exception $e) {
-            Log::error('GA4 Authentication Error: ' . $e->getMessage());
-            return null;
-        }
+                return $client->getAccessToken()['access_token'] ?? null;
+            } catch (\Exception $e) {
+                Log::error('GA4 Authentication Error: ' . $e->getMessage());
+                return null;
+            }
+        });
     }
 
     // ============================================================

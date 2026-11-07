@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\Brand;
 use App\Services\AI\BriefGeneratorService;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -14,6 +15,15 @@ use Illuminate\Support\Facades\Log;
 class GenerateBriefForBrandJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    public int $timeout = 600;
+    public int $tries = 2;
+    public int $backoff = 120;
+
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping('brief:' . $this->brand->id))->releaseAfter(60)->expireAfter(660)];
+    }
 
     protected Brand $brand;
 

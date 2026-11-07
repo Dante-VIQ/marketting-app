@@ -2,18 +2,27 @@
 
 namespace App\Models;
 
-use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use App\Models\AiBrief;
+use App\Models\Brand;
+use App\Models\ContentDraft;
+use App\Models\GuardianAuditLog;
+use App\Models\Lead;
+use App\Models\LeadInteraction;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Spatie\Permission\Traits\HasRoles;
-use Laravel\Fortify\TwoFactorAuthenticatable;
+use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Fortify\TwoFactorAuthenticatable;
+use Laravel\Passkeys\Contracts\PasskeyUser;
+use Laravel\Passkeys\PasskeyAuthenticatable;
 use Spatie\Permission\PermissionRegistrar;
+use Spatie\Permission\Traits\HasRoles;
 
-class User extends Authenticatable
+class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 {
-    use HasRoles, TwoFactorAuthenticatable, Notifiable;
+    use HasRoles, TwoFactorAuthenticatable, Notifiable, PasskeyAuthenticatable;
 
     protected $fillable = [
         'name',
@@ -35,6 +44,43 @@ class User extends Authenticatable
     ];
 
 
+
+    /**
+     * True when the user holds the global "super-admin" role.
+     *
+     * Roles are scoped per brand (Spatie teams), so hasRole() only sees the role while the
+     * matching brand is the current team. This checks the assignment directly, in any team.
+     */
+    public function isSuperAdmin(): bool
+    {
+        return $this->hasGlobalRole('super-admin');
+    }
+
+    /** The platform administrator (super-admin) or someone they appointed as a user approver. */
+    public function isApprover(): bool
+    {
+        return $this->isSuperAdmin() || $this->hasGlobalRole('user-approver');
+    }
+
+    /** Super-admins are never locked out by approval status. */
+    public function isApproved(): bool
+    {
+        return $this->approval_status === 'approved' || $this->isSuperAdmin();
+    }
+
+    public function hasGlobalRole(string $name): bool
+    {
+        if (!$this->exists) {
+            return false;
+        }
+
+        return \Illuminate\Support\Facades\DB::table('model_has_roles')
+            ->join('roles', 'roles.id', '=', 'model_has_roles.role_id')
+            ->where('model_has_roles.model_id', $this->getKey())
+            ->where('model_has_roles.model_type', $this->getMorphClass())
+            ->where('roles.name', $name)
+            ->exists();
+    }
 
     public function brands()
     {

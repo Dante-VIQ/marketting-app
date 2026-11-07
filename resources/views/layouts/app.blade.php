@@ -6,13 +6,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Vumbi AI - @yield('title', 'Admin Dashboard')</title>
+    <title>Revora — @yield('title', 'Admin Dashboard')</title>
 
+    @include('layouts.partials.theme-init')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
 </head>
 
-<body class="antialiased bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 selection:bg-emerald-500 selection:text-white transition-colors duration-200 min-h-full">
+<body x-data="{ navOpen: false }" @keydown.escape.window="navOpen = false" :class="navOpen ? 'overflow-hidden lg:overflow-auto' : ''" class="antialiased bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 selection:bg-emerald-500 selection:text-white transition-colors duration-200 min-h-full" x-cloak>
     <!-- Ambient Backdrop Accent Blurs -->
     <div class="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         <div class="absolute -top-24 -left-20 w-96 h-96 bg-emerald-400/20 dark:bg-emerald-500/10 rounded-full blur-3xl"></div>
@@ -25,26 +26,34 @@
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div class="flex justify-between h-16">
                     <!-- Brand Identifier -->
-                    <div class="flex items-center">
-                        <a href="{{ route('dashboard') }}" class="flex items-center space-x-2">
-                            <span class="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">Vumbi</span>
-                            <span class="text-xl font-bold text-slate-800 dark:text-white">AI</span>
+                    <div class="flex items-center min-w-0">
+                        @auth
+                            <button type="button" @click="navOpen = !navOpen" aria-controls="app-sidebar" :aria-expanded="navOpen ? 'true' : 'false'" aria-label="Toggle navigation"
+                                class="lg:hidden -ml-2 mr-2 inline-flex items-center justify-center w-10 h-10 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-500">
+                                <svg x-show="!navOpen" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                                <svg x-show="navOpen" x-cloak class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        @endauth
+                        <a href="{{ route('dashboard') }}" class="flex items-center">
+                            <span class="text-xl sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">Re</span><span class="text-xl sm:text-2xl font-bold text-slate-800 dark:text-white tracking-tight">vora</span>
                         </a>
-                        <span class="ml-3 px-2.5 py-0.5 text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 rounded-full shadow-2xs">
+                        <span class="hidden sm:inline-flex ml-3 px-2.5 py-0.5 text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 rounded-full shadow-2xs">
                             Console
                         </span>
                     </div>
 
                     <!-- Right Controls (Brand Selector + User Dropdown) -->
-                    <div class="flex items-center space-x-4">
+                    <div class="flex items-center shrink-0 space-x-1 sm:space-x-3">
+                        <x-theme-toggle />
                         @auth
                             @livewire('brand-selector')
 
                             <div class="relative" x-data="{ open: false }">
                                 <button @click="open = !open"
                                     class="flex items-center space-x-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-400 focus:outline-hidden transition-colors duration-150">
-                                    <span>{{ auth()->user()->name }}</span>
-                                    <svg class="w-4 h-4 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <span class="hidden sm:inline">{{ auth()->user()->name }}</span>
+                                    <span class="sm:hidden inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 text-sm font-semibold">{{ strtoupper(mb_substr(auth()->user()->name, 0, 1)) }}</span>
+                                    <svg class="hidden sm:block w-4 h-4 text-slate-400 dark:text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                                     </svg>
                                 </button>
@@ -65,6 +74,9 @@
                                         </a>
                                         <a href="{{ route('brands.index') }}" class="block px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/50 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
                                             Brand Settings
+                                        </a>
+                                        <a href="{{ route('account.security') }}" class="block px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/50 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
+                                            Security (passkeys)
                                         </a>
                                         <a href="{{ route('system.status') }}" class="block px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/50 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">
                                             System Status
@@ -87,18 +99,25 @@
         </nav>
 
         <!-- Sidebar + Main Content Frame -->
-        <div class="flex flex-1 overflow-hidden">
+        <div class="flex flex-1 overflow-hidden relative">
             @auth
                 <!-- Adaptive Glass Sidebar Navigation -->
                 <x-aside />
+
+                <!-- Mobile drawer backdrop -->
+                <div x-show="navOpen" x-cloak @click="navOpen = false" x-transition.opacity aria-hidden="true"
+                    class="lg:hidden fixed inset-0 top-16 z-30 bg-slate-900/50"></div>
             @endauth
 
             <!-- Main Page View -->
-            <main class="flex-1 min-h-[calc(100vh-4rem)] p-6">
+            <main class="flex-1 min-w-0 min-h-[calc(100vh-4rem)] p-4 sm:p-6">
                 @yield('content')
             </main>
         </div>
     </div>
+
+    {{-- Vumbi AI floating chat widget --}}
+    @livewire('chat-widget')
 
     @livewireScripts
     @stack('scripts')

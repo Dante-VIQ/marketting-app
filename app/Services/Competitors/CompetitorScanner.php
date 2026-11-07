@@ -102,6 +102,26 @@ class CompetitorScanner
         return $out;
     }
 
+    /**
+     * Light check used by competitor discovery: fetch only the homepage and report what it says.
+     * Same SSRF guard as scan(). Unreachable is reported as such, never as "no match".
+     *
+     * @return array{ok:bool,title:?string,description:?string,h1:?string,text:string,has_feed:bool}
+     */
+    public function probe(string $domain): array
+    {
+        $html = $this->get("https://{$domain}/") ?? $this->get("http://{$domain}/");
+        if ($html === null) {
+            return ['ok' => false, 'title' => null, 'description' => null, 'h1' => null, 'text' => '', 'has_feed' => false];
+        }
+        $home = CompetitorParser::parseHomepage($html);
+        $visible = preg_replace('#<(script|style|noscript)\b[^>]*>.*?</\1>#is', ' ', $html);
+        $text = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags((string) $visible), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+
+        return ['ok' => true, 'title' => $home['title'], 'description' => $home['description'], 'h1' => $home['h1'],
+            'text' => mb_substr($text, 0, 3000), 'has_feed' => $home['feed_url'] !== null];
+    }
+
     /** @return array{0:?int,1:array} [url count, post-like entries as feed-shaped items] */
     private function sitemap(string $base): array
     {
