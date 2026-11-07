@@ -121,6 +121,14 @@ class AiGatewayService
                 'model'    => $this->readEnv('BASETEN_MODEL', 'meta-models/muse-spark-open'),
                 'endpoint' => 'https://inference.baseten.co/v1/chat/completions',
             ],
+            'groq' => [
+                'api_key'  => $this->readEnv('GROQ_API_KEY'),
+                'model'    => $this->readEnv('GROQ_MODEL', 'groq-2.0'),
+                'temperature' => $this->readEnv('GROQ_TEMPERATURE', 0.7),
+                'max_tokens' => $this->readEnv('GROQ_MAX_TOKENS', 4096),
+                'timeout' => $this->readEnv('GROQ_API_TIMEOUT', 30),
+                'endpoint' => 'https://api.groq.com/v1/chat/completions',
+            ],
             default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
         };
     }
@@ -329,20 +337,16 @@ class AiGatewayService
         // Combine system prompt into user turn (Gemini doesn't have a system role)
         $fullFirstPrompt = $systemPrompt ? $systemPrompt . "\n\n" . $userPrompt : $userPrompt;
 
-        // Build contents array — history first, then current turn
+        // Build contents array — history first, then current turn.
+        // Keep the system and user prompt together in the current turn so
+        // Gemini treats the instruction as a single request instead of dropping it.
         $contents = [];
         foreach ($promptData['history'] ?? [] as $entry) {
             $role = $entry['role'] === 'assistant' ? 'model' : 'user';
             $contents[] = ['role' => $role, 'parts' => [['text' => $entry['content']]]];
         }
 
-        // If no history, inject system into the first user turn
-        if (empty($contents)) {
-            $contents[] = ['role' => 'user', 'parts' => [['text' => $fullFirstPrompt]]];
-        } else {
-            // System prompt already baked in; just add current user message
-            $contents[] = ['role' => 'user', 'parts' => [['text' => $userPrompt]]];
-        }
+        $contents[] = ['role' => 'user', 'parts' => [['text' => $fullFirstPrompt]]];
 
         $payload = [
             'contents' => $contents,
@@ -354,9 +358,10 @@ class AiGatewayService
             ],
         ];
 
-        // If we need JSON response, add it to the prompt
+        // Gemini only enforces JSON mode when the API flag is set.
         if (isset($promptData['response_format']) && $promptData['response_format'] === 'json') {
-            $payload['contents'][0]['parts'][0]['text'] .= "\n\nReturn ONLY valid JSON. No markdown, no explanations outside JSON.";
+            $payload['generationConfig']['responseMimeType'] = 'application/json';
+            $payload['contents'][count($payload['contents']) - 1]['parts'][0]['text'] .= "\n\nReturn ONLY valid JSON. No markdown, no explanations outside JSON.";
         }
 
         $response = Http::timeout(120)->post($endpoint, $payload);

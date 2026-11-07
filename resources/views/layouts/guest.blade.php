@@ -28,7 +28,7 @@
                 <div class="flex justify-between h-16">
                     <!-- Brand -->
                     <div class="flex items-center">
-                        <a href="{{ route('landing') }}" class="flex items-center space-x-1">
+                        <a href="{{ route('landing') }}" class="flex items-center">
                             <span class="text-2xl font-bold text-emerald-400 tracking-tight">Re</span><span class="text-2xl font-bold text-white tracking-tight">vora</span>
                         </a>
                         <span class="ml-3 px-2.5 py-0.5 text-xs font-semibold bg-emerald-950/40 text-emerald-300 border border-emerald-800/50 rounded-full">

@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Jobs\ProcessApprovedActionsJob;
 use App\Jobs\RunAiVisibilityAuditJob;
+use App\Models\AiBrief;
 use App\Models\Brand;
 use App\Services\AI\AiGatewayService;
 use App\Services\AI\BriefGeneratorService;
@@ -11,6 +12,7 @@ use App\Services\Analytics\DashboardDataService;
 use App\Services\Bot\BotActionHandler;
 use App\Services\Scanner\SiteProfileService;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class BriefGeneratorServiceTest extends TestCase
@@ -84,10 +86,43 @@ class BriefGeneratorServiceTest extends TestCase
         });
     }
 
+    public function test_gemini_json_requests_use_json_response_mime_type(): void
+    {
+        Http::fake([
+            'https://generativelanguage.googleapis.com/v1beta/models/*' => Http::response([
+                'candidates' => [[
+                    'content' => ['parts' => [['text' => '{"status":"ok","brief":"ready"}']], 'role' => 'model'],
+                    'finishReason' => 'STOP',
+                    'index' => 0,
+                ]],
+                'usageMetadata' => ['totalTokenCount' => 18],
+            ], 200),
+        ]);
+
+        putenv('AI_PROVIDER=gemini');
+        putenv('GEMINI_API_KEY=test-key');
+
+        $service = new AiGatewayService();
+        $result = $service->generate([
+            'system_prompt' => 'Return valid JSON only.',
+            'user_prompt' => 'Generate a brief response.',
+            'response_format' => 'json',
+            'max_tokens' => 256,
+        ]);
+
+        Http::assertSent(function ($request) {
+            $payload = $request->data();
+
+            return ($payload['generationConfig']['responseMimeType'] ?? null) === 'application/json';
+        });
+
+        $this->assertTrue($result['success']);
+        $this->assertSame(['status' => 'ok', 'brief' => 'ready'], json_decode($result['content'], true));
+    }
+
     public function test_parse_ai_response_removes_invalid_control_characters(): void
     {
         $service = new BriefGeneratorService(
-            $this->createMock(AiGatewayService::class),
             $this->createMock(SiteProfileService::class)
         );
 
@@ -106,7 +141,6 @@ class BriefGeneratorServiceTest extends TestCase
     public function test_parse_ai_response_recovers_from_truncated_json(): void
     {
         $service = new BriefGeneratorService(
-            $this->createMock(AiGatewayService::class),
             $this->createMock(SiteProfileService::class)
         );
 
@@ -120,5 +154,40 @@ class BriefGeneratorServiceTest extends TestCase
         $parsed = $method->invoke($service, $response);
 
         $this->assertSame('Strong demand is coming from the homepage and guides.', $parsed['strategic_diagnosis']);
+    }
+
+    public function test_generate_for_brand_skips_when_a_brief_was_created_within_the_last_24_hours(): void
+    {
+        $brand = Brand::create([
+            'name' => 'Daily Brief Guard',
+            'slug' => 'daily-brief-guard',
+            'is_active' => true,
+        ]);
+
+        AiBrief::create([
+            'brand_id' => $brand->id,
+            'brief_date' => now()->toDateString(),
+            'fingerprint' => 'recent-fingerprint',
+            'strategic_diagnosis' => 'Recent brief exists',
+            'estimated_revenue_impact' => 100.00,
+            'confidence_score' => 80,
+            'raw_llm_output' => ['status' => 'ok'],
+            'created_at' => now()->subHours(3),
+            'updated_at' => now()->subHours(3),
+        ]);
+
+        $service = new BriefGeneratorService($this->createMock(SiteProfileService::class));
+
+        $aiGateway = $this->createMock(AiGatewayService::class);
+        $aiGateway->expects($this->never())->method('isAvailable');
+
+        $reflection = new \ReflectionProperty($service, 'aiGateway');
+        $reflection->setAccessible(true);
+        $reflection->setValue($service, $aiGateway);
+
+        $result = $service->generateForBrand($brand);
+
+        $this->assertNotNull($result);
+        $this->assertSame('recent-fingerprint', $result->fingerprint);
     }
 }

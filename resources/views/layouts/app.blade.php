@@ -13,7 +13,7 @@
     @livewireStyles
 </head>
 
-<body x-data="{ navOpen: false }" @keydown.escape.window="navOpen = false" :class="navOpen ? 'overflow-hidden lg:overflow-auto' : ''" class="antialiased bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 selection:bg-emerald-500 selection:text-white transition-colors duration-200 min-h-full">
+<body x-data="{ navOpen: false }" @keydown.escape.window="navOpen = false" :class="navOpen ? 'overflow-hidden lg:overflow-auto' : ''" class="antialiased bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 selection:bg-emerald-500 selection:text-white transition-colors duration-200 min-h-full" x-cloak>
     <!-- Ambient Backdrop Accent Blurs -->
     <div class="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         <div class="absolute -top-24 -left-20 w-96 h-96 bg-emerald-400/20 dark:bg-emerald-500/10 rounded-full blur-3xl"></div>
@@ -34,7 +34,7 @@
                                 <svg x-show="navOpen" x-cloak class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                             </button>
                         @endauth
-                        <a href="{{ route('dashboard') }}" class="flex items-center space-x-1.5 sm:space-x-2">
+                        <a href="{{ route('dashboard') }}" class="flex items-center">
                             <span class="text-xl sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">Re</span><span class="text-xl sm:text-2xl font-bold text-slate-800 dark:text-white tracking-tight">vora</span>
                         </a>
                         <span class="hidden sm:inline-flex ml-3 px-2.5 py-0.5 text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 rounded-full shadow-2xs">

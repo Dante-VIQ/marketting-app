@@ -1,5 +1,29 @@
 <?php
 
+$passkeyAppUrl = config('app.url');
+$passkeyHost = parse_url($passkeyAppUrl, PHP_URL_HOST) ?: 'localhost';
+$passkeyScheme = parse_url($passkeyAppUrl, PHP_URL_SCHEME) ?: 'http';
+$passkeyRpId = preg_replace('/^www\./i', '', $passkeyHost);
+
+$passkeyOrigins = array_values(array_unique([
+    $passkeyAppUrl,
+    $passkeyScheme . '://' . $passkeyHost,
+    'http://' . $passkeyHost,
+    'https://' . $passkeyHost,
+    'http://localhost',
+    'http://localhost:8000',
+    'http://127.0.0.1',
+    'http://127.0.0.1:8000',
+    'https://localhost',
+    'https://localhost:8000',
+    'https://127.0.0.1',
+    'https://127.0.0.1:8000',
+    'https://www.' . $passkeyRpId,
+    'https://' . $passkeyRpId,
+    'http://www.' . $passkeyRpId,
+    'http://' . $passkeyRpId,
+]));
+
 return [
 
     /*
@@ -8,12 +32,12 @@ return [
     |--------------------------------------------------------------------------
     |
     | The relying party ID represents your application in the WebAuthn protocol.
-    | This is typically your domain (e.g., "example.com"). Passkeys are bound
-    | to this ID and can only be verified on matching domains.
+    | This is typically your registrable domain (e.g. "example.com"). Passkeys
+    | are bound to this ID and can only be verified on matching domains.
     |
     */
 
-    'relying_party_id' => parse_url(config('app.url'), PHP_URL_HOST),
+    'relying_party_id' => $passkeyRpId,
 
     /*
     |--------------------------------------------------------------------------
@@ -26,9 +50,7 @@ return [
     |
     */
 
-    'allowed_origins' => [
-        config('app.url'),
-    ],
+    'allowed_origins' => $passkeyOrigins,
 
     /*
     |--------------------------------------------------------------------------
