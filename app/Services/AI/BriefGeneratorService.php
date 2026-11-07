@@ -39,6 +39,21 @@ class BriefGeneratorService
             return null;
         }
 
+        $recentBrief = AiBrief::where('brand_id', $brand->id)
+            ->where('created_at', '>=', now()->subHours(24))
+            ->latest('created_at')
+            ->first();
+
+        if ($recentBrief) {
+            Log::info('BriefGenerator: Brief already generated within the last 24 hours', [
+                'brand_id' => $brand->id,
+                'brief_id' => $recentBrief->id,
+                'created_at' => $recentBrief->created_at?->toDateTimeString(),
+            ]);
+
+            return $recentBrief;
+        }
+
         if (!$this->aiGateway->isAvailable()) {
             Log::warning('BriefGenerator: AI service not available', [
                 'brand_id' => $brand->id,
@@ -60,10 +75,10 @@ class BriefGeneratorService
         $promptData = $this->buildPromptData($brand);
         $fingerprint = $this->generateFingerprint($promptData);
 
-        // Deduplication check: return existing brief if data hasn't changed today
+        // Deduplication check: avoid regenerating the same dataset more than once per 24-hour window.
         $existingBrief = AiBrief::where('brand_id', $brand->id)
             ->where('fingerprint', $fingerprint)
-            ->where('created_at', '>=', now()->subHours(20))
+            ->where('created_at', '>=', now()->subHours(24))
             ->first();
 
         if ($existingBrief) {

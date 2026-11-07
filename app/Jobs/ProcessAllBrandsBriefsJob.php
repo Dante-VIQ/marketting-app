@@ -13,7 +13,16 @@ class ProcessAllBrandsBriefsJob implements ShouldQueue
 
     public function handle(): void
     {
-        $brands = Brand::where('is_active', true)->get();
+        $brandIdsWithRecentBrief = \App\Models\AiBrief::where('created_at', '>=', now()->subHours(24))
+            ->distinct()
+            ->pluck('brand_id')
+            ->all();
+
+        $brands = Brand::where('is_active', true)
+            ->when(!empty($brandIdsWithRecentBrief), function ($query) use ($brandIdsWithRecentBrief) {
+                $query->whereNotIn('id', $brandIdsWithRecentBrief);
+            })
+            ->get();
 
         Log::info('Dispatching per-brand brief jobs', ['count' => $brands->count()]);
 

@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Jobs\ProcessApprovedActionsJob;
 use App\Jobs\RunAiVisibilityAuditJob;
+use App\Models\AiBrief;
 use App\Models\Brand;
 use App\Services\AI\AiGatewayService;
 use App\Services\AI\BriefGeneratorService;
@@ -122,7 +123,6 @@ class BriefGeneratorServiceTest extends TestCase
     public function test_parse_ai_response_removes_invalid_control_characters(): void
     {
         $service = new BriefGeneratorService(
-            $this->createMock(AiGatewayService::class),
             $this->createMock(SiteProfileService::class)
         );
 
@@ -141,7 +141,6 @@ class BriefGeneratorServiceTest extends TestCase
     public function test_parse_ai_response_recovers_from_truncated_json(): void
     {
         $service = new BriefGeneratorService(
-            $this->createMock(AiGatewayService::class),
             $this->createMock(SiteProfileService::class)
         );
 
@@ -155,5 +154,40 @@ class BriefGeneratorServiceTest extends TestCase
         $parsed = $method->invoke($service, $response);
 
         $this->assertSame('Strong demand is coming from the homepage and guides.', $parsed['strategic_diagnosis']);
+    }
+
+    public function test_generate_for_brand_skips_when_a_brief_was_created_within_the_last_24_hours(): void
+    {
+        $brand = Brand::create([
+            'name' => 'Daily Brief Guard',
+            'slug' => 'daily-brief-guard',
+            'is_active' => true,
+        ]);
+
+        AiBrief::create([
+            'brand_id' => $brand->id,
+            'brief_date' => now()->toDateString(),
+            'fingerprint' => 'recent-fingerprint',
+            'strategic_diagnosis' => 'Recent brief exists',
+            'estimated_revenue_impact' => 100.00,
+            'confidence_score' => 80,
+            'raw_llm_output' => ['status' => 'ok'],
+            'created_at' => now()->subHours(3),
+            'updated_at' => now()->subHours(3),
+        ]);
+
+        $service = new BriefGeneratorService($this->createMock(SiteProfileService::class));
+
+        $aiGateway = $this->createMock(AiGatewayService::class);
+        $aiGateway->expects($this->never())->method('isAvailable');
+
+        $reflection = new \ReflectionProperty($service, 'aiGateway');
+        $reflection->setAccessible(true);
+        $reflection->setValue($service, $aiGateway);
+
+        $result = $service->generateForBrand($brand);
+
+        $this->assertNotNull($result);
+        $this->assertSame('recent-fingerprint', $result->fingerprint);
     }
 }
