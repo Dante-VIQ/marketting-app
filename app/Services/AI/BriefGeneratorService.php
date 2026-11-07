@@ -57,10 +57,29 @@ class BriefGeneratorService
             return null;
         }
 
+        // ── 24-hour wall-clock guard ──────────────────────────────────────────
+        // Only one brief per brand per calendar day, regardless of data changes.
+        // The fingerprint check below additionally skips regeneration when the
+        // data hasn't changed within that window (e.g. a manual retry).
+        $briefToday = AiBrief::where('brand_id', $brand->id)
+            ->whereDate('brief_date', Carbon::today())
+            ->orderByDesc('created_at')
+            ->first();
+
+        if ($briefToday) {
+            Log::info('BriefGenerator: Brief already generated today — skipping', [
+                'brand_id' => $brand->id,
+                'brief_id' => $briefToday->id,
+                'brief_date' => $briefToday->brief_date,
+            ]);
+            return $briefToday;
+        }
+
         $promptData = $this->buildPromptData($brand);
         $fingerprint = $this->generateFingerprint($promptData);
 
-        // Deduplication check: return existing brief if data hasn't changed today
+        // Secondary deduplication: same data fingerprint seen in last 20 hours
+        // (catches edge cases like a midnight rollover hitting both days).
         $existingBrief = AiBrief::where('brand_id', $brand->id)
             ->where('fingerprint', $fingerprint)
             ->where('created_at', '>=', now()->subHours(20))
