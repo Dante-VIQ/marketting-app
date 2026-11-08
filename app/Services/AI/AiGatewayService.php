@@ -360,12 +360,25 @@ class AiGatewayService
             $payload['response_format'] = ['type' => 'json_object'];
         }
 
+        Log::debug('Groq request', [
+            'endpoint' => $this->config['endpoint'],
+            'model'    => $this->config['model'],
+            'key_set'  => !empty($this->config['api_key']),
+            'key_len'  => strlen($this->config['api_key'] ?? ''),
+        ]);
+
         $response = Http::timeout(60)->withHeaders([
             'Authorization' => 'Bearer ' . $this->config['api_key'],
             'Content-Type'  => 'application/json',
         ])->post($this->config['endpoint'], $payload);
 
         if (!$response->successful()) {
+            Log::error('Groq API failure', [
+                'status'   => $response->status(),
+                'body'     => $response->body(),
+                'endpoint' => $this->config['endpoint'],
+                'model'    => $this->config['model'],
+            ]);
             throw new \Exception('Groq API error ' . $response->status() . ': ' . $response->body());
         }
 
@@ -405,12 +418,25 @@ class AiGatewayService
             $payload['response_format'] = ['type' => 'json_object'];
         }
 
+        Log::debug('Mistral request', [
+            'endpoint' => $this->config['endpoint'],
+            'model'    => $this->config['model'],
+            'key_set'  => !empty($this->config['api_key']),
+            'key_len'  => strlen($this->config['api_key'] ?? ''),
+        ]);
+
         $response = Http::timeout(120)->withHeaders([
             'Authorization' => 'Bearer ' . $this->config['api_key'],
             'Content-Type'  => 'application/json',
         ])->post($this->config['endpoint'], $payload);
 
         if (!$response->successful()) {
+            Log::error('Mistral API failure', [
+                'status'   => $response->status(),
+                'body'     => $response->body(),
+                'endpoint' => $this->config['endpoint'],
+                'model'    => $this->config['model'],
+            ]);
             throw new \Exception('Mistral API error ' . $response->status() . ': ' . $response->body());
         }
 
