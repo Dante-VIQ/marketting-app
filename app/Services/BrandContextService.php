@@ -4,14 +4,20 @@ namespace App\Services;
 
 use App\Models\Brand;
 use App\Models\PageSnapshot;
+use App\Services\Bing\BingWebmasterService;
 
 class BrandContextService
 {
+    public function __construct(
+        private readonly BingWebmasterService $bing,
+    ) {}
+
     /**
      * Get the full brand context for AI prompts.
      *
-     * Enriches base brand fields with data from completed page scanner snapshots
-     * so AI services have a richer, more accurate picture of what the brand does.
+     * Enriches base brand fields with data from:
+     * - Completed page scanner snapshots (page-level AEO data)
+     * - Bing Webmaster Tools (search performance, keyword gaps, real queries)
      */
     public function getFullContext(Brand $brand): array
     {
@@ -29,8 +35,73 @@ class BrandContextService
         ];
 
         $pageContext = $this->getPageScannerContext($brand);
+        $bingContext = $this->getBingContext($brand);
 
-        return array_merge($base, $pageContext);
+        return array_merge($base, $pageContext, $bingContext);
+    }
+
+    /**
+     * Get Bing Webmaster context for AI prompts.
+     *
+     * Returns keyword gaps, top-performing queries, and insights.
+     * Returns empty arrays gracefully when no API key is configured.
+     */
+    public function getBingContext(Brand $brand): array
+    {
+        try {
+            $data = $this->bing->fetchAll($brand);
+
+            // Don't surface raw credentials or large raw datasets in the context bundle.
+            // Extract only the AI-relevant summaries.
+            $queries   = $data['search_performance']['queries']   ?? [];
+            $gaps      = $data['keyword_gaps']                    ?? [];
+            $insights  = $data['top_insights']                    ?? [];
+            $backlinks = $data['backlinks']                       ?? [];
+
+            // Top 10 queries by impressions (actual user searches)
+            $topQueries = array_slice(
+                array_map(fn($q) => [
+                    'query'       => $q['query'],
+                    'impressions' => $q['impressions'],
+                    'position'    => $q['position'],
+                ], $queries),
+                0, 10
+            );
+
+            // Top 15 keyword gaps (high impressions, low rank = content opportunity)
+            $topGaps = array_slice(
+                array_map(fn($g) => [
+                    'query'       => $g['query'],
+                    'impressions' => $g['impressions'],
+                    'position'    => $g['position'],
+                    'gap_type'    => $g['gap_type'],
+                ], $gaps),
+                0, 15
+            );
+
+            return [
+                'bing_top_queries'    => $topQueries,
+                'bing_keyword_gaps'   => $topGaps,
+                'bing_insights'       => array_slice($insights, 0, 5),
+                'bing_backlinks'      => $backlinks,
+                'bing_has_data'       => !empty($topQueries) || !empty($topGaps),
+                'bing_fetched_at'     => $data['fetched_at'] ?? null,
+            ];
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('BrandContextService: Bing context failed', [
+                'brand_id' => $brand->id,
+                'error'    => $e->getMessage(),
+            ]);
+
+            return [
+                'bing_top_queries'  => [],
+                'bing_keyword_gaps' => [],
+                'bing_insights'     => [],
+                'bing_backlinks'    => [],
+                'bing_has_data'     => false,
+                'bing_fetched_at'   => null,
+            ];
+        }
     }
 
     /**

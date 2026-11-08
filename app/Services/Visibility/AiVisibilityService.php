@@ -5,6 +5,7 @@ namespace App\Services\Visibility;
 use App\Models\Brand;
 use App\Models\AiVisibilityAudit;
 use App\Services\AI\AiGatewayService;
+use App\Services\Bing\BingWebmasterService;
 use App\Services\BrandContextService;
 use Illuminate\Support\Facades\Log;
 
@@ -36,6 +37,7 @@ class AiVisibilityService
 
     public function __construct(
         private BrandContextService $brandContext,
+        private BingWebmasterService $bing,
     ) {
         $this->ai = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_CONTENT);
     }
@@ -175,12 +177,36 @@ class AiVisibilityService
             ['query' => "Who are the top {$product} providers in Africa?",             'priority' => 'high'],
         ];
 
+        // ── Bing real-query probes ─────────────────────────────────────────────
+        // Real user queries that reached this site via Bing search are more
+        // representative than AI-invented ones. Use them as medium-priority probes
+        // to measure brand mention rates on queries users actually type.
+        $bingProbes = [];
+        try {
+            $realQueries = $this->bing->getRealQueries($brand, 8);
+            foreach ($realQueries as $q) {
+                if (is_string($q) && strlen($q) > 5 && !str_contains(strtolower($q), strtolower($name))) {
+                    $bingProbes[] = ['query' => $q, 'priority' => 'medium', 'source' => 'bing'];
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('AiVisibilityService: Bing probes unavailable', ['brand_id' => $brand->id, 'error' => $e->getMessage()]);
+        }
+
         // Store resolved niche/region so benchmarkCompetitors can reuse them
         $this->resolvedNiche   = $niche;
         $this->resolvedRegion  = $region;
         $this->resolvedProduct = $product;
 
-        return array_merge($fixed, array_slice($aiProbes, 0, 6));
+        // Merge: fixed first, then real Bing queries (preferred over AI-generated),
+        // then AI-generated probes to fill remaining slots up to 12 total.
+        $aiProbeSlots = max(0, 6 - count($bingProbes));
+
+        return array_merge(
+            $fixed,
+            array_slice($bingProbes, 0, 6),
+            array_slice($aiProbes, 0, $aiProbeSlots)
+        );
     }
 
     /**

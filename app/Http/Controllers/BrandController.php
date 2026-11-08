@@ -22,6 +22,12 @@ class BrandController extends Controller
         return view('brands.index', compact('brands'));
     }
 
+    public function integrations(Brand $brand)
+    {
+        $this->authorize('view', $brand);
+        return view('brands.integrations', compact('brand'));
+    }
+
     public function store(Request $request)
     {
         $request->validate([

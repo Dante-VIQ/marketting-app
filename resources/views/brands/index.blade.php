@@ -33,12 +33,32 @@
     @endif
 
     <div class="py-12">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-8">
+
+            {{-- Brand Manager --}}
             <div class="bg-slate-900/60 border border-slate-800/60 rounded-2xl shadow-xl overflow-hidden">
                 <div class="p-6">
                     @livewire('brand-manager')
                 </div>
             </div>
+
+            {{-- Integrations ──────────────────────────────────────────── --}}
+            <div>
+                <div class="mb-4">
+                    <h2 class="text-base font-semibold text-white">Integrations</h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Connect third-party data sources to enrich AI briefs and content planning.</p>
+                </div>
+
+                <div class="space-y-6">
+                    @foreach($brands as $brand)
+                        <div>
+                            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">{{ $brand->name }}</p>
+                            <x-bing-webmaster-panel :brand="$brand" />
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+
         </div>
     </div>
 

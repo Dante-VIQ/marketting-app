@@ -11,6 +11,7 @@ use App\Models\KnowledgeBase;
 use App\Models\PageSnapshot;
 use App\Models\RevenueLeak;
 use App\Services\AI\AiGatewayService;
+use App\Services\Bing\BingWebmasterService;
 use App\Services\Scanner\SiteProfileService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -20,14 +21,17 @@ class BriefGeneratorService
 {
     protected AiGatewayService $aiGateway;
     protected SiteProfileService $siteProfileService;
+    protected BingWebmasterService $bing;
 
     public function __construct(
-        SiteProfileService $siteProfileService
+        SiteProfileService $siteProfileService,
+        BingWebmasterService $bing,
     ) {
         // Brief generation uses AI_PROVIDER_BRIEF (falls back to AI_PROVIDER).
         // Keeps brief quota separate from real-time scan and chat calls.
         $this->aiGateway = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_BRIEF);
         $this->siteProfileService = $siteProfileService;
+        $this->bing = $bing;
     }
 
     public function generateForBrand(Brand $brand): ?AiBrief
@@ -250,6 +254,16 @@ class BriefGeneratorService
             $social = [];
         }
 
+        // Bing Webmaster Tools — keyword gaps and top real queries. Optional; degrades gracefully.
+        $bingKeywordGaps = [];
+        $bingTopQueries  = [];
+        try {
+            $bingKeywordGaps = $this->bing->getKeywordGaps($brand, 15);
+            $bingTopQueries  = $this->bing->getRealQueries($brand, 10);
+        } catch (\Throwable $e) {
+            Log::warning('BriefGenerator: Bing data unavailable', ['brand_id' => $brand->id, 'error' => $e->getMessage()]);
+        }
+
         return [
             'brand' => [
                 'name'        => $brand->name,
@@ -258,12 +272,14 @@ class BriefGeneratorService
                 'timezone'    => $brand->timezone ?? 'UTC',
                 'website_url' => $brand->website_url ?? '',
             ],
-            'analytics'      => $analytics,
-            'social'         => $social ?: null,
-            'revenue_leaks'  => $revenueLeaks,
-            'knowledge_base' => $knowledge,
-            'business_goals' => $goals,
-            'page_snapshots' => $pageSnapshots,
+            'analytics'           => $analytics,
+            'social'              => $social ?: null,
+            'revenue_leaks'       => $revenueLeaks,
+            'knowledge_base'      => $knowledge,
+            'business_goals'      => $goals,
+            'page_snapshots'      => $pageSnapshots,
+            'bing_keyword_gaps'   => $bingKeywordGaps,
+            'bing_top_queries'    => $bingTopQueries,
             'site_inventory' => [
                 'dominant_topics' => $siteProfile['dominant_topics'] ?? [],
                 'pages'           => array_map(fn($p) => [
@@ -424,6 +440,12 @@ Guiding Principles:
 2. Quantify potential revenue loss or gain directly.
 3. Formulate 3-5 distinct, prioritized action items.
 4. Voice guidelines: "{$brandVoice}"
+
+USING `bing_keyword_gaps` AND `bing_top_queries` (may be empty arrays):
+- `bing_keyword_gaps` = real Bing search queries where the site has impressions but ranks poorly (position > 5) or has very low CTR. These are **confirmed content gaps** — real users searched for these terms and found this site uncompetitive.
+- When `bing_keyword_gaps` is non-empty, generate at least 1 "content" or "seo" action targeting the highest-opportunity gap queries. Use the `query` field as the topic/keyword target.
+- `bing_top_queries` = real user queries that drive traffic. Use these to understand what users actually want from this site.
+- Never invent keyword data. If both arrays are empty, do not mention Bing or search performance.
 
 USING THE `social` BLOCK (Meta results, audience and content plan; may be null):
 - Social actions (category "social") must be built from this evidence, and the description must say which signal each one comes from: a real audience question (`audience.comments.recent_questions`), one of our own best posts (`content.performance.top_posts`), an audience segment (`audience.ads.groups`) or a persona pain (`personas`).

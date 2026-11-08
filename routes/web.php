@@ -3,6 +3,7 @@
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AiVisibilityController;
 use App\Http\Controllers\BlogController;
+use App\Http\Controllers\BingSettingsController;
 use App\Http\Controllers\BrandController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\PageController;
@@ -54,6 +55,15 @@ Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
         Route::post('/', [BrandController::class, 'store'])->name('store');
         Route::put('/{brand}', [BrandController::class, 'update'])->name('update');
         Route::post('/{brand}/toggle-active', [BrandController::class, 'toggleActive'])->name('toggle-active');
+
+        // Bing Webmaster Tools integration
+        Route::prefix('/{brand}/bing')->name('bing.')->group(function () {
+            Route::get('/status', [BingSettingsController::class, 'status'])->name('status');
+            Route::post('/api-key', [BingSettingsController::class, 'saveApiKey'])->name('save-api-key');
+            Route::delete('/api-key', [BingSettingsController::class, 'removeApiKey'])->name('remove-api-key');
+            Route::post('/refresh', [BingSettingsController::class, 'refresh'])->name('refresh');
+            Route::post('/import-csv', [BingSettingsController::class, 'importCsv'])->name('import-csv');
+        });
     });
 
     Route::get('/calibration', function () {
