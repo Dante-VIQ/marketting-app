@@ -121,13 +121,23 @@ class AiGatewayService
                 'model'    => $this->readEnv('BASETEN_MODEL', 'meta-models/muse-spark-open'),
                 'endpoint' => 'https://inference.baseten.co/v1/chat/completions',
             ],
+            // Groq — OpenAI-compatible, extremely fast inference
+            // Endpoint: https://api.groq.com/openai/v1/chat/completions
+            // Recommended models (2026): llama-3.3-70b-versatile, llama-3.1-8b-instant,
+            //   gemma2-9b-it, mixtral-8x7b-32768
             'groq' => [
                 'api_key'  => $this->readEnv('GROQ_API_KEY'),
-                'model'    => $this->readEnv('GROQ_MODEL', 'groq-2.0'),
-                'temperature' => $this->readEnv('GROQ_TEMPERATURE', 0.7),
-                'max_tokens' => $this->readEnv('GROQ_MAX_TOKENS', 4096),
-                'timeout' => $this->readEnv('GROQ_API_TIMEOUT', 30),
-                'endpoint' => 'https://api.groq.com/v1/chat/completions',
+                'model'    => $this->readEnv('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+                'endpoint' => 'https://api.groq.com/openai/v1/chat/completions',
+            ],
+            // Mistral AI — OpenAI-compatible
+            // Endpoint: https://api.mistral.ai/v1/chat/completions
+            // Recommended models: mistral-large-latest, mistral-small-latest,
+            //   mistral-medium-latest, codestral-latest, ministral-8b-latest
+            'mistral' => [
+                'api_key'  => $this->readEnv('MISTRAL_API_KEY'),
+                'model'    => $this->readEnv('MISTRAL_MODEL', 'mistral-large-latest'),
+                'endpoint' => 'https://api.mistral.ai/v1/chat/completions',
             ],
             default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
         };
@@ -148,6 +158,8 @@ class AiGatewayService
                 'ollama'     => $this->callOllama($promptData),
                 'fireworks'  => $this->callFireworks($promptData),
                 'baseten'    => $this->callBaseten($promptData),
+                'groq'       => $this->callGroq($promptData),
+                'mistral'    => $this->callMistral($promptData),
                 default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
             };
 
@@ -317,6 +329,97 @@ class AiGatewayService
             'content' => $data['content'][0]['text'] ?? '',
             'tokens_used' => $data['usage']['input_tokens'] + $data['usage']['output_tokens'],
             'raw' => $data,
+        ];
+    }
+
+    /**
+     * Call Groq API (OpenAI-compatible, ultra-low-latency inference).
+     *
+     * Endpoint: https://api.groq.com/openai/v1/chat/completions
+     * Auth:     Bearer token
+     * Models:   llama-3.3-70b-versatile (default), llama-3.1-8b-instant,
+     *           gemma2-9b-it, mixtral-8x7b-32768
+     *
+     * Groq is OpenAI-API-compatible so we reuse the exact same message
+     * structure and response parsing as callOpenAI().
+     */
+    protected function callGroq(array $promptData): array
+    {
+        $messages = $this->buildMessages($promptData);
+        array_unshift($messages, ['role' => 'system', 'content' => $promptData['system_prompt'] ?? '']);
+
+        $payload = [
+            'model'       => $this->config['model'],
+            'messages'    => $messages,
+            'temperature' => (float) ($promptData['temperature'] ?? 0.7),
+            'max_tokens'  => (int)   ($promptData['max_tokens']  ?? 4096),
+        ];
+
+        // Groq honours OpenAI's response_format flag for JSON mode
+        if (isset($promptData['response_format']) && $promptData['response_format'] === 'json') {
+            $payload['response_format'] = ['type' => 'json_object'];
+        }
+
+        $response = Http::timeout(60)->withHeaders([
+            'Authorization' => 'Bearer ' . $this->config['api_key'],
+            'Content-Type'  => 'application/json',
+        ])->post($this->config['endpoint'], $payload);
+
+        if (!$response->successful()) {
+            throw new \Exception('Groq API error ' . $response->status() . ': ' . $response->body());
+        }
+
+        $data = $response->json();
+
+        return [
+            'content'     => $data['choices'][0]['message']['content'] ?? '',
+            'tokens_used' => $data['usage']['total_tokens'] ?? 0,
+            'raw'         => $data,
+        ];
+    }
+
+    /**
+     * Call Mistral AI API (OpenAI-compatible).
+     *
+     * Endpoint: https://api.mistral.ai/v1/chat/completions
+     * Auth:     Bearer token
+     * Models:   mistral-large-latest (default), mistral-small-latest,
+     *           mistral-medium-latest, codestral-latest, ministral-8b-latest
+     *
+     * Mistral also supports JSON mode via response_format.
+     */
+    protected function callMistral(array $promptData): array
+    {
+        $messages = $this->buildMessages($promptData);
+        array_unshift($messages, ['role' => 'system', 'content' => $promptData['system_prompt'] ?? '']);
+
+        $payload = [
+            'model'       => $this->config['model'],
+            'messages'    => $messages,
+            'temperature' => (float) ($promptData['temperature'] ?? 0.7),
+            'max_tokens'  => (int)   ($promptData['max_tokens']  ?? 4096),
+        ];
+
+        // Mistral honours OpenAI's response_format flag for JSON mode
+        if (isset($promptData['response_format']) && $promptData['response_format'] === 'json') {
+            $payload['response_format'] = ['type' => 'json_object'];
+        }
+
+        $response = Http::timeout(120)->withHeaders([
+            'Authorization' => 'Bearer ' . $this->config['api_key'],
+            'Content-Type'  => 'application/json',
+        ])->post($this->config['endpoint'], $payload);
+
+        if (!$response->successful()) {
+            throw new \Exception('Mistral API error ' . $response->status() . ': ' . $response->body());
+        }
+
+        $data = $response->json();
+
+        return [
+            'content'     => $data['choices'][0]['message']['content'] ?? '',
+            'tokens_used' => $data['usage']['total_tokens'] ?? 0,
+            'raw'         => $data,
         ];
     }
 
