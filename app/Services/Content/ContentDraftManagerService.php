@@ -95,8 +95,12 @@ class ContentDraftManagerService
         $feedback = $draft->metadata['revision_notes'] ?? '';
         $reason = $draft->metadata['revision_reason'] ?? '';
 
-        // Generate new content with feedback
-        $newDraft = $this->contentGenerator->generateForAction($action, $feedback);
+        // Build combined feedback string from reason + notes
+        $feedbackParts = array_filter([$reason, $feedback]);
+        $combinedFeedback = implode('. ', $feedbackParts) ?: 'Please revise and improve the draft.';
+
+        // Generate new content with feedback (null user = system-triggered, skip auth)
+        $newDraft = $this->contentGenerator->generateForAction($action, null, $combinedFeedback);
 
         if ($newDraft) {
             // Mark the new draft as draft (not revision)

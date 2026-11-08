@@ -284,7 +284,7 @@ new class extends Component {
                     @endif
 
                     {{-- Draft header with copy buttons --}}
-                    <div class="flex items-start justify-between gap-3">
+                    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                         <div class="flex-1 min-w-0">
                             {{-- Badges --}}
                             <div class="flex flex-wrap items-center gap-2 mb-3">
@@ -466,16 +466,16 @@ new class extends Component {
                             @endif
                         </div>
 
-                        {{-- Action buttons column --}}
-                        <div class="flex flex-col space-y-2 ml-4 flex-shrink-0">
+                        {{-- Action buttons — full-width on mobile, stacked column on sm+ --}}
+                        <div class="flex flex-row flex-wrap gap-2 sm:flex-col sm:flex-nowrap sm:gap-2 sm:min-w-[160px] sm:flex-shrink-0">
                             @if($draft['status'] === 'draft')
                                 <button wire:click="submitForReview({{ $draft['id'] }})"
                                     wire:confirm="Are you ready to submit this draft for review?"
-                                    class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                                    class="flex-1 sm:flex-none px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-center">
                                     📤 Submit for Review
                                 </button>
                                 <button wire:click="openRevisionModal({{ $draft['id'] }})"
-                                    class="px-4 py-2 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition">
+                                    class="flex-1 sm:flex-none px-4 py-2 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition text-center">
                                     🔄 Request Revisions
                                 </button>
                             @endif
@@ -483,11 +483,11 @@ new class extends Component {
                             @if($draft['status'] === 'review')
                                 <button wire:click="approveDraft({{ $draft['id'] }})"
                                     wire:confirm="Approve this draft?"
-                                    class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+                                    class="flex-1 sm:flex-none px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-center">
                                     ✅ Approve
                                 </button>
                                 <button wire:click="openRevisionModal({{ $draft['id'] }})"
-                                    class="px-4 py-2 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition">
+                                    class="flex-1 sm:flex-none px-4 py-2 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition text-center">
                                     🔄 Request Revisions
                                 </button>
                             @endif
@@ -495,7 +495,7 @@ new class extends Component {
                             @if($draft['status'] === 'revision')
                                 <button wire:click="regenerateDraft({{ $draft['id'] }})"
                                     wire:confirm="Regenerate this draft with your feedback?"
-                                    class="px-4 py-2 text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition">
+                                    class="flex-1 sm:flex-none px-4 py-2 text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition text-center">
                                     🔄 Regenerate with Feedback
                                 </button>
                             @endif
@@ -503,18 +503,18 @@ new class extends Component {
                             @if($draft['status'] === 'approved' && ($draft['can_publish'] ?? false))
                                 <button wire:click="markPublished({{ $draft['id'] }})"
                                     wire:confirm="Have you published this content?"
-                                    class="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
+                                    class="flex-1 sm:flex-none px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-center">
                                     🚀 Mark Published
                                 </button>
                             @endif
 
                             @if($draft['status'] === 'published')
-                                <span class="px-3 py-2 text-sm bg-gray-100 text-gray-600 rounded-lg text-center">
+                                <span class="flex-1 sm:flex-none px-3 py-2 text-sm bg-gray-100 text-gray-600 rounded-lg text-center">
                                     ✅ Published
                                 </span>
                                 @if(!empty($draft['published_url']))
                                     <a href="{{ $draft['published_url'] }}" target="_blank" rel="noopener"
-                                        class="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-center">
+                                        class="flex-1 sm:flex-none px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-center">
                                         🔗 View
                                     </a>
                                 @endif
@@ -522,7 +522,7 @@ new class extends Component {
 
                             @if(!empty($draft['action']))
                                 <a href="{{ route('actions.queue') }}"
-                                    class="px-3 py-1 text-xs text-center bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition">
+                                    class="w-full sm:flex-none px-3 py-1 text-xs text-center bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition">
                                     View in Action Queue →
                                 </a>
                             @endif
@@ -535,8 +535,8 @@ new class extends Component {
 
     {{-- Revision modal --}}
     @if($showRevisionModal)
-        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-            <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+            <div class="bg-white rounded-t-2xl sm:rounded-lg shadow-xl w-full sm:max-w-md p-6">
                 <h3 class="text-lg font-semibold text-gray-900 mb-4">🔄 Request Revisions</h3>
                 <p class="text-sm text-gray-600 mb-4">
                     Provide feedback on what needs to be improved in this draft.

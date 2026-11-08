@@ -50,8 +50,14 @@ class ContentGeneratorService
 
     /**
      * Generate content for an approved action.
+     *
+     * @param  AiAction       $action
+     * @param  User|null      $user             Optional acting user (for auth checks)
+     * @param  string|null    $revisionFeedback When set, this is a regeneration run:
+     *                                          the feedback is injected into the prompt
+     *                                          and the duplicate-draft guard is bypassed.
      */
-    public function generateForAction(AiAction $action, ?User $user = null): ?ContentDraft
+    public function generateForAction(AiAction $action, ?User $user = null, ?string $revisionFeedback = null): ?ContentDraft
     {
         // 🔒 Authorization
         if ($user !== null) {
@@ -112,7 +118,8 @@ class ContentGeneratorService
             return null;
         }
 
-        if (ContentDraft::where('action_id', $action->id)->exists()) {
+        // Skip duplicate guard on revision runs — a new draft intentionally replaces the old one.
+        if ($revisionFeedback === null && ContentDraft::where('action_id', $action->id)->exists()) {
             return ContentDraft::where('action_id', $action->id)->first();
         }
 
@@ -154,10 +161,10 @@ class ContentGeneratorService
         }
 
         // ── Build prompts (now with site profile + knowledge) ──
-        $promptData = $this->buildPrompt($action, $brand, $pageSnapshot, $siteProfile, $knowledge);
+        $promptData = $this->buildPrompt($action, $brand, $pageSnapshot, $siteProfile, $knowledge, $revisionFeedback);
 
         $response = $this->aiGateway->generate([
-            'system_prompt'   => $this->getSystemPrompt($brand, $action->category, $pageSnapshot, $siteProfile, $knowledge, $action),
+            'system_prompt'   => $this->getSystemPrompt($brand, $action->category, $pageSnapshot, $siteProfile, $knowledge, $action, $revisionFeedback),
             'user_prompt'     => json_encode($promptData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES),
             'temperature'     => 0.7,
             'max_tokens'      => 4096,
@@ -375,7 +382,8 @@ class ContentGeneratorService
         Brand $brand,
         ?PageSnapshot $snapshot = null,
         array $siteProfile = [],
-        array $knowledge = []
+        array $knowledge = [],
+        ?string $revisionFeedback = null
     ): array {
         $prompt = [
             'brand' => [
@@ -402,6 +410,16 @@ class ContentGeneratorService
                 'format' => $this->getFormatRequirement($action->category),
             ],
         ];
+
+        // Inject revision feedback so the AI knows exactly what to fix
+        if ($revisionFeedback !== null) {
+            $prompt['revision'] = [
+                'mode'     => true,
+                'feedback' => $revisionFeedback,
+                'instruction' => 'This is a REVISION. Apply the feedback above to the previous version. '
+                    . 'Do NOT start from scratch. Address every point raised in the feedback.',
+            ];
+        }
 
         if ($snapshot) {
             $isRevision = $this->isRevisionAction($action, $snapshot);
@@ -456,13 +474,28 @@ class ContentGeneratorService
         ?PageSnapshot $snapshot = null,
         array $siteProfile = [],
         array $knowledge = [],
-        ?AiAction $action = null
+        ?AiAction $action = null,
+        ?string $revisionFeedback = null
     ): string {
         // KnowledgeBase is the source of truth for brand_voice (that's what the
         // seeder populates); the Brand column is a legacy fallback for brands
         // that predate the KnowledgeBase table.
         $tone = $knowledge['brand_voice'] ?? $brand->brand_voice ?? 'Professional, clear, and compelling';
         $name = $brand->name;
+
+        // Revision preamble — prepended when this is a feedback-driven regeneration
+        $revisionPreamble = '';
+        if ($revisionFeedback !== null) {
+            $escaped = htmlspecialchars($revisionFeedback, ENT_QUOTES, 'UTF-8');
+            $revisionPreamble = <<<REVISION
+⚠️  REVISION MODE — The user rejected the previous draft with this feedback:
+"{$escaped}"
+
+Your ONLY task is to address that feedback. Keep everything that was good; fix only what the feedback calls out.
+Do NOT generate a completely new piece — improve the existing one.
+
+REVISION;
+        }
 
         // Brand context block (used by all content types)
         $business      = $knowledge['business_description'] ?? '';
@@ -519,7 +552,7 @@ BLOCK;
             }
 
             return <<<PROMPT
-{$brandBlock}
+{$revisionPreamble}{$brandBlock}
 
 You are an SEO expert for {$name}.
 
@@ -601,7 +634,7 @@ PROMPT;
         };
 
         return <<<PROMPT
-{$brandBlock}
+{$revisionPreamble}{$brandBlock}
 
 Writing Style: "{$tone}"
 

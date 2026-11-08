@@ -33,7 +33,7 @@
     </div>
 
     <!-- Stats Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 mb-6">
         <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
             <p class="text-sm text-gray-500">Total Drafts</p>
             <p class="text-2xl font-bold text-gray-900">{{ $totalDrafts ?? 0 }}</p>
