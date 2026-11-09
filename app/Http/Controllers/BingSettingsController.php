@@ -123,7 +123,7 @@ class BingSettingsController extends Controller
                 'keyword_gaps'   => array_slice($data['keyword_gaps'] ?? [], 0, 10),
                 'top_queries'    => array_slice($data['search_performance']['queries'] ?? [], 0, 10),
                 'backlinks'      => $data['backlinks'] ?? [],
-                'insights'       => array_slice($data['top_insights'] ?? [], 0, 5),
+                'top_pages'      => array_slice($data['top_insights'] ?? [], 0, 10),
                 'fetched_at'     => $data['fetched_at'] ?? null,
                 'errors'         => $data['errors'] ?? [],
             ]);

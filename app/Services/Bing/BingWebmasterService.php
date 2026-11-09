@@ -250,13 +250,14 @@ class BingWebmasterService
     }
 
     /**
-     * GetTopInsights — Bing's own content insights for the site.
-     * Docs: GET /GetTopInsights?apikey=&siteUrl=
+     * GetTopPages — top pages for the site by clicks/impressions.
+     * Replaces GetTopInsights (returns 404 — endpoint not available on standard API).
+     * Docs: GET /GetPageStats?apikey=&siteUrl=
      */
     private function fetchTopInsights(string $apiKey, string $siteUrl): array
     {
         $response = Http::timeout(15)
-            ->get(self::BASE_URL . '/GetTopInsights', [
+            ->get(self::BASE_URL . '/GetPageStats', [
                 'apikey'  => $apiKey,
                 'siteUrl' => $siteUrl,
             ]);
@@ -265,19 +266,25 @@ class BingWebmasterService
             throw new \RuntimeException("Bing API error {$response->status()}: " . $response->body());
         }
 
-        $data     = $response->json();
-        $insights = [];
+        $data  = $response->json();
+        $pages = [];
 
         foreach ($data['d'] ?? [] as $item) {
-            $insights[] = [
-                'title'       => $item['Title']       ?? '',
-                'description' => $item['Description'] ?? '',
-                'type'        => $item['InsightType']  ?? '',
-                'category'    => $item['Category']     ?? '',
+            $impressions = (int) ($item['Impressions'] ?? 0);
+            $clicks      = (int) ($item['Clicks']      ?? 0);
+            $pages[] = [
+                'url'            => $item['Url']                  ?? '',
+                'impressions'    => $impressions,
+                'clicks'         => $clicks,
+                'click_position' => $item['AvgClickPosition']     ?? 0,
+                'impression_pos' => $item['AvgImpressionPosition'] ?? 0,
             ];
         }
 
-        return $insights;
+        // Sort by clicks descending
+        usort($pages, fn($a, $b) => $b['clicks'] <=> $a['clicks']);
+
+        return array_slice($pages, 0, 20);
     }
 
     /**
@@ -309,17 +316,16 @@ class BingWebmasterService
     /**
      * GetChildrenUrlInfo — lists child pages under the site root.
      *
-     * GetUrlInfo takes a specific individual page URL, not a list endpoint.
-     * GetChildrenUrlInfo takes siteUrl + parentUrl and returns sub-pages.
-     * We use siteUrl as both the site and the parent to get top-level pages.
+     * Requires POST with JSON body (GET returns 405).
+     * Uses siteUrl as the parentUrl to list top-level pages.
      *
-     * Docs: GET /GetChildrenUrlInfo?apikey=&siteUrl=&parentUrl=
+     * Docs: POST /GetChildrenUrlInfo?apikey=  body: { siteUrl, parentUrl }
      */
     private function fetchPages(string $apiKey, string $siteUrl): array
     {
         $response = Http::timeout(15)
-            ->get(self::BASE_URL . '/GetChildrenUrlInfo', [
-                'apikey'    => $apiKey,
+            ->withHeaders(['Content-Type' => 'application/json'])
+            ->post(self::BASE_URL . '/GetChildrenUrlInfo?apikey=' . urlencode($apiKey), [
                 'siteUrl'   => $siteUrl,
                 'parentUrl' => $siteUrl,
             ]);
