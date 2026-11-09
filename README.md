@@ -1,4 +1,4 @@
-# 🧩 Vumbi API – Marketing Operations Platform
+# 🧩 Revora API – Marketing Operations Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Laravel 13](https://img.shields.io/badge/Laravel-13-ff2d20)](https://laravel.com)
