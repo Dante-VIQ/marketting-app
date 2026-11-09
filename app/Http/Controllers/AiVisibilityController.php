@@ -39,7 +39,7 @@ class AiVisibilityController extends Controller
 
     /**
      * Dispatch a new audit job for the active brand.
-     * Rate-limited: one per 24 hours unless superadmin.
+     * Rate-limited: 3× per day (one per 8 hours) unless superadmin.
      */
     public function run(Request $request)
     {
@@ -49,14 +49,14 @@ class AiVisibilityController extends Controller
             return redirect()->route('brands.index');
         }
 
-        // Prevent hammering the AI
+        // Allow up to 3 scans per day — one per 8-hour window
         $recentAudit = AiVisibilityAudit::where('brand_id', $brand->id)
-            ->where('created_at', '>=', now()->subHours(23))
+            ->where('created_at', '>=', now()->subHours(8))
             ->whereIn('status', ['running', 'done'])
             ->first();
 
         if ($recentAudit && !Auth::user()->hasRole('superadmin')) {
-            return back()->with('warning', 'An audit was already run recently. You can run one audit per 24 hours.');
+            return back()->with('warning', 'An audit was already run recently. You can run up to 3 audits per day (one per 8 hours).');
         }
 
         RunAiVisibilityAuditJob::dispatch($brand);

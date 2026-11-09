@@ -95,6 +95,47 @@ class Kernel extends ConsoleKernel
             ->onOneServer();
 
         // ============================================================
+        // PHASE 5b: AI Visibility Scans — 3× per day (morning, afternoon, evening)
+        // Dispatches RunAiVisibilityAuditJob for every active brand.
+        // Times chosen to spread AI load and capture different user-query patterns.
+        // ============================================================
+        $visibilityDispatch = function () {
+            $brands = \App\Models\Brand::where('is_active', true)->get();
+            foreach ($brands as $brand) {
+                try {
+                    \App\Jobs\RunAiVisibilityAuditJob::dispatch($brand);
+                } catch (\Throwable $e) {
+                    Log::error('AI visibility scan dispatch failed', [
+                        'brand_id' => $brand->id,
+                        'error'    => $e->getMessage(),
+                    ]);
+                }
+            }
+            Log::info('AI visibility scans dispatched', ['brand_count' => $brands->count()]);
+        };
+
+        $schedule->call($visibilityDispatch)
+            ->name('ai-visibility-scan-morning')
+            ->dailyAt('07:00')
+            ->environments($allowedEnvironments)
+            ->withoutOverlapping(60)
+            ->onOneServer();
+
+        $schedule->call($visibilityDispatch)
+            ->name('ai-visibility-scan-afternoon')
+            ->dailyAt('13:00')
+            ->environments($allowedEnvironments)
+            ->withoutOverlapping(60)
+            ->onOneServer();
+
+        $schedule->call($visibilityDispatch)
+            ->name('ai-visibility-scan-evening')
+            ->dailyAt('19:00')
+            ->environments($allowedEnvironments)
+            ->withoutOverlapping(60)
+            ->onOneServer();
+
+        // ============================================================
         // PHASE 6: Health Checks (Guardian)
         // ============================================================
         $schedule->job(new \App\Jobs\ProcessAllHealthChecksJob())
