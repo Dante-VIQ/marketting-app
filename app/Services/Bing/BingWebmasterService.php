@@ -170,8 +170,7 @@ class BingWebmasterService
      */
     private function fetchSearchPerformance(string $apiKey, string $siteUrl): array
     {
-        $response = Http::withOptions(['verify' => '/root/.ccr/ca-bundle.crt'])
-            ->timeout(15)
+        $response = Http::timeout(15)
             ->get(self::BASE_URL . '/GetQueryStats', [
                 'apikey'  => $apiKey,
                 'siteUrl' => $siteUrl,
@@ -222,8 +221,7 @@ class BingWebmasterService
         $domain = parse_url($siteUrl, PHP_URL_HOST) ?? $siteUrl;
         $domain = preg_replace('/^www\./', '', $domain);
 
-        $response = Http::withOptions(['verify' => '/root/.ccr/ca-bundle.crt'])
-            ->timeout(15)
+        $response = Http::timeout(15)
             ->get(self::BASE_URL . '/GetRelatedKeywords', [
                 'apikey'   => $apiKey,
                 'siteUrl'  => $siteUrl,
@@ -257,8 +255,7 @@ class BingWebmasterService
      */
     private function fetchTopInsights(string $apiKey, string $siteUrl): array
     {
-        $response = Http::withOptions(['verify' => '/root/.ccr/ca-bundle.crt'])
-            ->timeout(15)
+        $response = Http::timeout(15)
             ->get(self::BASE_URL . '/GetTopInsights', [
                 'apikey'  => $apiKey,
                 'siteUrl' => $siteUrl,
@@ -289,8 +286,7 @@ class BingWebmasterService
      */
     private function fetchBacklinks(string $apiKey, string $siteUrl): array
     {
-        $response = Http::withOptions(['verify' => '/root/.ccr/ca-bundle.crt'])
-            ->timeout(15)
+        $response = Http::timeout(15)
             ->get(self::BASE_URL . '/GetLinkCounts', [
                 'apikey'  => $apiKey,
                 'siteUrl' => $siteUrl,
@@ -321,8 +317,7 @@ class BingWebmasterService
      */
     private function fetchPages(string $apiKey, string $siteUrl): array
     {
-        $response = Http::withOptions(['verify' => '/root/.ccr/ca-bundle.crt'])
-            ->timeout(15)
+        $response = Http::timeout(15)
             ->get(self::BASE_URL . '/GetChildrenUrlInfo', [
                 'apikey'    => $apiKey,
                 'siteUrl'   => $siteUrl,
