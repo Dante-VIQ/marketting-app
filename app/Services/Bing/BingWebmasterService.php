@@ -159,21 +159,22 @@ class BingWebmasterService
     // ─── Private: individual API calls ───────────────────────────────────────
 
     /**
-     * GetQueryStats — search performance for the site over the last 30 days.
-     * Docs: GET /GetQueryStats?apikey=&siteUrl=&startDate=&endDate=&timegrain=Monthly
+     * GetQueryStats — search performance for the site (all available history).
+     *
+     * Note: The Bing API does NOT accept date range parameters — only siteUrl.
+     * Data is returned in weekly buckets (Saturday = 7 days ending prior Friday).
+     * Response fields: Query, Impressions, Clicks, AvgClickPosition, AvgImpressionPosition, Date.
+     * CTR is not returned directly — computed as Clicks / Impressions.
+     *
+     * Docs: GET /GetQueryStats?apikey=&siteUrl=
      */
     private function fetchSearchPerformance(string $apiKey, string $siteUrl): array
     {
-        $endDate   = now()->format('Y-m-d');
-        $startDate = now()->subDays(30)->format('Y-m-d');
-
         $response = Http::withOptions(['verify' => '/root/.ccr/ca-bundle.crt'])
             ->timeout(15)
             ->get(self::BASE_URL . '/GetQueryStats', [
-                'apikey'    => $apiKey,
-                'siteUrl'   => $siteUrl,
-                'startDate' => $startDate,
-                'endDate'   => $endDate,
+                'apikey'  => $apiKey,
+                'siteUrl' => $siteUrl,
             ]);
 
         if (!$response->successful()) {
@@ -185,12 +186,19 @@ class BingWebmasterService
         $queries = [];
 
         foreach ($data['d'] ?? [] as $row) {
+            $impressions = (int) ($row['Impressions'] ?? 0);
+            $clicks      = (int) ($row['Clicks']      ?? 0);
+            // CTR not returned by API — compute it; guard against division by zero
+            $ctr = $impressions > 0 ? $clicks / $impressions : 0.0;
+
             $queries[] = [
-                'query'       => $row['Query']       ?? '',
-                'impressions' => $row['Impressions']  ?? 0,
-                'clicks'      => $row['Clicks']       ?? 0,
-                'position'    => $row['AvgPosition']  ?? 0,
-                'ctr'         => $row['Ctr']          ?? 0,
+                'query'          => $row['Query']                ?? '',
+                'impressions'    => $impressions,
+                'clicks'         => $clicks,
+                'click_position' => $row['AvgClickPosition']     ?? 0,  // avg position of clicks
+                'impression_pos' => $row['AvgImpressionPosition'] ?? 0, // avg position of impressions
+                'ctr'            => $ctr,
+                'date'           => $row['Date']                 ?? null,
             ];
         }
 
@@ -198,15 +206,15 @@ class BingWebmasterService
         usort($queries, fn($a, $b) => $b['impressions'] <=> $a['impressions']);
 
         return [
-            'period'     => "{$startDate} to {$endDate}",
             'queries'    => $queries,
             'total_rows' => count($queries),
         ];
     }
 
     /**
-     * GetRelatedKeywords — keyword suggestions for the site's main topics.
-     * Docs: GET /GetRelatedKeywords?apikey=&query=&country=&language=
+     * GetRelatedKeywords — keyword suggestions related to a seed query.
+     * Docs: GET /GetRelatedKeywords?apikey=&siteUrl=&query=
+     * Uses the bare domain as the seed query.
      */
     private function fetchKeywordResearch(string $apiKey, string $siteUrl): array
     {
@@ -218,9 +226,8 @@ class BingWebmasterService
             ->timeout(15)
             ->get(self::BASE_URL . '/GetRelatedKeywords', [
                 'apikey'   => $apiKey,
+                'siteUrl'  => $siteUrl,
                 'query'    => $domain,
-                'country'  => 'US',
-                'language' => 'en',
             ]);
 
         if (!$response->successful()) {
@@ -304,32 +311,42 @@ class BingWebmasterService
     }
 
     /**
-     * GetUrlInfo — pages and indexing status.
-     * Docs: GET /GetUrlInfo?apikey=&siteUrl=&page=0
+     * GetChildrenUrlInfo — lists child pages under the site root.
+     *
+     * GetUrlInfo takes a specific individual page URL, not a list endpoint.
+     * GetChildrenUrlInfo takes siteUrl + parentUrl and returns sub-pages.
+     * We use siteUrl as both the site and the parent to get top-level pages.
+     *
+     * Docs: GET /GetChildrenUrlInfo?apikey=&siteUrl=&parentUrl=
      */
     private function fetchPages(string $apiKey, string $siteUrl): array
     {
         $response = Http::withOptions(['verify' => '/root/.ccr/ca-bundle.crt'])
             ->timeout(15)
-            ->get(self::BASE_URL . '/GetUrlInfo', [
-                'apikey'  => $apiKey,
-                'siteUrl' => $siteUrl,
-                'page'    => 0,
+            ->get(self::BASE_URL . '/GetChildrenUrlInfo', [
+                'apikey'    => $apiKey,
+                'siteUrl'   => $siteUrl,
+                'parentUrl' => $siteUrl,
             ]);
 
         if (!$response->successful()) {
+            Log::debug('BingWebmaster pages raw', ['status' => $response->status(), 'body' => $response->body()]);
             throw new \RuntimeException("Bing API error {$response->status()}: " . $response->body());
         }
 
         $data  = $response->json();
         $pages = [];
 
-        foreach ($data['d'] ?? [] as $row) {
+        // Response structure is undocumented — handle both array-of-objects and direct fields
+        $rows = $data['d'] ?? (is_array($data) ? $data : []);
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) continue;
             $pages[] = [
-                'url'           => $row['Url']              ?? '',
-                'indexed'       => $row['IsIndexed']        ?? false,
-                'last_crawled'  => $row['LastCrawledTime']  ?? null,
-                'http_code'     => $row['HttpCode']         ?? null,
+                'url'          => $row['Url']             ?? $row['url']           ?? '',
+                'indexed'      => $row['IsIndexed']       ?? $row['isIndexed']     ?? null,
+                'last_crawled' => $row['LastCrawledTime'] ?? $row['lastCrawled']   ?? null,
+                'http_code'    => $row['HttpCode']        ?? $row['httpStatusCode'] ?? null,
             ];
         }
 
@@ -354,12 +371,16 @@ class BingWebmasterService
         $gaps    = [];
 
         foreach ($queries as $q) {
-            $impressions = (int)   ($q['impressions'] ?? 0);
-            $position    = (float) ($q['position']    ?? 0);
-            $clicks      = (int)   ($q['clicks']      ?? 0);
+            $impressions = (int)   ($q['impressions']    ?? 0);
+            // Bing returns AvgImpressionPosition (where the query appeared) and
+            // AvgClickPosition (position of results that got clicks). Use impression
+            // position for ranking analysis — it reflects overall visibility.
+            $position    = (float) ($q['impression_pos'] ?? $q['click_position'] ?? 0);
+            $clicks      = (int)   ($q['clicks']         ?? 0);
+            $ctr         = (float) ($q['ctr']            ?? 0); // already computed as clicks/impressions
             $query       = trim($q['query'] ?? '');
 
-            if (!$query || $impressions < 10) {
+            if (!$query || $impressions < 10 || $position <= 0) {
                 continue;
             }
 
@@ -367,7 +388,7 @@ class BingWebmasterService
             // - Ranking 6–30 (visible but not competitive) with decent impressions, OR
             // - Ranking 1–5 but very low CTR (< 2%) suggesting title/meta mismatch
             $isLowRankHighImpression = $position > 5 && $position <= 30 && $impressions >= 50;
-            $isHighImpLowCtr         = $position <= 5 && ($q['ctr'] ?? 0) < 0.02 && $impressions >= 100;
+            $isHighImpLowCtr         = $position <= 5 && $ctr < 0.02 && $impressions >= 100;
 
             if ($isLowRankHighImpression || $isHighImpLowCtr) {
                 $gaps[] = [
@@ -375,7 +396,7 @@ class BingWebmasterService
                     'impressions' => $impressions,
                     'position'    => round($position, 1),
                     'clicks'      => $clicks,
-                    'ctr'         => round(($q['ctr'] ?? 0) * 100, 2),
+                    'ctr'         => round($ctr * 100, 2), // as percentage
                     'gap_type'    => $isHighImpLowCtr ? 'ctr_mismatch' : 'ranking_gap',
                     'opportunity' => $this->scoreOpportunity($impressions, $position),
                 ];
