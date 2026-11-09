@@ -89,37 +89,47 @@ class ContentGeneratorService
             return null;
         }
 
-        // 🔒 Content policy: rate limits + blocked topics + output validation
-        $policyCheck = $this->contentPolicy->canGenerate(
-            $brand,
-            $action->title ?? '',
-            $action->category ?? 'blog'
-        );
-        if (!$policyCheck['allowed']) {
-            Log::warning('Content generation denied by service policy', [
-                'action_id' => $action->id,
-                'reason'    => $policyCheck['reason'],
-            ]);
-            return null;
+        $isRevision = $revisionFeedback !== null;
+
+        // 🔒 Content policy: rate limits + blocked topics + output validation.
+        // Skipped on revision runs — the content was already approved once; we
+        // shouldn't let a rate-limit or cooldown block the user's explicit retry.
+        if (!$isRevision) {
+            $policyCheck = $this->contentPolicy->canGenerate(
+                $brand,
+                $action->title ?? '',
+                $action->category ?? 'blog'
+            );
+            if (!$policyCheck['allowed']) {
+                Log::warning('Content generation denied by service policy', [
+                    'action_id' => $action->id,
+                    'reason'    => $policyCheck['reason'],
+                ]);
+                return null;
+            }
         }
 
         // 🔒 Pre-flight guard: deterministic checks before the AI is invoked.
         // Catches duplicates, platform caps, and schedule conflicts without
         // spending an AI call to discover them.
+        // Skipped on revision runs — cooldowns and daily caps must not block
+        // an explicit human-triggered revision of content already in the pipeline.
         $platform = $action->target_platform ?? '';
         $topic    = $action->target_keyword ?: $action->title ?: '';
-        $guardResult = $this->aiCallGuard->checkDraft($brand, $topic, $platform);
-        if (!$guardResult['allowed']) {
-            Log::info('Content generation skipped by pre-flight guard', [
-                'action_id' => $action->id,
-                'code'      => $guardResult['code'],
-                'reason'    => $guardResult['reason'],
-            ]);
-            return null;
+        if (!$isRevision) {
+            $guardResult = $this->aiCallGuard->checkDraft($brand, $topic, $platform);
+            if (!$guardResult['allowed']) {
+                Log::info('Content generation skipped by pre-flight guard', [
+                    'action_id' => $action->id,
+                    'code'      => $guardResult['code'],
+                    'reason'    => $guardResult['reason'],
+                ]);
+                return null;
+            }
         }
 
-        // Skip duplicate guard on revision runs — a new draft intentionally replaces the old one.
-        if ($revisionFeedback === null && ContentDraft::where('action_id', $action->id)->exists()) {
+        // Skip duplicate-draft guard on revision runs — a new draft intentionally replaces the old one.
+        if (!$isRevision && ContentDraft::where('action_id', $action->id)->exists()) {
             return ContentDraft::where('action_id', $action->id)->first();
         }
 
@@ -133,16 +143,20 @@ class ContentGeneratorService
         $siteProfile = $this->siteProfileService->build($brand->id);
 
         // ── On-brand pre-check ──
+        // Skipped on revision runs — the action was already created and approved;
+        // blocking a human-requested revision on a keyword-pattern match is incorrect.
         $topic = $action->target_keyword ?: $action->title ?: '';
-        $onBrand = $this->isOnBrand($topic, $knowledge, $siteProfile);
+        if (!$isRevision) {
+            $onBrand = $this->isOnBrand($topic, $knowledge, $siteProfile);
 
-        if (!$onBrand['ok']) {
-            Log::warning('ContentGenerator: Off-brand topic rejected before generation', [
-                'action_id' => $action->id,
-                'topic'     => $topic,
-                'reason'    => $onBrand['reason'],
-            ]);
-            return null;
+            if (!$onBrand['ok']) {
+                Log::warning('ContentGenerator: Off-brand topic rejected before generation', [
+                    'action_id' => $action->id,
+                    'topic'     => $topic,
+                    'reason'    => $onBrand['reason'],
+                ]);
+                return null;
+            }
         }
 
         // ── Page snapshot (if a target URL exists) ──
