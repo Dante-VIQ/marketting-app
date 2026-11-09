@@ -103,14 +103,23 @@ class BingSettingsController extends Controller
         $settings   = $brand->settings ?? [];
         $hasApiKey  = !empty($settings['bing_api_key']);
 
+        // Even without an API key, imported CSVs can still power the dashboard
+        $importedQueries = $this->importedKeywordQueries($brand);
+        $importedGaps    = $this->importedKeywordGaps($brand);
+        $hasImports      = !empty($importedQueries);
+
         if (!$hasApiKey) {
             return response()->json([
-                'has_api_key'    => false,
-                'has_data'       => false,
-                'keyword_gaps'   => [],
-                'top_queries'    => [],
-                'fetched_at'     => null,
-                'errors'         => [],
+                'has_api_key'   => false,
+                'has_data'      => $hasImports,
+                'keyword_gaps'  => array_slice($importedGaps, 0, 20),
+                'top_queries'   => array_slice($importedQueries, 0, 20),
+                'backlinks'     => [],
+                'top_pages'     => [],
+                'fetched_at'    => null,
+                'errors'        => [],
+                'has_imports'   => $hasImports,
+                'import_counts' => $this->importCounts($brand),
             ]);
         }
 
@@ -121,9 +130,7 @@ class BingSettingsController extends Controller
             $liveQueries = $data['search_performance']['queries'] ?? [];
             $liveGaps    = $data['keyword_gaps'] ?? [];
 
-            // Pull imported keyword report data (fallback when no live API data)
-            $importedQueries = $this->importedKeywordQueries($brand);
-            $importedGaps    = $this->importedKeywordGaps($brand);
+            // $importedQueries / $importedGaps / $hasImports already computed above
 
             // Merge: live data takes precedence; imports fill the gap when API returns nothing
             $topQueries = !empty($liveQueries)
@@ -170,7 +177,7 @@ class BingSettingsController extends Controller
         $this->authoriseBrand($brand);
 
         $request->validate([
-            'type' => 'required|in:keyword_report,topic_portfolio,ai_performance,citations',
+            'type' => 'required|in:keyword_report,search_performance,topic_portfolio,ai_performance,citations',
             'file' => 'required|file|mimes:csv,txt|max:5120', // 5MB max
         ]);
 
@@ -185,12 +192,16 @@ class BingSettingsController extends Controller
                 return response()->json(['success' => false, 'message' => 'CSV file is empty.'], 422);
             }
 
+            // Detect column names from the first row for diagnostics
+            $detectedColumns = !empty($csv) ? array_keys($csv[0]) : [];
+
             // Store in brand settings — keyed by type with timestamp
             $settings = $brand->settings ?? [];
             $settings['bing_imports'][$type] = [
-                'imported_at' => now()->toIso8601String(),
-                'row_count'   => $rows,
-                'data'        => array_slice($csv, 0, 500), // cap at 500 rows for storage
+                'imported_at'      => now()->toIso8601String(),
+                'row_count'        => $rows,
+                'detected_columns' => $detectedColumns,
+                'data'             => array_slice($csv, 0, 500), // cap at 500 rows for storage
             ];
             $brand->settings = $settings;
             $brand->save();
@@ -212,59 +223,123 @@ class BingSettingsController extends Controller
         }
     }
 
+    // ─── Import data readers ─────────────────────────────────────────────────
+
     /**
-     * Build query rows from an imported keyword report CSV.
+     * Extract query rows from ALL imported CSVs that contain keyword/query data.
      *
-     * Bing keyword report columns: Keyword, Impressions, Clicks, CTR, Avg. Position
-     * We normalise these into the same shape as live API query rows so the
-     * blade template can display them identically.
+     * Bing exports different CSV types, each with different column names.
+     * We use auto-detection: resolve() maps the actual column headers found in
+     * the CSV to our internal field names, so any Bing export format works
+     * regardless of minor column name differences between report versions.
+     *
+     * Types that contribute to query display:
+     *   keyword_report    — Keyword, Impressions, Clicks, CTR, Avg. Position
+     *   search_performance — Query, Impressions, Clicks, CTR, Avg. Position (same shape)
+     *   ai_performance    — Query/Keyword, Impressions, Citations, CTR, Avg. Position
+     *   topic_portfolio   — Topic/Keyword, Impressions, Citations, Opportunity queries
+     *   citations         — URL/Page, Impressions, Citations — contributes page info, not queries
      */
     private function importedKeywordQueries(Brand $brand): array
     {
-        $rows = ($brand->settings['bing_imports']['topic_portfolio']['data'] ?? [])
-            ?: ($brand->settings['bing_imports']['ai_performance']['data']  ?? [])
-            ?: [];
-
-        // Keyword report import (the primary CSV Bing exports)
-        $kwRows = $brand->settings['bing_imports']['keyword_report']['data'] ?? [];
-        if (!empty($kwRows)) {
-            $rows = array_merge($kwRows, $rows);
-        }
-
+        $imports = $brand->settings['bing_imports'] ?? [];
         $queries = [];
-        foreach ($rows as $row) {
-            // Handle both "Keyword" (Bing keyword report) and "Query" column names
-            $keyword = $row['Keyword'] ?? $row['Query'] ?? null;
-            if (!$keyword) continue;
 
-            $impressions = (int) str_replace(',', '', $row['Impressions'] ?? 0);
-            $clicks      = (int) str_replace(',', '', $row['Clicks']      ?? 0);
-            // CTR may be "5.26%" — strip the % sign
-            $ctrRaw  = str_replace('%', '', $row['CTR'] ?? '0');
-            $ctr     = (float) $ctrRaw / 100; // as a decimal (e.g. 0.0526)
-            $avgPos  = (float) ($row['Avg. Position'] ?? $row['AvgPosition'] ?? 0);
+        // Types that have a keyword/query column worth showing in Real Queries
+        $queryTypes = ['keyword_report', 'search_performance', 'ai_performance', 'topic_portfolio'];
 
-            $queries[] = [
-                'query'          => trim($keyword),
-                'impressions'    => $impressions,
-                'clicks'         => $clicks,
-                'click_position' => $avgPos,
-                'impression_pos' => $avgPos,
-                'ctr'            => $ctr,
-                'date'           => null,
-                'source'         => 'imported', // flag for blade
-            ];
+        foreach ($queryTypes as $type) {
+            $rows = $imports[$type]['data'] ?? [];
+            if (empty($rows)) continue;
+
+            foreach ($rows as $row) {
+                $normalized = $this->normalizeRow($row);
+                $keyword = $normalized['query'] ?? null;
+                if (!$keyword) continue;
+
+                $queries[] = [
+                    'query'          => $keyword,
+                    'impressions'    => $normalized['impressions'],
+                    'clicks'         => $normalized['clicks'],
+                    'click_position' => $normalized['position'],
+                    'impression_pos' => $normalized['position'],
+                    'ctr'            => $normalized['ctr'],
+                    'citations'      => $normalized['citations'],
+                    'date'           => null,
+                    'source'         => 'imported',
+                    'source_type'    => $type,
+                ];
+            }
         }
 
-        // Sort by impressions descending
-        usort($queries, fn($a, $b) => $b['impressions'] <=> $a['impressions']);
+        // De-duplicate by query string — keep the row with highest impressions
+        $deduped = [];
+        foreach ($queries as $q) {
+            $key = strtolower(trim($q['query']));
+            if (!isset($deduped[$key]) || $q['impressions'] > $deduped[$key]['impressions']) {
+                $deduped[$key] = $q;
+            }
+        }
 
-        return $queries;
+        $result = array_values($deduped);
+        usort($result, fn($a, $b) => $b['impressions'] <=> $a['impressions']);
+
+        return $result;
     }
 
     /**
-     * Derive keyword gaps from imported query data using the same logic
-     * as BingWebmasterService::deriveKeywordGaps().
+     * Auto-detect and normalise a CSV row from any Bing export format.
+     *
+     * Bing uses different column names across report types and sometimes adds
+     * trailing spaces or uses title-case vs sentence-case. We resolve each
+     * field by trying a list of known aliases, case-insensitively.
+     */
+    private function normalizeRow(array $row): array
+    {
+        // Build a lowercase key map so lookups are case-insensitive
+        $lc = [];
+        foreach ($row as $k => $v) {
+            $lc[strtolower(trim($k))] = trim((string) $v);
+        }
+
+        $resolve = function (array $aliases) use ($lc): string {
+            foreach ($aliases as $alias) {
+                $val = $lc[strtolower($alias)] ?? null;
+                if ($val !== null && $val !== '') return $val;
+            }
+            return '';
+        };
+
+        $parseNum = fn(string $v): float => (float) str_replace([',', '%', ' '], '', $v);
+
+        // Field aliases — ordered by most common first
+        $queryVal  = $resolve(['keyword', 'query', 'topic', 'search query', 'search term', 'term', 'phrase']);
+        $impVal    = $resolve(['impressions', 'impression', 'ai impressions', 'total impressions']);
+        $clicksVal = $resolve(['clicks', 'click', 'total clicks']);
+        $ctrVal    = $resolve(['ctr', 'click through rate', 'clickthrough rate']);
+        $posVal    = $resolve(['avg. position', 'avg position', 'average position', 'position', 'avg. rank', 'rank']);
+        $citVal    = $resolve(['citations', 'citation', 'ai citations', 'cited', 'citation count']);
+
+        // CTR: Bing exports it as "5.26%" — normalise to decimal
+        $ctrRaw = $parseNum($ctrVal);
+        // If value is > 1, it was stored as percentage (e.g. 5.26 means 5.26%) — convert
+        $ctr = $ctrRaw > 1 ? $ctrRaw / 100 : $ctrRaw;
+
+        return [
+            'query'       => $queryVal,
+            'impressions' => (int) $parseNum($impVal),
+            'clicks'      => (int) $parseNum($clicksVal),
+            'ctr'         => $ctr,
+            'position'    => (float) $parseNum($posVal),
+            'citations'   => (int) $parseNum($citVal),
+        ];
+    }
+
+    /**
+     * Derive keyword gaps from imported query data.
+     * Uses same thresholds as BingWebmasterService::deriveKeywordGaps().
+     * Lowered impression threshold to 5 for imported data (Bing exports are
+     * often small-volume sites where 50 impressions is rare).
      */
     private function importedKeywordGaps(Brand $brand): array
     {
@@ -278,12 +353,14 @@ class BingSettingsController extends Controller
             $ctr         = (float) $q['ctr'];
             $query       = trim($q['query']);
 
-            if (!$query || $impressions < 10 || $position <= 0) {
+            if (!$query || $impressions < 3 || $position <= 0) {
                 continue;
             }
 
-            $isLowRankHighImpression = $position > 5 && $position <= 30 && $impressions >= 50;
-            $isHighImpLowCtr         = $position <= 5 && $ctr < 0.02 && $impressions >= 100;
+            // Ranking gap: visible (position 6–30) but not on first page
+            $isLowRankHighImpression = $position > 5 && $position <= 30 && $impressions >= 5;
+            // CTR gap: ranking well but very few clicks — title/meta mismatch
+            $isHighImpLowCtr = $position <= 5 && $ctr < 0.02 && $impressions >= 10;
 
             if ($isLowRankHighImpression || $isHighImpLowCtr) {
                 $gaps[] = [
@@ -293,8 +370,9 @@ class BingSettingsController extends Controller
                     'clicks'      => $clicks,
                     'ctr'         => round($ctr * 100, 2),
                     'gap_type'    => $isHighImpLowCtr ? 'ctr_mismatch' : 'ranking_gap',
-                    'opportunity' => min(100, (int) (min(50, $impressions / 10) + min(50, $position * 1.5))),
+                    'opportunity' => min(100, (int) (min(50, $impressions * 2) + min(50, $position * 1.5))),
                     'source'      => 'imported',
+                    'source_type' => $q['source_type'] ?? 'imported',
                 ];
             }
         }
@@ -312,11 +390,13 @@ class BingSettingsController extends Controller
         $imports = $brand->settings['bing_imports'] ?? [];
         $summary = [];
 
-        foreach (['keyword_report', 'topic_portfolio', 'ai_performance', 'citations'] as $type) {
+        $allTypes = ['keyword_report', 'search_performance', 'topic_portfolio', 'ai_performance', 'citations'];
+        foreach ($allTypes as $type) {
             if (!empty($imports[$type])) {
                 $summary[$type] = [
                     'row_count'   => $imports[$type]['row_count']   ?? 0,
                     'imported_at' => $imports[$type]['imported_at'] ?? null,
+                    'columns'     => $imports[$type]['detected_columns'] ?? [],
                 ];
             }
         }

@@ -148,17 +148,24 @@
 
         {{-- Imported data summary --}}
         <template x-if="status.has_imports">
-            <div class="p-3 rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50 dark:bg-blue-950/30">
-                <p class="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1.5">Imported data active:</p>
+            <div class="p-3 rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50 dark:bg-blue-950/30 space-y-1.5">
+                <p class="text-xs font-semibold text-blue-700 dark:text-blue-300">Imported CSV data active:</p>
                 <template x-for="[type, info] in Object.entries(status.import_counts || {})" :key="type">
-                    <p class="text-xs text-blue-600 dark:text-blue-400">
-                        <span class="font-medium capitalize" x-text="type.replace('_', ' ')"></span>:
-                        <span x-text="info.row_count + ' rows'"></span>
-                        <span class="text-blue-400 dark:text-blue-500" x-text="info.imported_at ? '— ' + new Date(info.imported_at).toLocaleDateString() : ''"></span>
-                    </p>
+                    <div>
+                        <p class="text-xs text-blue-600 dark:text-blue-400">
+                            <span class="font-medium capitalize" x-text="type.replace(/_/g, ' ')"></span>:
+                            <span x-text="info.row_count + ' rows'"></span>
+                            <span class="text-blue-400 dark:text-blue-500" x-text="info.imported_at ? ' — ' + new Date(info.imported_at).toLocaleDateString() : ''"></span>
+                        </p>
+                        <p x-show="info.columns && info.columns.length > 0"
+                            class="text-[10px] text-blue-400 dark:text-blue-500 font-mono truncate"
+                            x-text="'Columns: ' + (info.columns || []).join(', ')">
+                        </p>
+                    </div>
                 </template>
-                <p class="text-xs text-blue-500 dark:text-blue-500 mt-1.5">
-                    Imported data shows in Keyword Gaps and Real Queries tabs when no live API data is available.
+                <p class="text-xs text-blue-500 dark:text-blue-500 pt-1 border-t border-blue-200 dark:border-blue-800/40">
+                    Imported rows appear in Keyword Gaps and Real Queries tabs, marked with a CSV badge.
+                    Live API data takes precedence when both are available.
                 </p>
             </div>
         </template>
@@ -271,13 +278,14 @@
                             <th class="text-left px-3 py-2.5 font-semibold text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700/60">Query</th>
                             <th class="text-right px-3 py-2.5 font-semibold text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700/60">Impressions</th>
                             <th class="text-right px-3 py-2.5 font-semibold text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700/60">Clicks</th>
+                            <th class="text-right px-3 py-2.5 font-semibold text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700/60">Citations</th>
                             <th class="text-right px-3 py-2.5 font-semibold text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700/60">Position</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 dark:divide-slate-700/40">
                         <template x-for="q in status.top_queries" :key="q.query">
                             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                                <td class="px-3 py-2.5 max-w-[240px]">
+                                <td class="px-3 py-2.5 max-w-[200px]">
                                     <div class="flex items-center gap-1.5">
                                         <span class="text-slate-800 dark:text-slate-200 font-medium truncate" x-text="q.query"></span>
                                         <span x-show="q.source === 'imported'" x-cloak
@@ -287,9 +295,14 @@
                                     </div>
                                 </td>
                                 <td class="px-3 py-2.5 text-right text-slate-600 dark:text-slate-400 tabular-nums" x-text="q.impressions.toLocaleString()"></td>
-                                <td class="px-3 py-2.5 text-right text-slate-600 dark:text-slate-400 tabular-nums" x-text="q.clicks"></td>
+                                <td class="px-3 py-2.5 text-right text-slate-600 dark:text-slate-400 tabular-nums" x-text="q.clicks || '—'"></td>
                                 <td class="px-3 py-2.5 text-right tabular-nums">
-                                    <span class="font-medium text-slate-700 dark:text-slate-300" x-text="q.impression_pos ?? q.click_position ?? '—'"></span>
+                                    <span x-show="q.citations > 0" class="font-medium text-purple-600 dark:text-purple-400" x-text="q.citations"></span>
+                                    <span x-show="!q.citations" class="text-slate-400 dark:text-slate-600">—</span>
+                                </td>
+                                <td class="px-3 py-2.5 text-right tabular-nums">
+                                    <span class="font-medium text-slate-700 dark:text-slate-300"
+                                        x-text="(q.impression_pos || q.click_position) ? (q.impression_pos || q.click_position) : '—'"></span>
                                 </td>
                             </tr>
                         </template>
@@ -311,10 +324,11 @@
             </p>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 @foreach([
-                    ['keyword_report',  'Keyword Report',  'Bing keyword rankings CSV (Keyword, Impressions, Clicks, CTR, Avg. Position)'],
-                    ['topic_portfolio', 'Topic Portfolio', 'Topic clusters Bing sees your site covering'],
-                    ['ai_performance',  'AI Performance',  'Bing AI citation and visibility analytics'],
-                    ['citations',       'Citations',       'Pages Bing AI cites in its answers'],
+                    ['keyword_report',    'Keyword Report',    'Keyword rankings — Keyword, Impressions, Clicks, CTR, Avg. Position'],
+                    ['search_performance','Search Performance', 'Search performance report — Query, Impressions, Clicks, CTR, Position'],
+                    ['ai_performance',    'AI Performance',    'Bing AI citations — Query/Keyword, Impressions, Citations, CTR'],
+                    ['topic_portfolio',   'Topic Portfolio',   'AI topic clusters Bing sees your site covering'],
+                    ['citations',         'Citations',         'Pages Bing AI cites in its answers for your queries'],
                 ] as [$val, $title, $desc])
                 <div class="p-3 rounded-lg border border-slate-200 dark:border-slate-700/60 bg-slate-50 dark:bg-slate-800/50">
                     <p class="text-xs font-semibold text-slate-700 dark:text-slate-200">{{ $title }}</p>
@@ -340,9 +354,10 @@
                         border border-slate-300 dark:border-slate-600
                         text-slate-900 dark:text-slate-100
                         focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-orange-500">
-                    <option value="keyword_report">Keyword Report (rankings CSV)</option>
-                    <option value="topic_portfolio">Topic Portfolio</option>
+                    <option value="keyword_report">Keyword Report</option>
+                    <option value="search_performance">Search Performance</option>
                     <option value="ai_performance">AI Performance</option>
+                    <option value="topic_portfolio">Topic Portfolio</option>
                     <option value="citations">Citations</option>
                 </select>
             </div>
