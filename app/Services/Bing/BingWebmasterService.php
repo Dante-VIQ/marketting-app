@@ -100,12 +100,11 @@ class BingWebmasterService
             'keyword_research'   => [],
             'top_insights'       => [],
             'backlinks'          => [],
-            'pages'              => [],
             'keyword_gaps'       => [],
             'errors'             => [],
         ];
 
-        // ── 1. Search Performance (last 30 days) ──────────────────────────
+        // ── 1. Search Performance ─────────────────────────────────────────
         try {
             $perf = $this->fetchSearchPerformance($apiKey, $siteUrl);
             $results['search_performance'] = $perf;
@@ -123,7 +122,7 @@ class BingWebmasterService
             Log::warning('BingWebmaster: keyword_research failed', ['brand_id' => $brand->id, 'error' => $e->getMessage()]);
         }
 
-        // ── 3. Top Insights ───────────────────────────────────────────────
+        // ── 3. Top Pages (GetPageStats) ───────────────────────────────────
         try {
             $insights = $this->fetchTopInsights($apiKey, $siteUrl);
             $results['top_insights'] = $insights;
@@ -141,16 +140,13 @@ class BingWebmasterService
             Log::warning('BingWebmaster: backlinks failed', ['brand_id' => $brand->id, 'error' => $e->getMessage()]);
         }
 
-        // ── 5. Pages & Indexing ───────────────────────────────────────────
-        try {
-            $pages = $this->fetchPages($apiKey, $siteUrl);
-            $results['pages'] = $pages;
-        } catch (\Throwable $e) {
-            $results['errors']['pages'] = $e->getMessage();
-            Log::warning('BingWebmaster: pages failed', ['brand_id' => $brand->id, 'error' => $e->getMessage()]);
-        }
+        // NOTE: GetUrlTrafficInfo and GetChildrenUrlInfo both return
+        // ErrorCode 7 (SiteUriSchemeIsNotSupported) for most sites.
+        // The pages endpoint has been removed — search performance,
+        // keyword gaps, top pages (GetPageStats) and backlinks cover
+        // all content-planning needs without it.
 
-        // ── 6. Derive keyword gaps from search performance ─────────────────
+        // ── 5. Derive keyword gaps from search performance ─────────────────
         $results['keyword_gaps'] = $this->deriveKeywordGaps($results['search_performance']);
 
         return $results;
@@ -313,53 +309,6 @@ class BingWebmasterService
         ];
     }
 
-    /**
-     * GetUrlTrafficInfo — traffic info for the site's top URLs.
-     *
-     * GetChildrenUrlInfo returns 400 SiteUriSchemeIsNotSupported for many sites.
-     * GetUrlTrafficInfo is a simpler endpoint that lists URL-level traffic data
-     * using only the siteUrl as a GET parameter.
-     *
-     * Docs: GET /GetUrlTrafficInfo?apikey=&siteUrl=
-     */
-    private function fetchPages(string $apiKey, string $siteUrl): array
-    {
-        $response = Http::timeout(15)
-            ->get(self::BASE_URL . '/GetUrlTrafficInfo', [
-                'apikey'  => $apiKey,
-                'siteUrl' => $siteUrl,
-            ]);
-
-        if (!$response->successful()) {
-            Log::debug('BingWebmaster pages raw', ['status' => $response->status(), 'body' => $response->body()]);
-            throw new \RuntimeException("Bing API error {$response->status()}: " . $response->body());
-        }
-
-        $data  = $response->json();
-        $pages = [];
-
-        $rows = $data['d'] ?? [];
-
-        foreach ($rows as $row) {
-            if (!is_array($row)) continue;
-            $impressions = (int) ($row['Impressions'] ?? 0);
-            $clicks      = (int) ($row['Clicks']      ?? 0);
-            $pages[] = [
-                'url'         => $row['Url']   ?? '',
-                'impressions' => $impressions,
-                'clicks'      => $clicks,
-                'ctr'         => $impressions > 0 ? round($clicks / $impressions * 100, 2) : 0,
-            ];
-        }
-
-        usort($pages, fn($a, $b) => $b['clicks'] <=> $a['clicks']);
-
-        return [
-            'pages'      => $pages,
-            'total_rows' => count($pages),
-        ];
-    }
-
     // ─── Private: keyword gap derivation ─────────────────────────────────────
 
     /**
@@ -444,7 +393,6 @@ class BingWebmasterService
             'keyword_research'   => [],
             'top_insights'       => [],
             'backlinks'          => [],
-            'pages'              => [],
             'keyword_gaps'       => [],
             'errors'             => ['config' => $reason],
         ];
