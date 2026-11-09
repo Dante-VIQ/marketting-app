@@ -132,11 +132,11 @@ class AiGatewayService
             ],
             // Mistral AI — OpenAI-compatible
             // Endpoint: https://api.mistral.ai/v1/chat/completions
-            // Recommended models: mistral-large-latest, mistral-small-latest,
-            //   mistral-medium-latest, codestral-latest, ministral-8b-latest
+            // Free tier models: mistral-small-latest (default), open-mistral-7b, open-mixtral-8x7b
+            // Paid models: mistral-large-latest, mistral-medium-latest, codestral-latest
             'mistral' => [
                 'api_key'  => $this->readEnv('MISTRAL_API_KEY'),
-                'model'    => $this->readEnv('MISTRAL_MODEL', 'mistral-large-latest'),
+                'model'    => $this->readEnv('MISTRAL_MODEL', 'mistral-small-latest'),
                 'endpoint' => 'https://api.mistral.ai/v1/chat/completions',
             ],
             default => throw new \Exception("Unsupported AI provider: {$this->provider}"),
@@ -396,8 +396,8 @@ class AiGatewayService
      *
      * Endpoint: https://api.mistral.ai/v1/chat/completions
      * Auth:     Bearer token
-     * Models:   mistral-large-latest (default), mistral-small-latest,
-     *           mistral-medium-latest, codestral-latest, ministral-8b-latest
+     * Models:   mistral-small-latest (default, free tier), open-mistral-7b, open-mixtral-8x7b,
+     *           mistral-large-latest (paid), mistral-medium-latest, codestral-latest
      *
      * Mistral also supports JSON mode via response_format.
      */

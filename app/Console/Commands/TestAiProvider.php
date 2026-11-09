@@ -43,7 +43,7 @@ class TestAiProvider extends Command
 
         $modelEnvMap = [
             'groq'      => ['GROQ_MODEL',      'llama-3.3-70b-versatile'],
-            'mistral'   => ['MISTRAL_MODEL',    'mistral-large-latest'],
+            'mistral'   => ['MISTRAL_MODEL',    'mistral-small-latest'],
             'fireworks' => ['FIREWORKS_MODEL',  'accounts/fireworks/models/llama-v3p3-70b-instruct'],
             'gemini'    => ['GEMINI_MODEL',     'gemini-2.0-flash'],
             'openai'    => ['OPENAI_MODEL',     'gpt-4'],
