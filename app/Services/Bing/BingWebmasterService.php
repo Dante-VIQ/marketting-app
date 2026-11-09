@@ -314,20 +314,20 @@ class BingWebmasterService
     }
 
     /**
-     * GetChildrenUrlInfo — lists child pages under the site root.
+     * GetUrlTrafficInfo — traffic info for the site's top URLs.
      *
-     * Requires POST with JSON body (GET returns 405).
-     * Uses siteUrl as the parentUrl to list top-level pages.
+     * GetChildrenUrlInfo returns 400 SiteUriSchemeIsNotSupported for many sites.
+     * GetUrlTrafficInfo is a simpler endpoint that lists URL-level traffic data
+     * using only the siteUrl as a GET parameter.
      *
-     * Docs: POST /GetChildrenUrlInfo?apikey=  body: { siteUrl, parentUrl }
+     * Docs: GET /GetUrlTrafficInfo?apikey=&siteUrl=
      */
     private function fetchPages(string $apiKey, string $siteUrl): array
     {
         $response = Http::timeout(15)
-            ->withHeaders(['Content-Type' => 'application/json'])
-            ->post(self::BASE_URL . '/GetChildrenUrlInfo?apikey=' . urlencode($apiKey), [
-                'siteUrl'   => $siteUrl,
-                'parentUrl' => $siteUrl,
+            ->get(self::BASE_URL . '/GetUrlTrafficInfo', [
+                'apikey'  => $apiKey,
+                'siteUrl' => $siteUrl,
             ]);
 
         if (!$response->successful()) {
@@ -338,18 +338,21 @@ class BingWebmasterService
         $data  = $response->json();
         $pages = [];
 
-        // Response structure is undocumented — handle both array-of-objects and direct fields
-        $rows = $data['d'] ?? (is_array($data) ? $data : []);
+        $rows = $data['d'] ?? [];
 
         foreach ($rows as $row) {
             if (!is_array($row)) continue;
+            $impressions = (int) ($row['Impressions'] ?? 0);
+            $clicks      = (int) ($row['Clicks']      ?? 0);
             $pages[] = [
-                'url'          => $row['Url']             ?? $row['url']           ?? '',
-                'indexed'      => $row['IsIndexed']       ?? $row['isIndexed']     ?? null,
-                'last_crawled' => $row['LastCrawledTime'] ?? $row['lastCrawled']   ?? null,
-                'http_code'    => $row['HttpCode']        ?? $row['httpStatusCode'] ?? null,
+                'url'         => $row['Url']   ?? '',
+                'impressions' => $impressions,
+                'clicks'      => $clicks,
+                'ctr'         => $impressions > 0 ? round($clicks / $impressions * 100, 2) : 0,
             ];
         }
+
+        usort($pages, fn($a, $b) => $b['clicks'] <=> $a['clicks']);
 
         return [
             'pages'      => $pages,
