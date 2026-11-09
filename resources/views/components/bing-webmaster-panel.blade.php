@@ -30,7 +30,12 @@
                 <span class="w-1.5 h-1.5 rounded-full bg-green-500 dark:bg-green-400 inline-block"></span>
                 Connected
             </span>
-            <span x-show="status.has_api_key && !status.has_data && !loading" x-cloak
+            <span x-show="status.has_imports && !loading" x-cloak
+                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700/50">
+                <span class="w-1.5 h-1.5 rounded-full bg-blue-500 dark:bg-blue-400 inline-block"></span>
+                CSV imported
+            </span>
+            <span x-show="status.has_api_key && !status.has_data && !status.has_imports && !loading" x-cloak
                 class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700/50">
                 <span class="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400 inline-block"></span>
                 Key set, no data yet
@@ -141,6 +146,23 @@
             </button>
         </div>
 
+        {{-- Imported data summary --}}
+        <template x-if="status.has_imports">
+            <div class="p-3 rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50 dark:bg-blue-950/30">
+                <p class="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1.5">Imported data active:</p>
+                <template x-for="[type, info] in Object.entries(status.import_counts || {})" :key="type">
+                    <p class="text-xs text-blue-600 dark:text-blue-400">
+                        <span class="font-medium capitalize" x-text="type.replace('_', ' ')"></span>:
+                        <span x-text="info.row_count + ' rows'"></span>
+                        <span class="text-blue-400 dark:text-blue-500" x-text="info.imported_at ? '— ' + new Date(info.imported_at).toLocaleDateString() : ''"></span>
+                    </p>
+                </template>
+                <p class="text-xs text-blue-500 dark:text-blue-500 mt-1.5">
+                    Imported data shows in Keyword Gaps and Real Queries tabs when no live API data is available.
+                </p>
+            </div>
+        </template>
+
         {{-- Errors --}}
         <template x-if="status.errors && Object.keys(status.errors).length > 0">
             <div class="p-3 rounded-lg border bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800/50">
@@ -190,7 +212,15 @@
                     <tbody class="divide-y divide-slate-100 dark:divide-slate-700/40">
                         <template x-for="gap in status.keyword_gaps" :key="gap.query">
                             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                                <td class="px-3 py-2.5 text-slate-800 dark:text-slate-200 font-medium max-w-[220px] truncate" x-text="gap.query"></td>
+                                <td class="px-3 py-2.5 max-w-[220px]">
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="text-slate-800 dark:text-slate-200 font-medium truncate" x-text="gap.query"></span>
+                                        <span x-show="gap.source === 'imported'" x-cloak
+                                            class="shrink-0 inline-block px-1 py-0.5 rounded text-[9px] font-semibold bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-700/50">
+                                            CSV
+                                        </span>
+                                    </div>
+                                </td>
                                 <td class="px-3 py-2.5 text-right text-slate-600 dark:text-slate-400 tabular-nums" x-text="gap.impressions.toLocaleString()"></td>
                                 <td class="px-3 py-2.5 text-right font-semibold text-orange-600 dark:text-orange-400 tabular-nums" x-text="gap.position"></td>
                                 <td class="px-3 py-2.5 text-right text-slate-600 dark:text-slate-400 tabular-nums" x-text="gap.ctr + '%'"></td>
@@ -247,7 +277,15 @@
                     <tbody class="divide-y divide-slate-100 dark:divide-slate-700/40">
                         <template x-for="q in status.top_queries" :key="q.query">
                             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                                <td class="px-3 py-2.5 text-slate-800 dark:text-slate-200 font-medium max-w-[240px] truncate" x-text="q.query"></td>
+                                <td class="px-3 py-2.5 max-w-[240px]">
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="text-slate-800 dark:text-slate-200 font-medium truncate" x-text="q.query"></span>
+                                        <span x-show="q.source === 'imported'" x-cloak
+                                            class="shrink-0 inline-block px-1 py-0.5 rounded text-[9px] font-semibold bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-700/50">
+                                            CSV
+                                        </span>
+                                    </div>
+                                </td>
                                 <td class="px-3 py-2.5 text-right text-slate-600 dark:text-slate-400 tabular-nums" x-text="q.impressions.toLocaleString()"></td>
                                 <td class="px-3 py-2.5 text-right text-slate-600 dark:text-slate-400 tabular-nums" x-text="q.clicks"></td>
                                 <td class="px-3 py-2.5 text-right tabular-nums">
@@ -271,8 +309,9 @@
                 Some Bing data is only available as a manual export (no API endpoint).
                 Upload these CSVs to enrich your content pipeline.
             </p>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 @foreach([
+                    ['keyword_report',  'Keyword Report',  'Bing keyword rankings CSV (Keyword, Impressions, Clicks, CTR, Avg. Position)'],
                     ['topic_portfolio', 'Topic Portfolio', 'Topic clusters Bing sees your site covering'],
                     ['ai_performance',  'AI Performance',  'Bing AI citation and visibility analytics'],
                     ['citations',       'Citations',       'Pages Bing AI cites in its answers'],
@@ -301,6 +340,7 @@
                         border border-slate-300 dark:border-slate-600
                         text-slate-900 dark:text-slate-100
                         focus:outline-none focus:ring-2 focus:ring-orange-400 dark:focus:ring-orange-500">
+                    <option value="keyword_report">Keyword Report (rankings CSV)</option>
                     <option value="topic_portfolio">Topic Portfolio</option>
                     <option value="ai_performance">AI Performance</option>
                     <option value="citations">Citations</option>
