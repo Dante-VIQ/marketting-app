@@ -164,11 +164,15 @@ class BriefGeneratorService
 
             if (!empty($parsedData['actions']) && is_array($parsedData['actions'])) {
                 foreach ($parsedData['actions'] as $actionData) {
-                    if ($this->isDuplicateAction($brand->id, $actionData)) {
+                    // Compute stable key before the duplicate check so it can be used as the primary signal
+                    $stableKey = $this->computeStableKey($brand->id, $actionData);
+
+                    if ($this->isDuplicateAction($brand->id, $actionData, $stableKey)) {
                         Log::info('BriefGenerator: Skipped duplicate action', [
-                            'brand_id' => $brand->id,
-                            'title'    => $actionData['title'] ?? '(no title)',
-                            'category' => $actionData['category'] ?? 'unknown',
+                            'brand_id'   => $brand->id,
+                            'title'      => $actionData['title'] ?? '(no title)',
+                            'category'   => $actionData['category'] ?? 'unknown',
+                            'stable_key' => $stableKey,
                         ]);
                         continue;
                     }
@@ -185,21 +189,31 @@ class BriefGeneratorService
                         ]);
                     }
 
-                    AiAction::create([
-                        'brand_id'          => $brand->id,
-                        'brief_id'          => $brief->id,
-                        'title'             => $actionData['title'] ?? 'Untitled Action',
-                        'category'          => $actionData['category'] ?? 'strategy',
-                        'description'       => $actionData['description'] ?? '',
-                        'suggested_content' => $actionData['suggested_content'] ?? null,
-                        'content_draft'     => $actionData['content_draft'] ?? null,
-                        'target_platform'   => $actionData['target_platform'] ?? null,
-                        'target_url'        => $validatedUrl,
-                        'estimated_impact'  => $actionData['estimated_impact'] ?? null,
-                        'priority'          => $actionData['priority'] ?? 1,
-                        'status'            => 'pending',
-                        'origin'            => 'brief',
-                    ]);
+                    // Use updateOrCreate keyed on stable_key so concurrent brief runs
+                    // or a requeued job cannot insert a duplicate even under a race condition.
+                    // If the row already exists (stable_key match) it is refreshed in place
+                    // rather than duplicated.
+                    AiAction::updateOrCreate(
+                        [
+                            'brand_id'              => $brand->id,
+                            'opportunity_stable_key' => $stableKey,
+                        ],
+                        [
+                            'brief_id'               => $brief->id,
+                            'title'                  => $actionData['title'] ?? 'Untitled Action',
+                            'category'               => $actionData['category'] ?? 'strategy',
+                            'description'            => $actionData['description'] ?? '',
+                            'suggested_content'      => $actionData['suggested_content'] ?? null,
+                            'content_draft'          => $actionData['content_draft'] ?? null,
+                            'target_platform'        => $actionData['target_platform'] ?? null,
+                            'target_url'             => $validatedUrl,
+                            'estimated_impact'       => $actionData['estimated_impact'] ?? null,
+                            'priority'               => $actionData['priority'] ?? 1,
+                            'status'                 => 'pending',
+                            'origin'                 => 'brief',
+                            'opportunity_fingerprint' => md5($stableKey . ($actionData['description'] ?? '')),
+                        ]
+                    );
                 }
             }
 
@@ -558,29 +572,79 @@ PROMPT;
      * Prevents the brief generator from filling the queue with
      * near-duplicate recommendations day after day.
      */
-    protected function isDuplicateAction(int $brandId, array $actionData): bool
+    /**
+     * Compute a stable deduplication key for an action.
+     *
+     * The key is a short hash of brand + category + normalised title tokens.
+     * It is stable across brief runs: the same conceptual action suggested on
+     * Monday and again on Friday produces the same key, so the second one is
+     * silently skipped rather than inserted as a duplicate.
+     *
+     * The key intentionally excludes description and content — those can evolve
+     * without creating a "new" action from the user's perspective.
+     */
+    protected function computeStableKey(int $brandId, array $actionData): string
     {
+        $category = $actionData['category'] ?? 'strategy';
+        $sig      = $this->titleSignature($actionData['title'] ?? '');
+
+        return substr(hash('sha256', "{$brandId}|{$category}|{$sig}"), 0, 32);
+    }
+
+    /**
+     * Check whether an action with the same meaning already exists.
+     *
+     * Three signals, in order of specificity:
+     *   1. Stable key match — fastest, DB index hit, catches exact same concept.
+     *   2. Same target URL + same category in last 30 days — catches URL-level
+     *      duplicates even when the title was rephrased by the AI.
+     *   3. Title signature match across all categories in last 30 days — catches
+     *      the same action reclassified (e.g. 'content' one day, 'seo' the next).
+     *
+     * Window is 30 days (was 7) so weekly recurring briefs don't re-queue the
+     * same action every week. Rejected actions are excluded — a rejected action
+     * can legitimately resurface after the window.
+     */
+    protected function isDuplicateAction(int $brandId, array $actionData, string $stableKey): bool
+    {
+        // 1. Stable key — primary deduplication signal (uses DB index)
+        $stableKeyExists = AiAction::where('brand_id', $brandId)
+            ->where('opportunity_stable_key', $stableKey)
+            ->whereNotIn('status', ['rejected'])
+            ->exists();
+
+        if ($stableKeyExists) {
+            return true;
+        }
+
+        $cutoff    = now()->subDays(30);
         $category  = $actionData['category'] ?? 'strategy';
-        $title     = $actionData['title'] ?? '';
         $targetUrl = $actionData['target_url'] ?? null;
+        $newSig    = $this->titleSignature($actionData['title'] ?? '');
 
-        $cutoff = now()->subDays(7);
+        // 2. Same URL + same category (page-specific actions shouldn't repeat)
+        if ($targetUrl) {
+            $urlDuplicate = AiAction::where('brand_id', $brandId)
+                ->where('target_url', $targetUrl)
+                ->where('category', $category)
+                ->where('created_at', '>=', $cutoff)
+                ->whereNotIn('status', ['rejected'])
+                ->exists();
 
-        $candidates = AiAction::where('brand_id', $brandId)
-            ->where('category', $category)
-            ->where('created_at', '>=', $cutoff)
-            ->whereIn('status', ['pending', 'approved', 'content_generated'])
-            ->get(['id', 'title', 'target_url']);
-
-        $newSignature = $this->titleSignature($title);
-
-        foreach ($candidates as $existing) {
-            if ($targetUrl && $existing->target_url === $targetUrl) {
+            if ($urlDuplicate) {
                 return true;
             }
+        }
 
-            $existingSig = $this->titleSignature($existing->title);
-            if ($newSignature === $existingSig) {
+        // 3. Title signature — load recent candidates and compare normalised tokens.
+        // Only load title + status; avoids pulling large text columns.
+        $candidates = AiAction::where('brand_id', $brandId)
+            ->where('created_at', '>=', $cutoff)
+            ->whereNotIn('status', ['rejected'])
+            ->get(['title']);
+
+        foreach ($candidates as $existing) {
+            if ($this->titleSignature($existing->title) === $newSig) {
                 return true;
             }
         }
@@ -589,38 +653,32 @@ PROMPT;
     }
 
     /**
-     * Normalize a title into a comparable signature.
-     * Strips casing, punctuation, common filler words, and sorts tokens.
+     * Normalise a title into a sorted bag-of-words signature.
+     *
+     * Strips casing, punctuation, action verbs and stop words, then sorts the
+     * remaining tokens. "Optimise blog post on Buganda" and "Blog content
+     * improvement: Buganda Kingdom" both produce the same signature.
      */
     protected function titleSignature(string $title): string
     {
-        $stop = [
-            'the',
-            'a',
-            'an',
-            'and',
-            'or',
-            'for',
-            'to',
-            'of',
-            'in',
-            'on',
-            'with',
-            'our',
-            'your',
-            'launch',
-            'optimize',
-            'create',
-            'publish',
-            'implement',
-            'revise',
-            'improve',
+        static $stop = [
+            // articles / prepositions
+            'the', 'a', 'an', 'and', 'or', 'for', 'to', 'of', 'in', 'on',
+            'with', 'at', 'by', 'from', 'into', 'about', 'as', 'is', 'are',
+            // possessives / pronouns
+            'our', 'your', 'their', 'its',
+            // common action verbs (high noise, low meaning)
+            'launch', 'optimize', 'optimise', 'create', 'publish', 'implement',
+            'revise', 'improve', 'update', 'write', 'add', 'build', 'run',
+            'develop', 'increase', 'boost', 'enhance', 'grow', 'drive', 'use',
+            // marketing filler
+            'content', 'page', 'post', 'campaign', 'strategy', 'new', 'better',
         ];
 
         $clean  = strtolower($title);
         $clean  = preg_replace('/[^a-z0-9 ]+/', ' ', $clean);
-        $tokens = preg_split('/\s+/', trim($clean));
-        $tokens = array_filter($tokens, fn($t) => $t !== '' && !in_array($t, $stop, true));
+        $tokens = preg_split('/\s+/', trim($clean), -1, PREG_SPLIT_NO_EMPTY);
+        $tokens = array_values(array_filter($tokens, fn($t) => !in_array($t, $stop, true)));
         sort($tokens);
 
         return implode(' ', $tokens);
