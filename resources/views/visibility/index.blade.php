@@ -43,7 +43,7 @@
         @endif
     @endforeach
 
-    @if(!$latestAudit || ($latestAudit->status === 'failed' && !$latestAudit->report))
+    @if(!$latestAudit)
 
         {{-- ── Empty state ──────────────────────────────────────────────── --}}
         <div class="bg-slate-900/60 border border-slate-800/60 rounded-2xl p-12 text-center">
@@ -69,7 +69,35 @@
             </form>
         </div>
 
+    @elseif($latestAudit->status === 'failed' && !$latestAudit->report)
+
+        {{-- ── Failed state ─────────────────────────────────────────────── --}}
+        <div class="bg-slate-900/60 border border-red-500/20 rounded-2xl p-12 text-center">
+            <div class="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-5">
+                <svg class="w-7 h-7 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                          d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                </svg>
+            </div>
+            <h2 class="text-lg font-semibold text-white">Audit failed</h2>
+            <p class="mt-2 text-sm text-slate-400 max-w-md mx-auto">
+                {{ $latestAudit->error ?? 'The audit did not complete. This is usually a temporary API issue.' }}
+            </p>
+            <form method="POST" action="{{ route('visibility.run') }}" class="mt-6 inline-block">
+                @csrf
+                <button type="submit"
+                        class="px-6 py-3 rounded-xl text-sm font-semibold text-white
+                               bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500
+                               shadow-lg shadow-emerald-500/20 transition-all">
+                    Try Again →
+                </button>
+            </form>
+        </div>
+
     @elseif($latestAudit->status === 'running')
+
+        {{-- Auto-refresh every 12 seconds while audit is running --}}
+        <meta http-equiv="refresh" content="12">
 
         {{-- ── Running state ────────────────────────────────────────────── --}}
         <div class="bg-slate-900/60 border border-slate-800/60 rounded-2xl p-12 text-center">
@@ -80,9 +108,9 @@
             </div>
             <h2 class="text-lg font-semibold text-white">Audit in progress</h2>
             <p class="mt-2 text-sm text-slate-400">
-                Asking AI assistants about your brand… this takes 2–3 minutes.
+                Asking AI assistants about your brand… this takes 2–4 minutes.
             </p>
-            <p class="mt-4 text-xs text-slate-600">Refresh the page to see results when it's done.</p>
+            <p class="mt-4 text-xs text-slate-500">This page refreshes automatically every 12 seconds.</p>
         </div>
 
     @elseif($latestAudit && $latestAudit->status === 'done')

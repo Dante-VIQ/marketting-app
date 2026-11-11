@@ -20,6 +20,16 @@ class AiVisibilityController extends Controller
             return redirect()->route('brands.index')->with('warning', 'Please add a brand first.');
         }
 
+        // Audits stuck in 'running' for >15 min are dead jobs — mark them failed
+        // so the UI doesn't show an infinite spinner and new audits can be queued.
+        AiVisibilityAudit::where('brand_id', $brand->id)
+            ->where('status', 'running')
+            ->where('created_at', '<=', now()->subMinutes(15))
+            ->update([
+                'status' => 'failed',
+                'error'  => 'Audit timed out — the background job did not complete within 15 minutes.',
+            ]);
+
         $latestAudit  = AiVisibilityAudit::where('brand_id', $brand->id)
             ->orderByDesc('created_at')
             ->first();
@@ -32,6 +42,7 @@ class AiVisibilityController extends Controller
 
         $running = AiVisibilityAudit::where('brand_id', $brand->id)
             ->where('status', 'running')
+            ->where('created_at', '>', now()->subMinutes(15))
             ->exists();
 
         return view('visibility.index', compact('brand', 'latestAudit', 'auditHistory', 'running'));
@@ -49,10 +60,29 @@ class AiVisibilityController extends Controller
             return redirect()->route('brands.index');
         }
 
-        // Allow up to 3 scans per day — one per 8-hour window
+        // Auto-fail any stale running audit before checking the rate limit,
+        // so a dead job doesn't permanently block new audit requests.
+        AiVisibilityAudit::where('brand_id', $brand->id)
+            ->where('status', 'running')
+            ->where('created_at', '<=', now()->subMinutes(15))
+            ->update([
+                'status' => 'failed',
+                'error'  => 'Audit timed out — the background job did not complete within 15 minutes.',
+            ]);
+
+        // Allow up to 3 scans per day — one per 8-hour window.
+        // Only count actively running (started in last 15 min) or completed audits;
+        // failed ones don't count so users can retry after a failure.
         $recentAudit = AiVisibilityAudit::where('brand_id', $brand->id)
             ->where('created_at', '>=', now()->subHours(8))
-            ->whereIn('status', ['running', 'done'])
+            ->where(function ($q) {
+                $q->where('status', 'done')
+                  ->orWhere(function ($q2) {
+                      // 'running' only counts if recently started (not stale)
+                      $q2->where('status', 'running')
+                         ->where('created_at', '>', now()->subMinutes(15));
+                  });
+            })
             ->first();
 
         if ($recentAudit && !Auth::user()->hasRole('superadmin')) {

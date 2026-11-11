@@ -640,39 +640,49 @@ class AiGatewayService
 
     /**
      * Call Gemini API with retry logic.
+     *
+     * Quota errors (429 / RESOURCE_EXHAUSTED) get a short retry with backoff.
+     * Total retry budget is capped so a single call never sleeps more than 30s —
+     * visibility scans make 12+ calls and must complete within the job timeout.
+     *
+     * Non-quota errors are thrown immediately (no sleep, no retry).
      */
-    protected function callGeminiWithRetry(array $promptData, int $maxRetries = 3): array
+    protected function callGeminiWithRetry(array $promptData, int $maxRetries = 2): array
     {
         $attempt = 0;
-        $delay = 10; // seconds
+        $delay   = 5; // seconds — start short; total max = 5+10 = 15s across 2 retries
 
-        while ($attempt < $maxRetries) {
+        while ($attempt <= $maxRetries) {
             try {
                 $result = $this->callGemini($promptData);
 
-                // If we got a quota error response, check if it's a retryable error
-                if (isset($result['error']) && str_contains($result['error'], 'quota')) {
+                // Surface quota errors returned as a successful HTTP response
+                if (isset($result['error']) && (
+                    str_contains($result['error'], 'quota') ||
+                    str_contains($result['error'], 'RESOURCE_EXHAUSTED')
+                )) {
                     throw new \Exception($result['error']);
                 }
 
                 return $result;
             } catch (\Exception $e) {
-                $attempt++;
+                $isQuota = str_contains($e->getMessage(), 'quota')
+                        || str_contains($e->getMessage(), 'RESOURCE_EXHAUSTED')
+                        || str_contains($e->getMessage(), '429');
 
-                // Check if it's a quota error
-                if (str_contains($e->getMessage(), 'quota') || str_contains($e->getMessage(), 'RESOURCE_EXHAUSTED')) {
-                    if ($attempt < $maxRetries) {
-                        Log::info("Gemini quota exceeded. Retrying in {$delay} seconds...");
-                        sleep($delay);
-                        $delay *= 2; // Exponential backoff
-                        continue;
-                    }
+                if ($isQuota && $attempt < $maxRetries) {
+                    $attempt++;
+                    Log::info("Gemini quota exceeded. Retry {$attempt}/{$maxRetries} in {$delay}s…");
+                    sleep($delay);
+                    $delay *= 2; // 5s → 10s
+                    continue;
                 }
 
+                // Non-quota error or retries exhausted — propagate immediately
                 throw $e;
             }
         }
 
-        throw new \Exception("Max retries exceeded for Gemini API");
+        throw new \Exception("Gemini API: max retries ({$maxRetries}) exceeded");
     }
 }
