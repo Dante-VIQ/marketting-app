@@ -7,6 +7,7 @@ use App\Models\Persona;
 use App\Services\ContentPlan\ContentPlanInsights;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 
 class ContentPlanController extends Controller
 {
@@ -95,10 +96,43 @@ class ContentPlanController extends Controller
     public function schedule(Request $request, int $idea, \App\Services\Meta\ContentPublisher $publisher)
     {
         $i = $this->find($idea);
-        $data = $request->validate(['scheduled_at' => 'required|date', 'media_url' => 'nullable|url|max:1000', 'link_url' => 'nullable|url|max:1000']);
+        $data = $request->validate([
+            'scheduled_at' => 'required|date',
+            'media_url'    => 'nullable|url|max:1000',
+            'media_file'   => 'nullable|file|image|mimes:jpeg,png,jpg,gif,webp|max:10240', // 10 MB
+            'link_url'     => 'nullable|url|max:1000',
+        ]);
+
+        $brand     = $this->brand();
+        $mediaUrl  = $data['media_url'] ?? null;
+        $fileUploaded = false;
+
+        // If a file was uploaded, store it on the public disk and build a URL.
+        // Meta fetches the URL directly, so it must be reachable from the internet.
+        // The APP_URL in .env must be a public https domain for this to work.
+        if ($request->hasFile('media_file') && $request->file('media_file')->isValid()) {
+            $path = $request->file('media_file')->store(
+                'content-images/' . $brand->id,
+                'public'
+            );
+            $mediaUrl     = Storage::disk('public')->url($path);
+            $fileUploaded = true;
+        }
+
+        // For Instagram, one of the two image sources is required.
+        if ($i->platform === 'instagram' && !$mediaUrl) {
+            return back()->withErrors(['An image is required for Instagram posts. Upload a file or paste a public URL.']);
+        }
+
         try {
-            $publisher->approve($i, (int) Auth::id(), \Illuminate\Support\Carbon::parse($data['scheduled_at'], $this->brand()->timezone ?? config('app.timezone')),
-                $data['media_url'] ?? null, $data['link_url'] ?? null);
+            $publisher->approve(
+                $i,
+                (int) Auth::id(),
+                \Illuminate\Support\Carbon::parse($data['scheduled_at'], $brand->timezone ?? config('app.timezone')),
+                $mediaUrl,
+                $data['link_url'] ?? null,
+                $fileUploaded   // tell publisher to skip publicHttps check for local uploads
+            );
         } catch (\DomainException $e) {
             return back()->withErrors([$e->getMessage()]);
         }

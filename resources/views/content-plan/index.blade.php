@@ -69,8 +69,24 @@
             <h2 class="font-semibold text-gray-900">Approved, will post automatically ({{ $scheduled->count() }})</h2>
             @foreach($scheduled as $i)
                 <div class="bg-white border border-sky-200 rounded-lg p-4 text-sm flex flex-wrap justify-between gap-2">
-                    <div><p class="font-medium text-gray-900">{{ $i->title }} <span class="text-gray-400 font-normal">· {{ $platforms[$i->platform] ?? '' }}</span></p>
-                        <p class="text-xs text-gray-500">{{ $i->status === 'publishing' ? 'Posting now…' : 'Goes out ' . $i->scheduled_at?->format('D j M, H:i') }}</p></div>
+                    <div>
+                        <p class="font-medium text-gray-900">{{ $i->title }} <span class="text-gray-400 font-normal">· {{ $platforms[$i->platform] ?? '' }}</span></p>
+                        <p class="text-xs text-gray-500">
+                            @if($i->status === 'publishing')
+                                <span class="text-amber-600">⏳ Posting now…</span>
+                            @else
+                                Goes out {{ $i->scheduled_at?->format('D j M, H:i') }}
+                                @if($i->scheduled_at && $i->scheduled_at->isPast())
+                                    <span class="text-red-600 ml-1">(overdue — check that the queue worker is running)</span>
+                                @endif
+                            @endif
+                        </p>
+                        @if($i->publish_error)
+                            <p class="mt-1 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
+                                ⚠️ Last attempt failed: {{ $i->publish_error }}
+                            </p>
+                        @endif
+                    </div>
                     @if($i->status === 'scheduled')
                         <form method="POST" action="{{ route('content-plan.cancel-schedule', $i->id) }}">@csrf<button class="text-xs text-red-600">Cancel auto-post</button></form>
                     @endif
@@ -110,14 +126,66 @@
                     <p class="p-2 rounded bg-red-50 border border-red-200 text-xs text-red-800">Auto-post failed: {{ $i->publish_error }}</p>
                 @endif
                 @if(in_array($i->platform, ['facebook', 'instagram'], true))
-                    <form method="POST" action="{{ route('content-plan.schedule', $i->id) }}" class="flex flex-wrap gap-2 items-center p-2 rounded bg-sky-50 border border-sky-100">
-                        @csrf
-                        <span class="text-xs text-sky-900">Post it for me:</span>
-                        <input type="datetime-local" name="scheduled_at" required class="border rounded px-2 py-1">
-                        <input type="url" name="media_url" placeholder="{{ $i->platform === 'instagram' ? 'Public image URL (required)' : 'Image URL (optional)' }}" class="border rounded px-2 py-1 min-w-[12rem] flex-1">
-                        @if($i->platform === 'facebook')<input type="url" name="link_url" placeholder="Link (optional)" class="border rounded px-2 py-1 min-w-[10rem]">@endif
-                        <button class="px-3 py-1 bg-sky-700 text-white rounded disabled:opacity-40" @disabled(!$autoOn) title="{{ $autoOn ? 'You are approving this exact text to be posted' : 'Auto-posting is off (META_PUBLISHING_ENABLED)' }}">Approve and schedule</button>
-                    </form>
+                    <div x-data="{ imgMode_{{ $i->id }}: 'upload' }" class="p-3 rounded bg-sky-50 border border-sky-100 space-y-2">
+                        <form method="POST" action="{{ route('content-plan.schedule', $i->id) }}"
+                              enctype="multipart/form-data"
+                              class="space-y-2 text-sm">
+                            @csrf
+                            <p class="text-xs font-medium text-sky-900">Post it for me automatically:</p>
+                            <div class="flex flex-wrap gap-2 items-center">
+                                <input type="datetime-local" name="scheduled_at" required class="border rounded px-2 py-1 text-sm">
+                                @if($i->platform === 'facebook')
+                                    <input type="url" name="link_url" placeholder="Link URL (optional)" class="border rounded px-2 py-1 text-sm min-w-[12rem] flex-1">
+                                @endif
+                            </div>
+
+                            {{-- Image: toggle between upload and URL --}}
+                            <div>
+                                <div class="flex gap-1 mb-1">
+                                    <button type="button"
+                                        @click="imgMode_{{ $i->id }} = 'upload'"
+                                        :class="imgMode_{{ $i->id }} === 'upload' ? 'bg-sky-700 text-white' : 'bg-white text-sky-700 border border-sky-300'"
+                                        class="px-2 py-0.5 rounded text-xs font-medium transition-colors">
+                                        📁 Upload image
+                                    </button>
+                                    <button type="button"
+                                        @click="imgMode_{{ $i->id }} = 'url'"
+                                        :class="imgMode_{{ $i->id }} === 'url' ? 'bg-sky-700 text-white' : 'bg-white text-sky-700 border border-sky-300'"
+                                        class="px-2 py-0.5 rounded text-xs font-medium transition-colors">
+                                        🔗 Paste URL
+                                    </button>
+                                </div>
+
+                                <div x-show="imgMode_{{ $i->id }} === 'upload'">
+                                    <input type="file" name="media_file" accept="image/jpeg,image/png,image/gif,image/webp"
+                                        class="block w-full text-xs text-gray-700 border border-gray-300 rounded px-2 py-1
+                                               file:mr-2 file:py-1 file:px-3 file:rounded file:border-0
+                                               file:text-xs file:font-medium file:bg-sky-100 file:text-sky-800
+                                               hover:file:bg-sky-200 cursor-pointer">
+                                    <p class="text-xs text-gray-500 mt-0.5">JPEG, PNG, GIF or WebP · max 10 MB{{ $i->platform === 'instagram' ? ' · required for Instagram' : ' · optional for Facebook' }}</p>
+                                </div>
+
+                                <div x-show="imgMode_{{ $i->id }} === 'url'">
+                                    <input type="url" name="media_url"
+                                        placeholder="{{ $i->platform === 'instagram' ? 'Public image URL (required)' : 'Public image URL (optional)' }}"
+                                        class="border rounded px-2 py-1 text-sm w-full">
+                                    <p class="text-xs text-gray-500 mt-0.5">Must be a publicly reachable HTTPS URL — Meta fetches the image directly.</p>
+                                </div>
+                            </div>
+
+                            @if(!$autoOn)
+                                <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                                    Auto-posting is currently off (<code>META_PUBLISHING_ENABLED=false</code>). Set it to <code>true</code> in your environment to enable scheduling.
+                                </p>
+                            @endif
+
+                            <button class="px-3 py-1 bg-sky-700 text-white rounded text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                                    @disabled(!$autoOn)
+                                    title="{{ $autoOn ? 'You are approving this exact text to be posted automatically' : 'Auto-posting is off (META_PUBLISHING_ENABLED)' }}">
+                                Approve and schedule →
+                            </button>
+                        </form>
+                    </div>
                 @endif
                 <form method="POST" action="{{ route('content-plan.posted', $i->id) }}" class="flex flex-wrap gap-2 items-center">
                     @csrf

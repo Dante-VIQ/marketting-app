@@ -27,8 +27,15 @@ class ContentPublisher
         return (bool) config('meta.publishing.enabled', false);
     }
 
-    /** Human approval: validates and queues the post for its scheduled time. */
-    public function approve(ContentIdea $idea, int $approverId, Carbon $scheduledAt, ?string $mediaUrl, ?string $linkUrl): void
+    /**
+     * Human approval: validates and queues the post for its scheduled time.
+     *
+     * @param bool $mediaIsLocalUpload  When true, $mediaUrl was produced from a
+     *   file the user uploaded to our own storage. Skip the publicHttps() check
+     *   (the URL is already on our server and will be reachable by Meta as long
+     *   as APP_URL is a public https domain). The check still runs for pasted URLs.
+     */
+    public function approve(ContentIdea $idea, int $approverId, Carbon $scheduledAt, ?string $mediaUrl, ?string $linkUrl, bool $mediaIsLocalUpload = false): void
     {
         if (!self::enabled()) {
             throw new DomainException('Auto-posting is switched off (META_PUBLISHING_ENABLED=false). You can still post by hand.');
@@ -42,17 +49,23 @@ class ContentPublisher
         if (trim((string) $idea->copy) === '') {
             throw new DomainException('Write the post text first.');
         }
-        if ($idea->platform === 'instagram' && !self::publicHttps($mediaUrl)) {
-            throw new DomainException('Instagram needs a public https image URL (JPEG).');
+
+        // For pasted URLs, enforce public https so Meta can actually fetch them.
+        // Skip for local uploads — we stored the file, the URL is already valid.
+        if (!$mediaIsLocalUpload) {
+            if ($idea->platform === 'instagram' && !self::publicHttps($mediaUrl)) {
+                throw new DomainException('Instagram needs a public https image URL (JPEG).');
+            }
+            if ($mediaUrl && !self::publicHttps($mediaUrl)) {
+                throw new DomainException('The image URL must be a public https link (e.g. https://example.com/image.jpg). Meta fetches it directly.');
+            }
         }
-        if ($mediaUrl && !self::publicHttps($mediaUrl)) {
-            throw new DomainException('The image URL must be a public https link.');
-        }
+
         if ($linkUrl && !preg_match('#^https?://#i', $linkUrl)) {
             throw new DomainException('The link must start with http:// or https://.');
         }
         if (in_array($idea->format, ['image', 'carousel', 'story'], true) && !$mediaUrl) {
-            throw new DomainException('This post is planned as ' . $idea->format . ', so it needs its image. Use the image prompt to make one, then paste its public https URL.');
+            throw new DomainException('This post is planned as ' . $idea->format . ', so it needs its image. Upload one or paste its public URL.');
         }
         if ($scheduledAt->lt(now()->subMinute())) {
             throw new DomainException('Pick a time in the future.');

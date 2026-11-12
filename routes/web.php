@@ -177,6 +177,7 @@ Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
         Route::post('/{idea}/results', [$c, 'results'])->name('results')->whereNumber('idea');
         Route::post('/{idea}/schedule', [$c, 'schedule'])->name('schedule')->whereNumber('idea');
         Route::post('/{idea}/cancel-schedule', [$c, 'cancelSchedule'])->name('cancel-schedule')->whereNumber('idea');
+        Route::post('/{idea}/upload-media', [$c, 'uploadMedia'])->name('upload-media')->whereNumber('idea');
         Route::delete('/{idea}', [$c, 'destroy'])->name('destroy')->whereNumber('idea');
     });
 
