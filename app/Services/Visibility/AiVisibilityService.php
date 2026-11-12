@@ -35,11 +35,45 @@ class AiVisibilityService
 
     private AiGatewayService $ai;
 
+    /** Maximum seconds a single AI call may take inside runProbes(). */
+    private const PROBE_TIMEOUT_SECONDS = 30;
+
     public function __construct(
         private BrandContextService $brandContext,
         private BingWebmasterService $bing,
     ) {
         $this->ai = AiGatewayService::forPurpose(AiGatewayService::PURPOSE_CONTENT);
+    }
+
+    /**
+     * Strip markdown code-fence wrappers that some models add even when asked
+     * for plain JSON.  Handles ```json … ``` and ``` … ```.
+     */
+    private function stripJsonFences(string $raw): string
+    {
+        $trimmed = trim($raw);
+        if (preg_match('/^```(?:json)?\s*([\s\S]+?)\s*```$/i', $trimmed, $m)) {
+            return trim($m[1]);
+        }
+        return $trimmed;
+    }
+
+    /**
+     * Decode a JSON string returned by the AI.  Strips markdown fences first.
+     * Returns null on failure so callers can handle gracefully.
+     */
+    private function decodeJson(string $raw): mixed
+    {
+        $clean = $this->stripJsonFences($raw);
+        $decoded = json_decode($clean, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            Log::warning('AiVisibilityService: JSON decode failed', [
+                'error'   => json_last_error_msg(),
+                'snippet' => substr($clean, 0, 200),
+            ]);
+            return null;
+        }
+        return $decoded;
     }
 
     /**
@@ -53,16 +87,43 @@ class AiVisibilityService
         ]);
 
         try {
-            $context     = $this->brandContext->getFullContext($brand);
-            $probes      = $this->buildProbes($brand, $context);
-            $results     = $this->runProbes($brand, $probes);
-            $competitors = $this->benchmarkCompetitors($brand, $context);
-            $recs        = $this->buildRecommendations($brand, $results, $context);
-            $summary     = $this->buildSummary($brand, $results, $competitors, $recs);
+            $context = $this->brandContext->getFullContext($brand);
 
-            $hit        = count(array_filter($results, fn($r) => $r['mentioned']));
-            $sent       = count($results);
-            $score      = $sent > 0 ? (int) round(($hit / $sent) * 100) : 0;
+            // Build probes — if this fails we have nothing useful, so let it throw.
+            $probes = $this->buildProbes($brand, $context);
+
+            // Run probes — individual probe failures are handled inside runProbes().
+            $results = $this->runProbes($brand, $probes);
+
+            // These steps are best-effort: a failure returns an empty result
+            // rather than aborting the entire audit.
+            try {
+                $competitors = $this->benchmarkCompetitors($brand, $context);
+            } catch (\Throwable $e) {
+                Log::warning('AiVisibilityService: benchmarkCompetitors failed', ['brand' => $brand->id, 'error' => $e->getMessage()]);
+                $competitors = [];
+            }
+
+            try {
+                $recs = $this->buildRecommendations($brand, $results, $context);
+            } catch (\Throwable $e) {
+                Log::warning('AiVisibilityService: buildRecommendations failed', ['brand' => $brand->id, 'error' => $e->getMessage()]);
+                $recs = [];
+            }
+
+            try {
+                $summary = $this->buildSummary($brand, $results, $competitors, $recs);
+            } catch (\Throwable $e) {
+                Log::warning('AiVisibilityService: buildSummary failed', ['brand' => $brand->id, 'error' => $e->getMessage()]);
+                $hit_fallback   = count(array_filter($results, fn($r) => $r['mentioned']));
+                $total_fallback = count($results);
+                $score_fallback = $total_fallback > 0 ? (int) round(($hit_fallback / $total_fallback) * 100) : 0;
+                $summary = "Audit complete. Score: {$score_fallback}/100 ({$hit_fallback}/{$total_fallback} probes).";
+            }
+
+            $hit   = count(array_filter($results, fn($r) => $r['mentioned']));
+            $sent  = count($results);
+            $score = $sent > 0 ? (int) round(($hit / $sent) * 100) : 0;
 
             $audit->update([
                 'score'       => $score,
@@ -138,7 +199,7 @@ class AiVisibilityService
         $product = $niche;
 
         if ($nicheRaw['success']) {
-            $decoded = json_decode($nicheRaw['content'], true);
+            $decoded = $this->decodeJson($nicheRaw['content']);
             if (is_array($decoded)) {
                 $niche   = $decoded['niche']   ?? $niche;
                 $region  = $decoded['region']  ?? $region;
@@ -160,7 +221,7 @@ class AiVisibilityService
 
         $aiProbes = [];
         if ($aiProbesRaw['success']) {
-            $decoded = json_decode($aiProbesRaw['content'], true);
+            $decoded = $this->decodeJson($aiProbesRaw['content']);
             if (is_array($decoded)) {
                 foreach ($decoded as $q) {
                     if (is_string($q) && strlen($q) > 10) {
@@ -211,17 +272,44 @@ class AiVisibilityService
 
     /**
      * Run each probe through the AI and record whether the brand was mentioned.
+     *
+     * Each probe is wrapped in a try/catch so a single failing or hanging call
+     * does not abort the entire audit.  We also enforce a wall-clock guard per
+     * probe: if the cumulative time since the probe started exceeds
+     * PROBE_TIMEOUT_SECONDS we record a miss and move on rather than hanging
+     * the whole job.
      */
     private function runProbes(Brand $brand, array $probes): array
     {
         $results = [];
 
         foreach ($probes as $probe) {
-            $response = $this->ai->generate([
-                'system_prompt' => 'You are a knowledgeable AI assistant. Answer questions accurately, naming real companies and services when relevant.',
-                'user_prompt'   => $probe['query'],
-                'max_tokens'    => 600,
-            ]);
+            $probeStart = microtime(true);
+
+            try {
+                $response = $this->ai->generate([
+                    'system_prompt' => 'You are a knowledgeable AI assistant. Answer questions accurately, naming real companies and services when relevant.',
+                    'user_prompt'   => $probe['query'],
+                    'max_tokens'    => 600,
+                ]);
+
+                $elapsed = microtime(true) - $probeStart;
+                if ($elapsed > self::PROBE_TIMEOUT_SECONDS) {
+                    Log::warning('AiVisibilityService: probe timed out', [
+                        'brand_id' => $brand->id,
+                        'query'    => $probe['query'],
+                        'elapsed'  => round($elapsed, 1),
+                    ]);
+                    $response = ['success' => false];
+                }
+            } catch (\Throwable $e) {
+                Log::warning('AiVisibilityService: probe threw', [
+                    'brand_id' => $brand->id,
+                    'query'    => $probe['query'],
+                    'error'    => $e->getMessage(),
+                ]);
+                $response = ['success' => false];
+            }
 
             $mentioned = false;
             $context   = '';
@@ -233,10 +321,10 @@ class AiVisibilityService
             }
 
             $results[] = [
-                'query'    => $probe['query'],
-                'priority' => $probe['priority'],
+                'query'     => $probe['query'],
+                'priority'  => $probe['priority'],
                 'mentioned' => $mentioned,
-                'context'  => $context,
+                'context'   => $context,
             ];
         }
 
@@ -266,24 +354,50 @@ class AiVisibilityService
             return [];
         }
 
-        $decoded = json_decode($response['content'], true);
+        $decoded = $this->decodeJson($response['content']);
         return is_array($decoded) ? $decoded : [];
     }
 
     /**
      * Generate prioritised AEO/GEO improvement recommendations.
+     *
+     * Handles two distinct cases:
+     *  - Some probes missed → tell the AI which queries failed so it can give
+     *    targeted "get mentioned for X" recommendations.
+     *  - All probes hit     → the brand is already well-represented; ask the AI
+     *    for proactive recommendations to maintain and expand that visibility.
      */
     private function buildRecommendations(Brand $brand, array $results, array $context): array
     {
         $missedQueries = array_filter($results, fn($r) => !$r['mentioned']);
-        $missedList    = implode("\n- ", array_column($missedQueries, 'query'));
+        $hitQueries    = array_filter($results, fn($r) => $r['mentioned']);
 
-        $prompt = "You are an AEO (Answer Engine Optimization) expert. "
-            . "Brand: {$brand->name}. Website: " . ($brand->website_url ?? 'none') . ".\n\n"
-            . "The brand was NOT mentioned when AI assistants were asked:\n- {$missedList}\n\n"
-            . "Give 4 specific, actionable recommendations to improve this brand's AI visibility. "
-            . "Each should be concrete (e.g. 'Add FAQ schema markup to your homepage', not 'improve content'). "
-            . "Return ONLY JSON: [{\"priority\": \"high|medium\", \"action\": \"...\", \"reason\": \"...\"}]";
+        $totalHit   = count($hitQueries);
+        $totalMissed = count($missedQueries);
+
+        if ($totalMissed === 0) {
+            // All probes hit — great visibility; give maintenance/expansion advice
+            $hitSample = implode("\n- ", array_slice(array_column($hitQueries, 'query'), 0, 5));
+            $prompt = "You are an AEO (Answer Engine Optimization) expert. "
+                . "Brand: {$brand->name}. Website: " . ($brand->website_url ?? 'none') . ".\n\n"
+                . "Great news: this brand was mentioned in ALL {$totalHit} AI probe queries, including:\n- {$hitSample}\n\n"
+                . "Give 4 specific, actionable recommendations to maintain and further EXPAND this brand's AI visibility. "
+                . "Focus on strategies to deepen authority, reach new query categories, and stay ahead of competitors. "
+                . "Each recommendation should be concrete (e.g. 'Publish monthly expert round-ups to build topical authority', not 'create more content'). "
+                . "Return ONLY JSON: [{\"priority\": \"high|medium\", \"action\": \"...\", \"reason\": \"...\"}]";
+        } else {
+            $missedList = implode("\n- ", array_column($missedQueries, 'query'));
+            $context_line = $totalHit > 0
+                ? "It WAS mentioned in {$totalHit} out of " . count($results) . " probes."
+                : "It was not mentioned in any of the " . count($results) . " probes.";
+
+            $prompt = "You are an AEO (Answer Engine Optimization) expert. "
+                . "Brand: {$brand->name}. Website: " . ($brand->website_url ?? 'none') . ".\n\n"
+                . "{$context_line} It was NOT mentioned when AI assistants were asked:\n- {$missedList}\n\n"
+                . "Give 4 specific, actionable recommendations to improve this brand's AI visibility for those missed queries. "
+                . "Each should be concrete (e.g. 'Add FAQ schema markup to your homepage', not 'improve content'). "
+                . "Return ONLY JSON: [{\"priority\": \"high|medium\", \"action\": \"...\", \"reason\": \"...\"}]";
+        }
 
         $response = $this->ai->generate([
             'system_prompt'   => 'You are an AEO expert. Return ONLY valid JSON arrays, no markdown, no explanations.',
@@ -296,7 +410,7 @@ class AiVisibilityService
             return [];
         }
 
-        $decoded = json_decode($response['content'], true);
+        $decoded = $this->decodeJson($response['content']);
         return is_array($decoded) ? $decoded : [];
     }
 
