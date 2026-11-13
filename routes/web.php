@@ -12,7 +12,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 
+use App\Http\Controllers\BrandInvitationController;
+
 Route::get('/', [PageController::class, 'landing'])->name('landing');
+
+// ── Brand invitations (public: no auth required to view) ─────────────────────
+Route::get('/invite/{token}', [BrandInvitationController::class, 'accept'])->name('invitations.accept');
 Route::get('/about', [PageController::class, 'about'])->name('about');
 Route::get('/contact', [PageController::class, 'contact'])->name('contact');
 Route::post('/contact', [PageController::class, 'submitContact'])->name('contact.submit');
@@ -45,6 +50,9 @@ Route::middleware('auth:sanctum')->get('/pending-approval', function () {
     return view('auth.pending-approval', ['user' => auth()->user()]);
 })->name('approval.pending');
 
+// Redeem a session-stored invitation token after login/register
+Route::middleware(['auth:sanctum'])->get('/invite/redeem', [BrandInvitationController::class, 'redeemFromSession'])->name('invitations.redeem');
+
 Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
     // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
@@ -55,6 +63,11 @@ Route::middleware(['auth:sanctum', 'verified', 'approved'])->group(function () {
         Route::post('/', [BrandController::class, 'store'])->name('store');
         Route::put('/{brand}', [BrandController::class, 'update'])->name('update');
         Route::post('/{brand}/toggle-active', [BrandController::class, 'toggleActive'])->name('toggle-active');
+
+        // Member invitations
+        Route::post('/{brand}/invite', [BrandInvitationController::class, 'invite'])->name('invite');
+        Route::post('/{brand}/members/remove', [BrandInvitationController::class, 'removeMember'])->name('members.remove');
+        Route::delete('/invitations/{invitation}/revoke', [BrandInvitationController::class, 'revoke'])->name('invitations.revoke');
 
         // Bing Webmaster Tools integration
         Route::prefix('/{brand}/bing')->name('bing.')->group(function () {

@@ -18,6 +18,8 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Fortify\Contracts\LoginResponse;
+use Laravel\Fortify\Contracts\RegisterResponse;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -58,6 +60,23 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // After login or registration, if the user has a pending brand invitation
+        // stored in their session, redirect them to the redeem route instead of /dashboard.
+        $inviteRedirect = function () {
+            return new class implements \Illuminate\Contracts\Support\Responsable {
+                public function toResponse($request)
+                {
+                    if (session('invitation_token')) {
+                        return redirect()->route('invitations.redeem');
+                    }
+                    return redirect()->intended(config('fortify.home', '/dashboard'));
+                }
+            };
+        };
+
+        $this->app->bind(LoginResponse::class, $inviteRedirect);
+        $this->app->bind(RegisterResponse::class, $inviteRedirect);
+
         // Bind TavilySearch so it can be auto-injected anywhere (including AcquisitionIntelligenceService).
         // Reads TAVILY_API_KEY from .env and falls back to a direct .env parse when runtime env loading is empty.
         $this->app->singleton(TavilySearch::class, function ($app) {

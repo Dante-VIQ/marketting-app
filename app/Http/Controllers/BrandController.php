@@ -18,8 +18,17 @@ class BrandController extends Controller
 
     public function index()
     {
-        $brands = Auth::user()->brands()->withCount('users')->get();
-        return view('brands.index', compact('brands'));
+        $brands = Auth::user()->brands()->withCount('users')->with('users')->get();
+
+        // Load pending invitations per brand (for the invite management UI)
+        $pendingInvitations = \App\Models\BrandInvitation::whereIn('brand_id', $brands->pluck('id'))
+            ->whereNull('accepted_at')
+            ->where('expires_at', '>', now())
+            ->with('inviter')
+            ->get()
+            ->groupBy('brand_id');
+
+        return view('brands.index', compact('brands', 'pendingInvitations'));
     }
 
     public function integrations(Brand $brand)
