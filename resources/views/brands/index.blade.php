@@ -93,9 +93,13 @@
                                     </div>
                                     <div class="flex items-center gap-2 shrink-0">
                                         @php
-                                            $memberRole = $member->roles()
-                                                ->where('team_id', $brand->id)
-                                                ->first()?->name ?? 'member';
+                                            $memberRole = \Illuminate\Support\Facades\DB::table('model_has_roles')
+                                                ->join('roles', 'roles.id', '=', 'model_has_roles.role_id')
+                                                ->where('model_has_roles.model_id', $member->id)
+                                                ->where('model_has_roles.model_type', $member->getMorphClass())
+                                                ->where('model_has_roles.brand_id', $brand->id)
+                                                ->where('roles.brand_id', $brand->id)
+                                                ->value('roles.name') ?? 'member';
                                         @endphp
                                         <span class="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">{{ $memberRole }}</span>
                                         @if($isAdmin && $member->id !== Auth::id())
@@ -145,7 +149,7 @@
                             <form method="POST" action="{{ route('brands.invite', $brand) }}" class="flex flex-col sm:flex-row gap-2">
                                 @csrf
                                 <input type="email" name="email" placeholder="colleague@email.com" required
-                                       class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/40">
+                                       class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500">
                                 <select name="role"
                                         class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
                                     <option value="editor">Editor</option>
