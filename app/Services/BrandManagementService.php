@@ -342,15 +342,17 @@ class BrandManagementService
             // Set the brand context
             $targetUser->setBrandContext($brand);
 
-            // Avoid duplicate role assignment
-            $alreadyHasRole = $targetUser->roles()
-                ->where('role_id', $role->id)
-                ->where('brand_id', $brand->id)
-                ->exists();
-
-            if (!$alreadyHasRole) {
-                $targetUser->roles()->attach($role->id, ['brand_id' => $brand->id]);
-            }
+            // Write the role assignment directly to the pivot so brand_id is
+            // explicitly scoped and never ambiguous in the joined role query.
+            DB::table('model_has_roles')->updateOrInsert(
+                [
+                    'role_id'    => $role->id,
+                    'model_id'   => $targetUser->id,
+                    'model_type' => $targetUser->getMorphClass(),
+                    'brand_id'   => $brand->id,
+                ],
+                []
+            );
 
             app(PermissionRegistrar::class)->forgetCachedPermissions();
 
