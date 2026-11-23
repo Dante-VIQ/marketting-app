@@ -70,23 +70,23 @@ class AiVisibilityController extends Controller
                 'error'  => 'Audit timed out — the background job did not complete within 15 minutes.',
             ]);
 
-        // Allow up to 3 scans per day — one per 8-hour window.
-        // Only count actively running (started in last 15 min) or completed audits;
-        // failed ones don't count so users can retry after a failure.
+        // Rate limit: once per hour per brand (manual runs).
+        // Only count done audits or actively running ones (started in last 15 min).
+        // Failed audits don't count — users should be able to retry after a failure.
         $recentAudit = AiVisibilityAudit::where('brand_id', $brand->id)
-            ->where('created_at', '>=', now()->subHours(8))
+            ->where('created_at', '>=', now()->subHour())
             ->where(function ($q) {
                 $q->where('status', 'done')
                   ->orWhere(function ($q2) {
-                      // 'running' only counts if recently started (not stale)
                       $q2->where('status', 'running')
                          ->where('created_at', '>', now()->subMinutes(15));
                   });
             })
             ->first();
 
-        if ($recentAudit && !Auth::user()->hasRole('superadmin')) {
-            return back()->with('warning', 'An audit was already run recently. You can run up to 3 audits per day (one per 8 hours).');
+        if ($recentAudit && !Auth::user()->isSuperAdmin()) {
+            $nextRun = $recentAudit->created_at->addHour()->diffForHumans();
+            return back()->with('warning', "An audit was already run recently. You can run the next one {$nextRun}.");
         }
 
         RunAiVisibilityAuditJob::dispatch($brand);

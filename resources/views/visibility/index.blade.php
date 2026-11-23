@@ -14,24 +14,27 @@
                 <span class="text-white font-medium">{{ $brand->name }}</span> come up?
             </p>
         </div>
-        <form method="POST" action="{{ route('visibility.run') }}">
-            @csrf
-            <button type="submit"
-                    @if($running) disabled @endif
-                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white
-                           bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500
-                           shadow-lg shadow-emerald-500/20 transition-all duration-200 disabled:opacity-60">
-                @if($running)
-                    <span class="h-2 w-2 rounded-full bg-white animate-pulse"></span>
-                    Audit running…
-                @else
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                    </svg>
-                    Run AI Audit
-                @endif
-            </button>
-        </form>
+        <div class="flex flex-col items-end gap-1">
+            <form method="POST" action="{{ route('visibility.run') }}">
+                @csrf
+                <button type="submit"
+                        @if($running) disabled @endif
+                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white
+                               bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500
+                               shadow-lg shadow-emerald-500/20 transition-all duration-200 disabled:opacity-60">
+                    @if($running)
+                        <span class="h-2 w-2 rounded-full bg-white animate-pulse"></span>
+                        Audit running…
+                    @else
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                        </svg>
+                        Run AI Audit
+                    @endif
+                </button>
+            </form>
+            <p class="text-xs text-slate-600">Runs automatically every hour · manual limit: 1×/hr</p>
+        </div>
     </div>
 
     {{-- Flash messages --}}

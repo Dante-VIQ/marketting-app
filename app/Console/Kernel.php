@@ -95,13 +95,31 @@ class Kernel extends ConsoleKernel
             ->onOneServer();
 
         // ============================================================
-        // PHASE 5b: AI Visibility Scans — 3× per day (morning, afternoon, evening)
-        // Dispatches RunAiVisibilityAuditJob for every active brand.
-        // Times chosen to spread AI load and capture different user-query patterns.
+        // PHASE 5b: AI Visibility Scans — hourly for all active brands
+        // Dispatches RunAiVisibilityAuditJob for every active brand once per hour.
+        // Each brand's job checks for a recent completed/running audit before
+        // the service runs, so API quota is not wasted on back-to-back scans.
         // ============================================================
-        $visibilityDispatch = function () {
+        $schedule->call(function () use ($allowedEnvironments) {
             $brands = \App\Models\Brand::where('is_active', true)->get();
             foreach ($brands as $brand) {
+                // Skip brands that already have a completed or in-progress audit
+                // started in the last 50 minutes (5-min grace before next hour).
+                $hasRecent = \App\Models\AiVisibilityAudit::where('brand_id', $brand->id)
+                    ->where('created_at', '>=', now()->subMinutes(50))
+                    ->where(function ($q) {
+                        $q->where('status', 'done')
+                          ->orWhere(function ($q2) {
+                              $q2->where('status', 'running')
+                                 ->where('created_at', '>', now()->subMinutes(15));
+                          });
+                    })
+                    ->exists();
+
+                if ($hasRecent) {
+                    continue;
+                }
+
                 try {
                     \App\Jobs\RunAiVisibilityAuditJob::dispatch($brand);
                 } catch (\Throwable $e) {
@@ -111,28 +129,12 @@ class Kernel extends ConsoleKernel
                     ]);
                 }
             }
-            Log::info('AI visibility scans dispatched', ['brand_count' => $brands->count()]);
-        };
-
-        $schedule->call($visibilityDispatch)
-            ->name('ai-visibility-scan-morning')
-            ->dailyAt('07:00')
+            Log::info('AI visibility hourly dispatch complete', ['brand_count' => $brands->count()]);
+        })
+            ->name('ai-visibility-scan-hourly')
+            ->hourly()
             ->environments($allowedEnvironments)
-            ->withoutOverlapping(60)
-            ->onOneServer();
-
-        $schedule->call($visibilityDispatch)
-            ->name('ai-visibility-scan-afternoon')
-            ->dailyAt('13:00')
-            ->environments($allowedEnvironments)
-            ->withoutOverlapping(60)
-            ->onOneServer();
-
-        $schedule->call($visibilityDispatch)
-            ->name('ai-visibility-scan-evening')
-            ->dailyAt('19:00')
-            ->environments($allowedEnvironments)
-            ->withoutOverlapping(60)
+            ->withoutOverlapping(55)
             ->onOneServer();
 
         // ============================================================
